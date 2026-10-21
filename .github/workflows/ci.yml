@@ -9,34 +9,31 @@ permissions:
   contents: read
 
 jobs:
+  # Make exactly these checks required in the branch protection rule of `main`:
+  # `check (ubuntu-latest)` and `check (windows-latest)`. Do not rename the job without updating the rule.
   check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
-      # ADAPT: the steps below are for a Python project managed with uv. For another stack replace the
-      # setup and install steps (e.g. actions/setup-node + `npm ci`, actions/setup-go + `go mod download`),
-      # and keep the order install -> lint -> format check -> test.
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
 
-      # ADAPT: `--locked` fails if uv.lock is out of date. Keep the lock file committed.
+      # `--locked` fails if uv.lock is out of date. Keep the lock file committed.
       - name: Install dependencies
         run: uv sync --locked
 
-      # ADAPT: your linter.
       - name: Lint
-        run: uv run ruff check
+        run: uv run ruff check .
 
-      # ADAPT: your formatter in check mode (it must not rewrite files in CI).
       - name: Check formatting
-        run: uv run ruff format --check
+        run: uv run ruff format --check .
 
-      # ADAPT: your test command. Tests must not need secrets or network access.
       - name: Test
         run: uv run pytest
-
-# ADAPT: the job is named `check`. Make exactly this check required in the branch protection rule of `main`,
-# and do not rename the job afterwards without updating the rule.

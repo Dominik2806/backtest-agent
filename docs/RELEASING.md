@@ -7,14 +7,15 @@ Versions follow [Semantic Versioning](https://semver.org/): breaking change = ma
 
 Keep this list current; every place must show the same number after a release.
 
-- `{{version-file}}` (`{{version-key}}`), the source of truth
-- {{other places: package `__init__`, lock file, docs that name the current version}}
+- `pyproject.toml` (`project.version`), the source of truth. The package reads it at runtime through
+  `importlib.metadata`, so `src/backtest_agent/__init__.py` needs no edit
+- `uv.lock` (the entry of `backtest-agent` itself; `uv lock` updates it)
 - Git tag `vX.Y.Z` (created after the merge)
 
 ## Steps
 
 1. **Branch:** `git switch main; git pull; git switch -c chore/release-vX.Y.Z`
-2. **Bump the version** in every place listed above. {{Regenerate the lock file if it contains the version.}}
+2. **Bump the version** in every place listed above. Then run `uv lock` so `uv.lock` shows the same version.
 3. **Cut the CHANGELOG.** In `CHANGELOG.md`:
    - rename the content of `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and leave a new, empty `## [Unreleased]`
      above it;
@@ -22,13 +23,13 @@ Keep this list current; every place must show the same number after a release.
    - update the compare links at the bottom:
 
      ```markdown
-     [Unreleased]: https://github.com/{{owner}}/{{repo}}/compare/vX.Y.Z...HEAD
-     [X.Y.Z]: https://github.com/{{owner}}/{{repo}}/compare/vPREVIOUS...vX.Y.Z
+     [Unreleased]: https://github.com/Dominik2806/backtest-agent/compare/vX.Y.Z...HEAD
+     [X.Y.Z]: https://github.com/Dominik2806/backtest-agent/compare/vPREVIOUS...vX.Y.Z
      ```
 
-     For the first release the link is `https://github.com/{{owner}}/{{repo}}/releases/tag/vX.Y.Z`.
+     For the first release the link is `https://github.com/Dominik2806/backtest-agent/releases/tag/vX.Y.Z`.
 4. **Reword stale text:** search README and `docs/` for sentences that call this version "upcoming" or "unreleased".
-5. **Verify:** {{test-command}}, {{lint-command}}.
+5. **Verify:** `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`.
 6. **Open the PR** titled `chore: release vX.Y.Z`. Squash-merge when CI is green and delete the branch.
 7. **Tag and publish** from the merged `main`:
 
@@ -49,29 +50,29 @@ Write the notes for readers, not as a copy of the CHANGELOG: lead with what matt
 ```markdown
 ## Highlights
 
-{{vX.Y.Z is a feature / fix / maintenance release: one or two sentences on what it brings.}}
+One or two sentences: is vX.Y.Z a feature, fix or maintenance release, and what does it bring?
 
 ### Added
 
-- **{{Feature}}**: {{what it does for the user}} (#{{pr}}).
+- **Feature name**: what it does for the user (#123).
 
 ### Changed
 
-- {{Behaviour that changed, and what users must do about it.}}
+- Behaviour that changed, and what users must do about it.
 
 ### Fixed
 
-- {{What was wrong and is fixed now}} (#{{pr}}).
+- What was wrong and is fixed now (#123).
 
 ### Breaking changes
 
-{{Only for a major version: what breaks and how to migrate. Delete the section otherwise.}}
+Only for a major version: what breaks and how to migrate. Delete the section otherwise.
 
 ---
 
-Changelog: https://github.com/{{owner}}/{{repo}}/blob/vX.Y.Z/CHANGELOG.md
+Changelog: https://github.com/Dominik2806/backtest-agent/blob/vX.Y.Z/CHANGELOG.md
 
-**Full diff:** https://github.com/{{owner}}/{{repo}}/compare/vPREVIOUS...vX.Y.Z
+**Full diff:** https://github.com/Dominik2806/backtest-agent/compare/vPREVIOUS...vX.Y.Z
 ```
 
 ## If something goes wrong

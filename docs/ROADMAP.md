@@ -133,7 +133,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 
 | Phase | Branch | Result | Features | Effort | Status |
 |---|---|---|---|---|---|
-| 0 | `chore/repo-setup` | Project skeleton, CI, CLAUDE.md, template placeholders filled | F-01, F-02, F-03 | M | Planned |
+| 0 | `chore/repo-setup` | Project skeleton, CI, CLAUDE.md, template placeholders filled | F-01, F-02, F-03 | M | Done |
 | 1 | `feature/data-provider` | Provider interface, yfinance provider, Parquet cache | F-04, F-05 | M | Planned |
 | 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Planned |
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Planned |
@@ -152,7 +152,11 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 
 ### Deviations from the plan
 
-- None yet. Record every deviation here, with the reason and the PR number.
+- Phase 0: `src/backtest_agent/cli.py`, `strategies/` and `.claude/` are not created yet; they need runtime
+  dependencies or belong to later phases (Phases 3, 9 and 10). PR number to be added after the merge.
+- Phase 0: CI pins `astral-sh/setup-uv@v10.3.0` because the action publishes no floating major tag.
+- Phase 0: branch protection for `main` is documented in `CONTRIBUTING.md` but has to be enabled by the maintainer
+  in the GitHub settings; the green run of a test PR on both operating systems is checked when this PR is opened.
 
 ---
 

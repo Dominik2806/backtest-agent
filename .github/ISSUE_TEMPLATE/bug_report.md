@@ -24,5 +24,5 @@ labels: bug
 ## Environment
 
 - OS:
-- {{Runtime / tool}} version:
+- Python / uv version:
 - Commit / version:
