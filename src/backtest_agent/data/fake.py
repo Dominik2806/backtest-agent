@@ -18,6 +18,8 @@ FAKE_HISTORY_END = date(2030, 12, 31)
 class FakeProvider(DataProvider):
     """Mon-Fri prices from a seeded geometric random walk. ``calls`` records every request."""
 
+    name = "fake"
+
     def __init__(self, symbols: Sequence[str] = ("AAA", "BBB", "CCC"), seed: int = 0) -> None:
         self.symbols = tuple(symbols)
         self.seed = seed

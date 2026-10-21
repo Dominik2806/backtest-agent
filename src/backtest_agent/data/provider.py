@@ -14,6 +14,9 @@ COLUMN_LEVELS = ["symbol", "field"]
 class DataProvider(ABC):
     """Source of daily prices. All providers return the same standard frame."""
 
+    #: Short identifier, used for example as the cache sub-directory.
+    name: str = "provider"
+
     @abstractmethod
     def get_prices(self, symbols: Sequence[str], start: date, end: date) -> pd.DataFrame:
         """Return adjusted daily OHLCV for ``symbols`` from ``start`` to ``end``, both inclusive.
@@ -52,6 +55,8 @@ def validate_standard_frame(frame: pd.DataFrame, symbols: Sequence[str] | None =
         raise ValueError(f"index must be named {INDEX_NAME!r}, got {index.name!r}")
     if index.tz is not None:
         raise ValueError("index must be timezone-naive")
+    if index.dtype != "datetime64[ns]":
+        raise ValueError(f"index must have dtype datetime64[ns], got {index.dtype}")
     if not (index == index.normalize()).all():
         raise ValueError("index must contain plain dates (midnight)")
     if not index.is_monotonic_increasing or not index.is_unique:
@@ -78,5 +83,5 @@ def assemble_frame(per_symbol: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """
     frames = {symbol: frame.loc[:, list(FIELDS)].astype("float64") for symbol, frame in per_symbol.items()}
     result = pd.concat(frames, axis=1, names=COLUMN_LEVELS).sort_index()
-    result.index.name = INDEX_NAME
+    result.index = result.index.astype("datetime64[ns]").rename(INDEX_NAME)
     return result
