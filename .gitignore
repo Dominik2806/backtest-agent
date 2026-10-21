@@ -1,0 +1,48 @@
+# ADAPT: this file starts with the Python/uv entries of the source project. Replace them with the
+# ignore rules of your stack (see https://github.com/github/gitignore) and keep the sections below.
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+
+# Test, coverage and tool caches
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+.hypothesis/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.venv
+venv/
+env/
+.env
+.envrc
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Project
+# ADAPT: generated or local-only paths (anchor with a leading slash so source folders of the same name stay tracked).
+*.log
+# Secrets: real values never go into the repo, only the example file.
+!.env.example
+
+# Claude Code local settings (personal, never shared)
+.claude/settings.local.json
