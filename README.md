@@ -1,55 +1,81 @@
-# {{project-name}}
+# backtest-agent
 
-[![CI](https://github.com/{{owner}}/{{repo}}/actions/workflows/ci.yml/badge.svg)](https://github.com/{{owner}}/{{repo}}/actions/workflows/ci.yml)
-[![License: {{license}}](https://img.shields.io/badge/license-{{license}}-blue.svg)](LICENSE)
-[![{{language}} {{language-version}}](https://img.shields.io/badge/{{language}}-{{language-version}}-blue.svg)]({{version-file}})
+[![CI](https://github.com/Dominik2806/backtest-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Dominik2806/backtest-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](pyproject.toml)
 
-{{one-paragraph pitch: what the project is, who it is for, and its core principle.}}
+An AI-assisted backtesting tool for trading strategies. You describe a strategy in plain language, Claude subagents
+turn it into a validated strategy spec and a small signal function, and a deterministic, tested engine runs it on
+historical data. An independent auditor agent then checks the result for look-ahead bias, survivorship bias, missing
+costs and overfitting before an honest verdict is written. The core principle: the LLM never writes the engine.
+
+> **Disclaimer:** this project is educational and not investment advice. Backtest results are not a prediction of
+> future performance.
 
 ## What it does
 
-{{Two or three short paragraphs: the typical use, with a concrete example, and what the user gets out of it.}}
+You write an idea such as "buy the three assets with the strongest 12-month momentum and rebalance monthly". The
+strategy architect turns it into a YAML spec and lists its assumptions. After you approve the spec, the engine runs it
+on daily data with execution delay, costs and slippage, and compares it with a buy-and-hold benchmark.
+
+You get a report with metrics, charts and a fixed section of caveats, a log of every run with a trial counter per
+strategy family, and the auditor's findings. The trial counter makes overfitting visible: ten tried variants are not
+the same as one.
+
+The project is built in phases, see the [roadmap status](#roadmap-status). Only the project skeleton exists today;
+the features described above arrive in the phases named in the [roadmap](docs/ROADMAP.md).
 
 ## Requirements
 
-- {{tool-1}} ({{why it is needed}})
-- {{tool-2}}
+- [uv](https://docs.astral.sh/uv/) (manages Python 3.12 and the virtual environment)
+- Git
+- [Claude Code](https://claude.com/claude-code) for the agent workflow (from Phase 10 on)
 
 ## Quickstart
 
-```bash
-git clone https://github.com/{{owner}}/{{repo}}.git && cd {{repo}}
-{{command-1}}
-{{command-2}}
+```powershell
+git clone https://github.com/Dominik2806/backtest-agent.git; cd backtest-agent
+uv sync
+uv run pytest
 ```
 
-{{What the user sees or should do next, and the expected result. The quickstart must work on a fresh clone.}}
+The tests should pass. The `bt` command line arrives in Phase 9; until then there is nothing to run besides the
+test suite.
 
 ## What is inside
 
 | Part | What it does | Where |
 |---|---|---|
-| {{part-1}} | {{description}} | [`{{path}}`]({{path}}), [docs](docs/{{doc}}.md) |
-| {{part-2}} | {{description}} | [`{{path}}`]({{path}}) |
+| Data layer (planned) | Provider interface, yfinance provider, Parquet cache, validation, data hash | [`src/backtest_agent/data/`](src/backtest_agent/data) |
+| Strategy spec (planned) | Pydantic schema for YAML specs, signal interface, example strategies | [`src/backtest_agent/spec/`](src/backtest_agent/spec) |
+| Engine (planned) | Vectorized daily backtest, long-only, multi-asset, costs and slippage | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
+| Metrics (planned) | Performance and risk metrics, benchmark comparison | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
+| Reporting (planned) | Markdown and HTML reports with charts and caveats | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
+| Journal (planned) | Run log with trial counter per strategy family | [`src/backtest_agent/journal/`](src/backtest_agent/journal) |
+| Robustness (planned) | Out-of-sample, walk-forward, sensitivity, regimes, deflated Sharpe | [`src/backtest_agent/robustness/`](src/backtest_agent/robustness) |
+| CLI and agents (planned) | The `bt` command and the Claude Code subagents | see [roadmap](docs/ROADMAP.md) |
 
 How the parts fit together: [docs/architecture.md](docs/architecture.md). Why they are built this way:
 [docs/adr/](docs/adr/README.md).
 
-## {{Domain section, e.g. Usage or Examples}}
-
-{{Delete this section if the project has no use for it, or rename it.}}
-
 ## Safety
 
-{{Guardrails, limits and trust boundaries a user should know about. Delete if not applicable.}}
+- The engine shifts signals by at least one bar before executing them, so look-ahead is impossible by default.
+- Nothing runs until the maintainer approves the strategy spec.
+- Agents never write or change the engine.
+- Market data, run outputs, keys and `.env` files are never committed.
+- Prices come from yfinance, an unofficial source for personal use. Treat results as an experiment, not as a basis
+  for financial decisions.
+
+These are the design goals; they are enforced by the phases listed in the roadmap and not all of them exist yet.
 
 ## Development
 
-```bash
-{{install-command}}
-{{test-command}}
-{{lint-command}}
-{{format-check-command}}
+```powershell
+uv sync
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
 ```
 
 `main` is protected: one branch per change (`feature/`, `fix/`, `docs/`, `chore/`), Conventional Commits, squash-merged
@@ -60,11 +86,26 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 
 | Phase | Result | Status |
 |---|---|---|
-| 0 | Project skeleton, CI, templates | {{Done / In progress / Planned}} |
-| 1 | {{result}} | {{status}} |
+| 0 | Project skeleton, CI, templates | Done |
+| 1 | Provider interface, yfinance provider, Parquet cache | Planned |
+| 2 | Data checks and a reproducibility hash | Planned |
+| 3 | YAML strategy spec, signal interface, example strategies | Planned |
+| 4 | Vectorized engine with execution delay, proven by hand-calculated tests | Planned |
+| 5 | Commission, spread and slippage models | Planned |
+| 6 | Performance metrics and buy-and-hold comparison | Planned |
+| 7 | Markdown and HTML report with charts and caveats | Planned |
+| 8 | Run log with trial counter | Planned |
+| 9 | `bt` command; release `v0.1.0` | Planned |
+| 10 | Strategy architect and signal coder subagents | Planned |
+| 11 | Bias auditor and report interpreter subagents | Planned |
+| 12 | `/backtest` command with approval gate; release `v0.2.0` | Planned |
+| 13 | Out-of-sample split and walk-forward analysis | Planned |
+| 14 | Parameter sensitivity and market regime analysis | Planned |
+| 15 | Automated look-ahead test and deflated Sharpe ratio; release `v1.0.0` | Planned |
 
-Outlook (not started): {{short list of ideas beyond the current roadmap.}}
+Outlook (not started): further data providers and historical index constituents, short selling, leverage and intraday
+bars, portfolio optimization, a standalone Claude Agent SDK version of the workflow.
 
 ## License
 
-[{{license}}](LICENSE)
+[MIT](LICENSE)
