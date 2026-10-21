@@ -13,19 +13,24 @@ git workflow and the Definition of Done. Work on one phase at a time.
 ## Tech stack
 
 Python 3.12 managed with `uv` (src layout, package `backtest_agent`), `ruff` for linting and formatting, `pytest` for
-tests, GitHub Actions for CI (ubuntu-latest and windows-latest). There are no runtime dependencies yet; each phase adds
-the libraries it needs (see the tech stack in `docs/ROADMAP.md`). The version lives only in `pyproject.toml`.
+tests, GitHub Actions for CI (ubuntu-latest and windows-latest). Runtime dependencies so far: `pandas`, `numpy`,
+`pyarrow` and `yfinance` (Phase 1); each phase adds the libraries it needs (see the tech stack in `docs/ROADMAP.md`)
+with `uv add`, and `uv.lock` stays committed. The version lives only in `pyproject.toml`.
 
 ## Commands
 
 The maintainer works on Windows with PowerShell. These commands work in PowerShell, other shells and CI.
 
 ```powershell
-uv sync                       # install dependencies
-uv run pytest                 # run tests
+uv sync                       # install dependencies (CI runs: uv sync --locked)
+uv run pytest                 # run tests (offline; tests marked "network" are excluded)
+uv run pytest -m network      # live test against yfinance, run manually, never in CI
 uv run ruff check .           # lint
 uv run ruff format .          # format (CI runs the check variant: uv run ruff format --check .)
 ```
+
+Tests never touch the network: use `FakeProvider` or mock `yfinance`. A test that needs the network must carry
+`@pytest.mark.network`. Data caches go under `data/cache/` (git-ignored); never commit them.
 
 PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` where it matters.
 
