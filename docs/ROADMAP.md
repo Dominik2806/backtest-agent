@@ -139,7 +139,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 0 | `chore/repo-setup` | Project skeleton, CI, CLAUDE.md, template placeholders filled | F-01, F-02, F-03 | M | Done |
 | 1 | `feature/data-provider` | Provider interface, yfinance provider, Parquet cache | F-04, F-05 | M | Done |
 | 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Done |
-| 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Planned |
+| 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Done |
 | 4 | `feature/core-engine` | Vectorized engine with execution delay, proven by hand-calculated tests | F-09, F-11 | L | Planned |
 | 5 | `feature/costs-slippage` | Commission, spread and slippage models | F-10 | S | Planned |
 | 6 | `feature/metrics-benchmark` | Performance metrics and buy-and-hold comparison | F-12, F-13 | M | Planned |
@@ -173,7 +173,15 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   default limit 4) instead of an exchange calendar, so a single missing day is not detected. ADR 0004 (validation) and
   ADR 0005 (data hash) were added.
 - Phase 2: "errors stop a run" is delivered as a mechanism (`ValidationResult.raise_for_errors`); the engine and CLI
-  that call it before every run do not exist yet (Phases 4 and 9).
+  that call it before every run do not exist yet (Phases 4 and 9). Merged as PR #4.
+- Phase 3: the spec is stricter than the roadmap list: `sizing`, `rebalance`, `benchmark`, `initial_capital` and
+  every number of the `costs` block are required (only `description`, `data` and `execution` have defaults), unknown
+  fields are rejected and `allow_same_bar_execution: true` with `delay_bars >= 1` is rejected as contradictory.
+  `momentum_12_1` counts its windows in trading days (252 and 21), not calendar months.
+- Phase 3: the signal contract gained `warmup_rows` (every params model declares the history its signal needs, the
+  contract test checks that the declaration is honest) and a runtime check of every signal output
+  (`Signal.generate`, `validate_signal_output`). Phases 4 and 9 got a task for loading history from `period.start`
+  minus the warm-up. ADR 0006 (signal contract, where signals live) and ADR 0007 (strict, explicit spec) were added.
 
 ---
 
@@ -270,10 +278,14 @@ Tasks:
   written out in `docs/engine.md`.
 - Invariant tests: buy-and-hold equals the asset return, a signal change at day t moves the position at day t+1,
   cash never goes negative, weights never exceed 100 percent, results are deterministic.
+- Warm-up: the engine loads history from `period.start` minus the warm-up of the signal (`StrategySpec.warmup_rows`,
+  see [ADR 0006](adr/0006-signal-contract.md)), runs the signals on it and trims signals, positions and results to
+  the period, so the strategy and the benchmark are compared over the same period.
 
 Done when:
 
 - All fixture and invariant tests pass.
+- The results start on `period.start`, not earlier, and the signals are already warmed up on that day (test).
 - The example strategies run end to end through the engine.
 
 ## Phase 5: Costs and slippage
@@ -350,6 +362,9 @@ Tasks:
 
 - F-16 The `bt` command with `run`, `validate`, `data fetch`, `report` and `journal list|show`.
 - Helpful error messages and meaningful exit codes.
+- `bt run` fetches history from `period.start` minus the warm-up of the signal (`StrategySpec.warmup_rows`) for the
+  universe and for the benchmark, runs the signals on it and trims the results to the period, so the strategy and the
+  benchmark are compared over the same period. If the provider has less history than the warm-up needs, the run says so.
 - README quickstart and usage examples.
 - After the merge, release `v0.1.0` as described in [RELEASING.md](RELEASING.md).
 

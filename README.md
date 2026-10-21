@@ -56,6 +56,16 @@ result.raise_for_errors()  # raises DataValidationError if there is an error
 print(hash_frame(prices))  # SHA-256 of the exact data
 ```
 
+A strategy is a YAML spec (see [`strategies/`](strategies) and [docs/strategy-spec.md](docs/strategy-spec.md)) that
+loads into a validated object with every problem listed at once:
+
+```python
+from backtest_agent.spec import load_spec
+
+spec = load_spec("strategies/sma_crossover.yaml")
+print(spec.signal.id, spec.warmup_rows, spec.risk_flags())
+```
+
 One live test against yfinance exists and is excluded by default; run it manually with `uv run pytest -m network`.
 
 ## What is inside
@@ -63,7 +73,8 @@ One live test against yfinance exists and is excluded by default; run it manuall
 | Part | What it does | Where |
 |---|---|---|
 | Data layer | Provider interface, yfinance and fake providers, Parquet cache, data quality validation and data hash. See [docs/data.md](docs/data.md) | [`src/backtest_agent/data/`](src/backtest_agent/data) |
-| Strategy spec (planned) | Pydantic schema for YAML specs, signal interface, example strategies | [`src/backtest_agent/spec/`](src/backtest_agent/spec) |
+| Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals; see [docs/strategy-spec.md](docs/strategy-spec.md) | [`src/backtest_agent/spec/`](src/backtest_agent/spec) |
+| Example specs | SMA crossover, 12-1 momentum and buy and hold on liquid ETFs | [`strategies/`](strategies) |
 | Engine (planned) | Vectorized daily backtest, long-only, multi-asset, costs and slippage | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
 | Metrics (planned) | Performance and risk metrics, benchmark comparison | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
 | Reporting (planned) | Markdown and HTML reports with charts and caveats | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
@@ -106,7 +117,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 0 | Project skeleton, CI, templates | Done |
 | 1 | Provider interface, yfinance provider, Parquet cache | Done |
 | 2 | Data checks and a reproducibility hash | Done |
-| 3 | YAML strategy spec, signal interface, example strategies | Planned |
+| 3 | YAML strategy spec, signal interface, example strategies | Done |
 | 4 | Vectorized engine with execution delay, proven by hand-calculated tests | Planned |
 | 5 | Commission, spread and slippage models | Planned |
 | 6 | Performance metrics and buy-and-hold comparison | Planned |

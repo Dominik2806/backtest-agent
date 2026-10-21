@@ -14,7 +14,7 @@ git workflow and the Definition of Done. Work on one phase at a time.
 
 Python 3.12 managed with `uv` (src layout, package `backtest_agent`), `ruff` for linting and formatting, `pytest` for
 tests, GitHub Actions for CI (ubuntu-latest and windows-latest). Runtime dependencies so far: `pandas`, `numpy`,
-`pyarrow` and `yfinance` (Phase 1); each phase adds the libraries it needs (see the tech stack in `docs/ROADMAP.md`)
+`pyarrow` and `yfinance` (Phase 1), `pydantic` v2 and `pyyaml` (Phase 3, YAML only through the safe loader); each phase adds the libraries it needs (see the tech stack in `docs/ROADMAP.md`)
 with `uv add`, and `uv.lock` stays committed. The version lives only in `pyproject.toml`.
 
 ## Commands
@@ -32,6 +32,11 @@ uv run ruff format .          # format (CI runs the check variant: uv run ruff f
 Tests never touch the network: use `FakeProvider` or mock `yfinance`. A test that needs the network must carry
 `@pytest.mark.network`. Data caches go under `data/cache/` (git-ignored); never commit them. The golden hash in
 `tests/test_data_hash.py` is a literal: a change of the hash layout needs a `HASH_VERSION` bump and an ADR first.
+
+Signal contract (details in `docs/strategy-spec.md`, ADR 0006): a signal `fn(prices, params) -> DataFrame` returns
+float64 in [0, 1] without NaN on the input index with one column per symbol, computed per symbol on its own trading
+rows, using only data up to the date, without modifying its input. Its params model declares `warmup_rows`, and every
+registered signal must pass `tests/signal_contract.py`. Every `strategies/*.yaml` is loaded by a test.
 
 PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` where it matters.
 

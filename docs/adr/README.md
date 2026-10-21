@@ -13,3 +13,5 @@ To add one, copy [0000-template.md](0000-template.md) to the next free number an
 | [0003](0003-standard-price-frame.md) | One standard price frame, adjusted prices, caching as a wrapper | Accepted |
 | [0004](0004-validation-reports-calendar-heuristic.md) | Validation reports issues, calendar gaps by heuristic | Accepted |
 | [0005](0005-canonical-data-hash.md) | Canonical data hash | Accepted |
+| [0006](0006-signal-contract.md) | Signal contract and where signals live | Accepted |
+| [0007](0007-strict-explicit-spec.md) | Strict, explicit strategy spec | Accepted |

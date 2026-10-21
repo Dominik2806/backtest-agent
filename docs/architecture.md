@@ -35,7 +35,8 @@ flowchart LR
 2. The strategy architect writes a YAML spec and its assumptions.
 3. **Approval gate:** nothing runs until the maintainer confirms the spec.
 4. The signal coder writes the signal function against the fixed interface; an interface test must pass.
-5. The data layer loads and validates prices and computes a data hash.
+5. The data layer loads and validates prices and computes a data hash. History is loaded from `period.start` minus
+   the warm-up of the signal (`StrategySpec.warmup_rows`) and the results are trimmed to the period (Phases 4 and 9).
 6. The engine shifts the signals by `delay_bars` (default 1), applies costs and produces equity curve, positions and
    trades; metrics are computed next to a buy-and-hold benchmark.
 7. The journal stores the run (spec, data hash, code version, metrics) and increments the trial counter of the
@@ -49,7 +50,7 @@ The same steps run without any agent through the `bt` command (Phase 9).
 | Block | Responsibility | Where |
 |---|---|---|
 | Data layer | Provider interface, yfinance provider, fake provider, Parquet cache (Phase 1); validation, data hash (Phase 2) | `src/backtest_agent/data/` |
-| Strategy spec | Pydantic schema for YAML specs, signal interface, example strategies | `src/backtest_agent/spec/`, `strategies/` |
+| Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals, example specs (Phase 3; see [strategy-spec.md](strategy-spec.md)) | `src/backtest_agent/spec/`, `strategies/` |
 | Engine | Vectorized daily backtest, long-only, multi-asset, costs and slippage | `src/backtest_agent/engine/` |
 | Metrics | Performance and risk metrics, benchmark comparison | `src/backtest_agent/metrics/` |
 | Reporting | Markdown and HTML reports with charts and caveats | `src/backtest_agent/reporting/` |
@@ -58,8 +59,8 @@ The same steps run without any agent through the `bt` command (Phase 9).
 | Agents | Strategy architect, signal coder, bias auditor, report interpreter, `/backtest` command (planned, Phases 10 to 12) | `.claude/` |
 | Robustness | Out-of-sample, walk-forward, sensitivity, regimes, look-ahead test, deflated Sharpe | `src/backtest_agent/robustness/` |
 
-Besides `data/`, only empty packages exist today; `strategies/`, `cli.py` and `.claude/` are created by the phase that
-needs them.
+Besides `data/` and `spec/`, only empty packages exist today; `cli.py` and `.claude/` are created by the phase that
+needs them. `strategies/` holds the example specs; agent-written signals will live there too (Phase 10).
 
 ## Data flow
 
@@ -76,7 +77,8 @@ reports are git-ignored and never committed.
 | Boundary | What enforces it |
 |---|---|
 | The LLM must not write or change the engine | Agent permissions allow writes only under `strategies/` and tests; the engine is covered by hand-calculated tests (planned, Phases 4 and 10) |
-| A strategy must not use future data | Signals are shifted by at least one bar; `delay_bars: 0` needs an explicit opt-out that the report flags; an automated look-ahead test (planned, Phases 3 and 15) |
+| A strategy must not use future data | The spec rejects `delay_bars: 0` without an explicit `allow_same_bar_execution: true`, never allows an open fill on the signal bar, and reports same-bar execution as a risk flag (active, Phase 3); the signal contract demands causal signals and checks every signal output at run time (active, Phase 3); signals are shifted by `delay_bars` in the engine (planned, Phase 4); an automated look-ahead test (planned, Phase 15) |
+| A signal must not hand the engine bad values | `Signal.generate` checks input and output on every call: same index and columns, `float64`, within 0 and 1, no NaN (active, Phase 3) |
 | Nothing runs without human approval | The approval gate in `/backtest` stops after the spec (planned, Phase 12) |
 | Bad data must not produce a result | `validate_prices` reports data errors, warnings and infos with stable codes; `ValidationResult.raise_for_errors()` raises `DataValidationError`, and the run pipeline calls it before every run (mechanism done in Phase 2, wired into the run in Phases 4 and 9); the data hash ties a result to its exact data |
 | Tests must not touch the network | A fake in-memory data provider, yfinance mocked in tests, the one live test marked `network` and excluded by default; CI runs without network access (active) |

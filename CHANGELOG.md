@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hash_frame`, a canonical SHA-256 hash of a standard frame that is stable across platforms and library versions
 - ADR 0004 (validation reports, calendar heuristic) and ADR 0005 (canonical data hash); validation and hash sections in
   `docs/data.md`
+- Strategy spec (F-07): strict Pydantic v2 schema for YAML specs (`StrategySpec`), `load_spec` and `parse_spec` with
+  safe YAML loading, rejection of duplicate keys and unknown fields, one `SpecError` listing every problem with its
+  field path, same-bar execution rules, a required costs block and `StrategySpec.risk_flags()` for the report
+- Signal interface (F-08): signal functions `fn(prices, params)` with a params model, a registry (`register_signal`,
+  `get_signal`, `list_signals`), a contract check of every signal output (`validate_signal_output`) and
+  `warmup_rows`, the history a signal needs, exposed as `StrategySpec.warmup_rows`
+- Built-in signals `sma_crossover`, `momentum_12_1` and `buy_and_hold`, and example specs of the same names in
+  `strategies/`, loaded by a test so every future example is checked by CI
+- `docs/strategy-spec.md`, ADR 0006 (signal contract) and ADR 0007 (strict, explicit spec)
+- Runtime dependencies `pydantic` and `pyyaml`
 
 ### Changed
 
