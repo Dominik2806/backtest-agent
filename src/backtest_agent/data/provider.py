@@ -82,6 +82,6 @@ def assemble_frame(per_symbol: dict[str, pd.DataFrame]) -> pd.DataFrame:
     Dates are the union over symbols; a symbol that did not trade on a date has NaN there (no forward fill).
     """
     frames = {symbol: frame.loc[:, list(FIELDS)].astype("float64") for symbol, frame in per_symbol.items()}
-    result = pd.concat(frames, axis=1, names=COLUMN_LEVELS).sort_index()
+    result = pd.concat(frames, axis=1, names=COLUMN_LEVELS, sort=False).sort_index()
     result.index = result.index.astype("datetime64[ns]").rename(INDEX_NAME)
     return result
