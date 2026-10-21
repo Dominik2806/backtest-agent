@@ -1,0 +1,34 @@
+# Buy and hold: the reference every other strategy has to beat.
+# An example spec (see docs/strategy-spec.md); educational, not investment advice.
+schema_version: 1
+name: Buy and hold SPY, TLT and GLD
+description: >
+  Hold three liquid ETFs (stocks, bonds, gold) with equal weights, rebalanced monthly. No signal logic.
+
+universe: [SPY, TLT, GLD]
+period:
+  start: 2010-01-01
+  end: 2023-12-31
+data:
+  provider: yfinance
+
+signal:
+  id: buy_and_hold
+  params: {}
+
+execution:
+  delay_bars: 1
+  price: open
+  allow_same_bar_execution: false
+
+sizing:
+  method: equal_weight
+rebalance: monthly
+
+costs:
+  commission_bps: 1.0
+  spread_bps: 2.0
+  slippage_bps: 2.0
+
+benchmark: SPY
+initial_capital: 100000

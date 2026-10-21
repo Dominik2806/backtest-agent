@@ -1,0 +1,37 @@
+# Trend following: hold each ETF while its 50-day average is above its 200-day average.
+# An example spec (see docs/strategy-spec.md); educational, not investment advice.
+schema_version: 1
+name: SMA crossover on liquid ETFs
+description: >
+  Each ETF is held while its fast simple moving average of the close is above the slow one, and not held otherwise.
+  Positions are equally weighted, orders are filled at the open of the bar after the signal.
+
+universe: [SPY, QQQ, TLT, GLD]
+period:
+  start: 2010-01-01
+  end: 2023-12-31
+data:
+  provider: yfinance
+
+signal:
+  id: sma_crossover
+  params:
+    fast: 50
+    slow: 200
+
+execution:
+  delay_bars: 1
+  price: open
+  allow_same_bar_execution: false
+
+sizing:
+  method: equal_weight
+rebalance: on_signal
+
+costs:
+  commission_bps: 1.0
+  spread_bps: 2.0
+  slippage_bps: 2.0
+
+benchmark: SPY
+initial_capital: 100000

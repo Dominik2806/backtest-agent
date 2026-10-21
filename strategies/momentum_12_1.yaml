@@ -1,0 +1,39 @@
+# Cross-sectional momentum: hold the three ETFs with the best 12-month return, skipping the latest month.
+# An example spec (see docs/strategy-spec.md); educational, not investment advice.
+schema_version: 1
+name: 12-1 momentum on liquid ETFs
+description: >
+  Rank six ETFs by their return from 252 to 21 trading days ago and hold the top three, equally weighted.
+  The ranking is recomputed every day and the portfolio is rebalanced monthly.
+
+universe: [SPY, QQQ, IWM, EFA, TLT, GLD]
+period:
+  start: 2010-01-01
+  end: 2023-12-31
+data:
+  provider: yfinance
+
+signal:
+  id: momentum_12_1
+  params:
+    lookback_days: 252
+    skip_days: 21
+    top_n: 3
+    positive_only: false
+
+execution:
+  delay_bars: 1
+  price: open
+  allow_same_bar_execution: false
+
+sizing:
+  method: equal_weight
+rebalance: monthly
+
+costs:
+  commission_bps: 1.0
+  spread_bps: 2.0
+  slippage_bps: 2.0
+
+benchmark: SPY
+initial_capital: 100000
