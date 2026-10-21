@@ -1,8 +1,8 @@
-# Normalize line endings: auto-detect text files, store LF in the repo.
-* text=auto
+# Normalize line endings: auto-detect text files, store and check out LF everywhere (also on Windows),
+# so `ruff format --check` passes on the Windows CI job.
+* text=auto eol=lf
 
 # Source, config and docs always use LF, also in the working tree.
-# ADAPT: add the extensions of your stack.
 *.py   text eol=lf
 *.toml text eol=lf
 *.md   text eol=lf
@@ -11,6 +11,7 @@
 *.json text eol=lf
 *.txt  text eol=lf
 *.sh   text eol=lf
+*.lock text eol=lf
 .gitignore     text eol=lf
 .gitattributes text eol=lf
 .gitkeep       text eol=lf
