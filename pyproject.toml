@@ -5,7 +5,12 @@ description = "AI-assisted backtesting of trading strategies on a deterministic,
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=2.5.4",
+    "pandas>=3.0.6",
+    "pyarrow>=26.0.0",
+    "yfinance>=1.7.0",
+]
 
 [dependency-groups]
 dev = [
