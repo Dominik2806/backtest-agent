@@ -7,4 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Project roadmap with 16 phases in `docs/ROADMAP.md`
+
 [Unreleased]: https://github.com/{{owner}}/{{repo}}/compare/v{{last-version}}...HEAD
