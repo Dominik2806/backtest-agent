@@ -2,8 +2,8 @@
 
 `backtest-agent` is a deterministic Python core (data, engine, metrics, reporting, journal) with Claude Code subagents
 around it. The agents turn ideas into a strategy spec and a small signal function and review the results, but they
-never write the engine. Status: the data layer is partly implemented (provider interface, yfinance provider, fake
-provider and Parquet cache, Phase 1; see [data.md](data.md)); validation and the data hash are Phase 2. Every other
+never write the engine. Status: the data layer is implemented (provider interface, yfinance provider, fake provider
+and Parquet cache in Phase 1, data validation and data hash in Phase 2; see [data.md](data.md)). Every other
 component below is **planned** and arrives in the phase named in the [roadmap](ROADMAP.md). For the reasons behind
 the design see [adr/](adr/README.md).
 
@@ -25,7 +25,7 @@ flowchart LR
 |---|---|---|---|
 | Strategy architect | Asks clarifying questions, writes the spec and a list of assumptions, never runs a backtest | Agent | Planned (Phase 10) |
 | Signal coder | Writes the signal function and its tests, only under `strategies/` and tests | Agent | Planned (Phase 10) |
-| Engine and data layer | Fetches and validates data, runs the backtest, computes metrics | Deterministic code | Data fetching and cache done (Phase 1); validation, engine and metrics planned (Phases 2 to 6) |
+| Engine and data layer | Fetches and validates data, runs the backtest, computes metrics | Deterministic code | Data fetching, cache, validation and hash done (Phases 1 and 2); engine and metrics planned (Phases 4 to 6) |
 | Bias auditor | Reviews spec, signal code and results in its own context | Agent | Planned (Phase 11) |
 | Report interpreter | Writes an honest plain-language verdict | Agent | Planned (Phase 11) |
 
@@ -48,7 +48,7 @@ The same steps run without any agent through the `bt` command (Phase 9).
 
 | Block | Responsibility | Where |
 |---|---|---|
-| Data layer | Provider interface, yfinance provider, fake provider, Parquet cache (done, Phase 1); validation, data hash (planned, Phase 2) | `src/backtest_agent/data/` |
+| Data layer | Provider interface, yfinance provider, fake provider, Parquet cache (Phase 1); validation, data hash (Phase 2) | `src/backtest_agent/data/` |
 | Strategy spec | Pydantic schema for YAML specs, signal interface, example strategies | `src/backtest_agent/spec/`, `strategies/` |
 | Engine | Vectorized daily backtest, long-only, multi-asset, costs and slippage | `src/backtest_agent/engine/` |
 | Metrics | Performance and risk metrics, benchmark comparison | `src/backtest_agent/metrics/` |
@@ -65,8 +65,9 @@ needs them.
 
 Daily prices enter through a provider (first yfinance) as a standard frame with a date index and adjusted OHLCV, and
 are cached as Parquet under `data/cache/` by `CachedProvider`, a wrapper that works with any provider (implemented,
-see [data.md](data.md)). Validation will attach severities (errors stop a run, warnings go into the report) and a
-SHA-256 hash of the canonical frame (planned, Phase 2). The engine turns signals into positions and an equity
+see [data.md](data.md)). Validation attaches severities to its findings (errors stop a run, warnings go into the
+report) and the data hash is the SHA-256 of the canonical frame (both implemented in Phase 2; the run pipeline that
+calls them comes with the engine and the CLI). The engine turns signals into positions and an equity
 curve. A run leaves as a report under `reports/<run-id>/` and a journal entry under `runs/<run-id>/`. Data, runs and
 reports are git-ignored and never committed.
 
@@ -77,6 +78,7 @@ reports are git-ignored and never committed.
 | The LLM must not write or change the engine | Agent permissions allow writes only under `strategies/` and tests; the engine is covered by hand-calculated tests (planned, Phases 4 and 10) |
 | A strategy must not use future data | Signals are shifted by at least one bar; `delay_bars: 0` needs an explicit opt-out that the report flags; an automated look-ahead test (planned, Phases 3 and 15) |
 | Nothing runs without human approval | The approval gate in `/backtest` stops after the spec (planned, Phase 12) |
+| Bad data must not produce a result | `validate_prices` reports data errors, warnings and infos with stable codes; `ValidationResult.raise_for_errors()` raises `DataValidationError`, and the run pipeline calls it before every run (mechanism done in Phase 2, wired into the run in Phases 4 and 9); the data hash ties a result to its exact data |
 | Tests must not touch the network | A fake in-memory data provider, yfinance mocked in tests, the one live test marked `network` and excluded by default; CI runs without network access (active) |
 | Market data, outputs and secrets must not be committed | `.gitignore` entries for `data/`, `runs/`, `reports/`, `*.parquet`, `.env`; PR checklist (active) |
 | An overfitted result must not look like a real one | Trial counter in the journal and the deflated Sharpe ratio (planned, Phases 8 and 15) |

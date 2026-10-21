@@ -45,10 +45,15 @@ to run besides the test suite and the data layer as a Python library, see [docs/
 
 ```python
 from datetime import date
+from backtest_agent.data import hash_frame, validate_prices
 from backtest_agent.data.cache import CachedProvider
 from backtest_agent.data.yfinance_provider import YFinanceProvider
 
-prices = CachedProvider(YFinanceProvider()).get_prices(["AAPL", "SAP.DE"], date(2023, 1, 2), date(2023, 3, 31))
+start, end = date(2023, 1, 2), date(2023, 3, 31)
+prices = CachedProvider(YFinanceProvider()).get_prices(["AAPL", "SAP.DE"], start, end)
+result = validate_prices(prices, start=start, end=end)  # reports errors, warnings and infos
+result.raise_for_errors()  # raises DataValidationError if there is an error
+print(hash_frame(prices))  # SHA-256 of the exact data
 ```
 
 One live test against yfinance exists and is excluded by default; run it manually with `uv run pytest -m network`.
@@ -57,7 +62,7 @@ One live test against yfinance exists and is excluded by default; run it manuall
 
 | Part | What it does | Where |
 |---|---|---|
-| Data layer | Provider interface, yfinance and fake providers, Parquet cache (done); validation and data hash (planned, Phase 2). See [docs/data.md](docs/data.md) | [`src/backtest_agent/data/`](src/backtest_agent/data) |
+| Data layer | Provider interface, yfinance and fake providers, Parquet cache, data quality validation and data hash. See [docs/data.md](docs/data.md) | [`src/backtest_agent/data/`](src/backtest_agent/data) |
 | Strategy spec (planned) | Pydantic schema for YAML specs, signal interface, example strategies | [`src/backtest_agent/spec/`](src/backtest_agent/spec) |
 | Engine (planned) | Vectorized daily backtest, long-only, multi-asset, costs and slippage | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
 | Metrics (planned) | Performance and risk metrics, benchmark comparison | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
@@ -100,7 +105,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 |---|---|---|
 | 0 | Project skeleton, CI, templates | Done |
 | 1 | Provider interface, yfinance provider, Parquet cache | Done |
-| 2 | Data checks and a reproducibility hash | Planned |
+| 2 | Data checks and a reproducibility hash | Done |
 | 3 | YAML strategy spec, signal interface, example strategies | Planned |
 | 4 | Vectorized engine with execution delay, proven by hand-calculated tests | Planned |
 | 5 | Commission, spread and slippage models | Planned |

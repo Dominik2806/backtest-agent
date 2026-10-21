@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/data.md` (format, adjustment rules, cache behaviour, data source caveats) and ADR 0003
 - pytest marker `network` for the live yfinance test, excluded by default (`uv run pytest -m network`)
 - Runtime dependencies `pandas`, `numpy`, `pyarrow` and `yfinance`
+- Data quality validation (F-06): `validate_prices` reports issues with severity, stable code, symbol, field, count and
+  first dates instead of raising (duplicate or unsorted dates, NaN, non-positive prices, OHLC inconsistencies,
+  calendar gaps, extreme moves, stale prices, split artifacts, volume and range infos), with a frozen
+  `ValidationConfig`, JSON-serializable `ValidationResult` and `raise_for_errors()` raising `DataValidationError`
+- `hash_frame`, a canonical SHA-256 hash of a standard frame that is stable across platforms and library versions
+- ADR 0004 (validation reports, calendar heuristic) and ADR 0005 (canonical data hash); validation and hash sections in
+  `docs/data.md`
 
 ### Changed
 

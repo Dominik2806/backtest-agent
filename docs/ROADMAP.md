@@ -138,7 +138,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 |---|---|---|---|---|---|
 | 0 | `chore/repo-setup` | Project skeleton, CI, CLAUDE.md, template placeholders filled | F-01, F-02, F-03 | M | Done |
 | 1 | `feature/data-provider` | Provider interface, yfinance provider, Parquet cache | F-04, F-05 | M | Done |
-| 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Planned |
+| 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Done |
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Planned |
 | 4 | `feature/core-engine` | Vectorized engine with execution delay, proven by hand-calculated tests | F-09, F-11 | L | Planned |
 | 5 | `feature/costs-slippage` | Commission, spread and slippage models | F-10 | S | Planned |
@@ -164,7 +164,16 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   yfinance provider. Requests whose end date is today or later are never cached (partial bar of the current day).
   The cache has no expiry; `refresh=True` re-downloads.
 - Phase 1: ADR 0003 (standard price frame, adjusted prices, caching as a wrapper) was added, and `pyproject.toml`
-  excludes tests marked `network` by default (`addopts = "-m 'not network'"`).
+  excludes tests marked `network` by default (`addopts = "-m 'not network'"`). Merged as PR #3.
+- Phase 2: the validation reports instead of raising and is `validate_prices` in `data/checks.py` (types in
+  `data/validation.py`, hash in `data/hash.py`), not a change of `validate_standard_frame`, which keeps raising for
+  format violations. NaN or zero volume is a warning or info, not an error, because the engine is price-based.
+  Added beyond the roadmap list: the codes `no_data`, `non_finite_value` and `negative_volume`.
+- Phase 2: calendar gaps use a dependency-free heuristic (missing business days between a symbol's own data dates,
+  default limit 4) instead of an exchange calendar, so a single missing day is not detected. ADR 0004 (validation) and
+  ADR 0005 (data hash) were added.
+- Phase 2: "errors stop a run" is delivered as a mechanism (`ValidationResult.raise_for_errors`); the engine and CLI
+  that call it before every run do not exist yet (Phases 4 and 9).
 
 ---
 

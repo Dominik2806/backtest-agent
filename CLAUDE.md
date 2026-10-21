@@ -30,7 +30,8 @@ uv run ruff format .          # format (CI runs the check variant: uv run ruff f
 ```
 
 Tests never touch the network: use `FakeProvider` or mock `yfinance`. A test that needs the network must carry
-`@pytest.mark.network`. Data caches go under `data/cache/` (git-ignored); never commit them.
+`@pytest.mark.network`. Data caches go under `data/cache/` (git-ignored); never commit them. The golden hash in
+`tests/test_data_hash.py` is a literal: a change of the hash layout needs a `HASH_VERSION` bump and an ADR first.
 
 PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` where it matters.
 
