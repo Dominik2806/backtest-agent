@@ -35,3 +35,8 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Tests marked `network` call real services and are excluded by default; run them with `uv run pytest -m network`.
+addopts = "-m 'not network'"
+markers = [
+    "network: calls real external services (yfinance); excluded by default, run with -m network",
+]
