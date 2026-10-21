@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Architecture decision records 0001 (own engine) and 0002 (deterministic core)
 - `docs/architecture.md`, README with disclaimer and roadmap status, branch protection section in `CONTRIBUTING.md`
 - `.gitignore` entries for `data/`, `runs/`, `reports/`, `*.parquet`, `.venv/` and `.env`
+- Data provider interface with the standard price frame (`date` index, `(symbol, field)` columns, adjusted OHLCV) and
+  a deterministic `FakeProvider` for tests and examples (F-04)
+- yfinance provider with auto-adjusted prices and timezone normalization, and `CachedProvider`, a Parquet cache under
+  `data/cache/` with offline and refresh modes that never caches requests ending today or later (F-05)
+- `docs/data.md` (format, adjustment rules, cache behaviour, data source caveats) and ADR 0003
+- pytest marker `network` for the live yfinance test, excluded by default (`uv run pytest -m network`)
+- Runtime dependencies `pandas`, `numpy`, `pyarrow` and `yfinance`
 
 ### Changed
 

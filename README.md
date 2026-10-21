@@ -22,8 +22,9 @@ You get a report with metrics, charts and a fixed section of caveats, a log of e
 strategy family, and the auditor's findings. The trial counter makes overfitting visible: ten tried variants are not
 the same as one.
 
-The project is built in phases, see the [roadmap status](#roadmap-status). Only the project skeleton exists today;
-the features described above arrive in the phases named in the [roadmap](docs/ROADMAP.md).
+The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton and the data
+layer (providers and cache, Phase 1) exist; the other features described above arrive in the phases named in the
+[roadmap](docs/ROADMAP.md).
 
 ## Requirements
 
@@ -39,14 +40,24 @@ uv sync
 uv run pytest
 ```
 
-The tests should pass. The `bt` command line arrives in Phase 9; until then there is nothing to run besides the
-test suite.
+The tests should pass without network access. The `bt` command line arrives in Phase 9; until then there is nothing
+to run besides the test suite and the data layer as a Python library, see [docs/data.md](docs/data.md):
+
+```python
+from datetime import date
+from backtest_agent.data.cache import CachedProvider
+from backtest_agent.data.yfinance_provider import YFinanceProvider
+
+prices = CachedProvider(YFinanceProvider()).get_prices(["AAPL", "SAP.DE"], date(2023, 1, 2), date(2023, 3, 31))
+```
+
+One live test against yfinance exists and is excluded by default; run it manually with `uv run pytest -m network`.
 
 ## What is inside
 
 | Part | What it does | Where |
 |---|---|---|
-| Data layer (planned) | Provider interface, yfinance provider, Parquet cache, validation, data hash | [`src/backtest_agent/data/`](src/backtest_agent/data) |
+| Data layer | Provider interface, yfinance and fake providers, Parquet cache (done); validation and data hash (planned, Phase 2). See [docs/data.md](docs/data.md) | [`src/backtest_agent/data/`](src/backtest_agent/data) |
 | Strategy spec (planned) | Pydantic schema for YAML specs, signal interface, example strategies | [`src/backtest_agent/spec/`](src/backtest_agent/spec) |
 | Engine (planned) | Vectorized daily backtest, long-only, multi-asset, costs and slippage | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
 | Metrics (planned) | Performance and risk metrics, benchmark comparison | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
@@ -76,6 +87,7 @@ uv sync
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
+uv run pytest -m network   # optional live test, uses the network
 ```
 
 `main` is protected: one branch per change (`feature/`, `fix/`, `docs/`, `chore/`), Conventional Commits, squash-merged
@@ -87,7 +99,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | Phase | Result | Status |
 |---|---|---|
 | 0 | Project skeleton, CI, templates | Done |
-| 1 | Provider interface, yfinance provider, Parquet cache | Planned |
+| 1 | Provider interface, yfinance provider, Parquet cache | Done |
 | 2 | Data checks and a reproducibility hash | Planned |
 | 3 | YAML strategy spec, signal interface, example strategies | Planned |
 | 4 | Vectorized engine with execution delay, proven by hand-calculated tests | Planned |

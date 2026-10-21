@@ -10,3 +10,4 @@ To add one, copy [0000-template.md](0000-template.md) to the next free number an
 |---|---|---|
 | [0001](0001-own-engine-instead-of-vectorbt-or-backtrader.md) | Own engine instead of vectorbt or backtrader | Accepted |
 | [0002](0002-deterministic-core-llm-never-writes-engine.md) | Deterministic core, the LLM never writes the engine | Accepted |
+| [0003](0003-standard-price-frame.md) | One standard price frame, adjusted prices, caching as a wrapper | Accepted |

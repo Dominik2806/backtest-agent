@@ -80,11 +80,13 @@ Use this when a session has lost its context:
 
 1. Read `CLAUDE.md` and this file.
 2. Check where the repo stands: `git switch main; git pull; git log --oneline -10; gh pr list`.
-3. The current phase is the first one in the table below that is not **Done**. If its branch or pull request
-   already exists, continue there instead of starting over.
+3. The current phase is the first one in the table below that is not **Done**, or the one whose pull request is
+   not merged yet. The status is set to **Done** in the phase's own pull request, so a phase marked **Done** on a
+   branch that is not merged is still the current one. If its branch or pull request already exists, continue there
+   instead of starting over.
 4. Do not skip phases and do not start the next one before the current one is merged.
-5. After the merge, set the phase to **Done** in the table below and in the README roadmap status. Record every
-   deviation from this plan under "Deviations from the plan".
+5. Set the phase to **Done** in the table below and in the README roadmap status as part of the phase's own pull
+   request, not after the merge. Record every deviation from this plan under "Deviations from the plan".
 
 ## Git workflow
 
@@ -115,7 +117,8 @@ Phase 12 (the agent workflow), `v1.0.0` after Phase 15 (robustness checks and th
 2. Explore and plan: start Claude Code in Plan Mode, review the plan before any code is written.
 3. Code: implement the plan, review intermediate steps, steer when needed.
 4. Verify: `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, tick off the acceptance criteria.
-5. Commit and open a PR: conventional commit, PR description, CHANGELOG entry under "Unreleased".
+5. Commit and open a PR: conventional commit, PR description, CHANGELOG entry under "Unreleased". Set the phase to
+   **Done** in the phases table and in the README roadmap status in this same PR.
 6. Merge: CI green, squash merge, delete the branch, update local `main`.
 
 ### Definition of Done
@@ -134,7 +137,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | Phase | Branch | Result | Features | Effort | Status |
 |---|---|---|---|---|---|
 | 0 | `chore/repo-setup` | Project skeleton, CI, CLAUDE.md, template placeholders filled | F-01, F-02, F-03 | M | Done |
-| 1 | `feature/data-provider` | Provider interface, yfinance provider, Parquet cache | F-04, F-05 | M | Planned |
+| 1 | `feature/data-provider` | Provider interface, yfinance provider, Parquet cache | F-04, F-05 | M | Done |
 | 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Planned |
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Planned |
 | 4 | `feature/core-engine` | Vectorized engine with execution delay, proven by hand-calculated tests | F-09, F-11 | L | Planned |
@@ -153,10 +156,15 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 ### Deviations from the plan
 
 - Phase 0: `src/backtest_agent/cli.py`, `strategies/` and `.claude/` are not created yet; they need runtime
-  dependencies or belong to later phases (Phases 3, 9 and 10). PR number to be added after the merge.
+  dependencies or belong to later phases (Phases 3, 9 and 10). Merged as PR #2.
 - Phase 0: CI pins `astral-sh/setup-uv@v10.3.0` because the action publishes no floating major tag.
 - Phase 0: branch protection for `main` is documented in `CONTRIBUTING.md` but has to be enabled by the maintainer
   in the GitHub settings; the green run of a test PR on both operating systems is checked when this PR is opened.
+- Phase 1: the cache is a separate wrapper, `CachedProvider`, which works with any provider, instead of a part of the
+  yfinance provider. Requests whose end date is today or later are never cached (partial bar of the current day).
+  The cache has no expiry; `refresh=True` re-downloads.
+- Phase 1: ADR 0003 (standard price frame, adjusted prices, caching as a wrapper) was added, and `pyproject.toml`
+  excludes tests marked `network` by default (`addopts = "-m 'not network'"`).
 
 ---
 
