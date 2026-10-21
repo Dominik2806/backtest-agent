@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from backtest_agent.data import validate_standard_frame
+from backtest_agent.data import hash_frame, validate_prices, validate_standard_frame
 from backtest_agent.data.cache import CachedProvider
 from backtest_agent.data.yfinance_provider import YFinanceProvider
 
@@ -36,3 +36,8 @@ def test_live_yfinance_three_tickers_second_call_comes_from_cache(
     second = provider.get_prices(SYMBOLS, START, END)
     assert fetches == [tuple(SYMBOLS)]  # no second download
     pd.testing.assert_frame_equal(first, second, check_exact=True)
+
+    # Real data can be messy, so warnings are allowed; errors are not.
+    result = validate_prices(first, start=START, end=END)
+    assert not result.has_errors, result.to_json()
+    assert hash_frame(first) == hash_frame(second)
