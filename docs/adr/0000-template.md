@@ -1,6 +1,6 @@
 # 0000: <Short title of the decision>
 
-- **Status:** <Proposed | Accepted (PR #N) | Superseded by [00NN](00NN-title.md)>
+- **Status:** <Proposed | Accepted (PR #N) | Superseded by 00NN>
 
 ## Context
 
