@@ -142,7 +142,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Done |
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Done |
 | 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | Done |
-| 5 | `feature/costs-slippage` | Commission, spread and slippage models | F-10 | S | Planned |
+| 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | In progress (part 1 of 2 merged) |
 | 6 | `feature/metrics-benchmark` | Performance metrics and buy-and-hold comparison | F-12, F-13 | M | Planned |
 | 7 | `feature/report` | Markdown and HTML report with charts and caveats | F-14 | M | Planned |
 | 8 | `feature/experiment-journal` | Run log with trial counter | F-15 | S | Planned |
@@ -211,6 +211,27 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 - Phase 4 part 2: the invariant tests show that the core can fill float dust (a buy scaled down to the float residue
   of cash can fill about 1e-14 shares); the permutation test ignores trades below 1e-6 in notional. Documented
   deferred orders keep their share quantity (`docs/engine.md`).
+- Phase 5: the phase is split into two pull requests because it would exceed one reviewable PR. Part 1
+  (`feature/costs-slippage`): cost model, `costs.min_commission`, the funding and remainder rule in the core, the `cost`
+  column and per-bar costs, fixtures H16 to H22, zero-cost equivalence, property tests, ADR 0010. Part 2
+  (`feature/costs-results`): `run_backtest` wiring, gross and net result, flags, fixture H23, live test, status **Done**.
+  Effort is M instead of S.
+- Phase 5: `spread_bps` is the half-spread (it always was in the spec and in F-10) and is applied as written, without
+  halving it again. The minimum fee is the optional field `costs.min_commission` (per trade, commission only, default
+  0), not part of the three required numbers, so existing specs stay valid.
+- Phase 5: beyond the roadmap text, the fee of a **sale is capped at its proceeds** (so a sale never brings in a
+  negative amount), the funding rule solves the buy factor by bisection on the model's cost function, and the part of
+  a buy that only the fees kept from being bought is dropped instead of staying pending (otherwise every rebalance to a
+  fully invested target would inflate `deferred_orders`); with zero costs the Phase 4 behaviour is bit-identical
+  (tested). The core raises `EngineInvariantError` for an invalid cost (negative, NaN, infinite) of a custom model.
+  A portfolio ruined by fees has weights and turnover 0 instead of NaN.
+- Phase 5: the third "Done when" bullet ("higher turnover with the same costs always means higher total costs") is not a
+  theorem: costs are in currency and turnover is a ratio, and a minimum commission depends on the trade count. It is
+  replaced by the claim that is tested exactly (see Phase 5 and ADR 0010).
+- Phase 5: one Phase 4 test was replaced, `test_a_cost_model_that_makes_cash_negative_is_an_invariant_error` in
+  `tests/test_engine_core_invariants.py`. It tested the documented temporary behaviour (a 10 percent model makes cash
+  negative until the funding rule is extended), which no longer exists; the new tests keep the guard with
+  pathological models. No expected value of H1 to H15 changed.
 
 ---
 
@@ -352,11 +373,38 @@ Tasks:
   with an optional minimum fee.
 - Costs come from the spec; the report shows total costs paid and their share of gross return.
 
+Semantics: "Costs" in [engine.md](engine.md), [ADR 0010](adr/0010-cost-model.md). The phase is split into two pull
+requests (see "Deviations from the plan"); it is **Done** with part 2.
+
+**Part 1 (`feature/costs-slippage`, delivered)**: `BpsCosts` (commission, half-spread, slippage, `min_commission`),
+`costs.min_commission` in the spec, the fee-aware funding rule and remainder rule in the core, `trades.cost` and
+`Portfolio.costs`, fixtures H16 to H22, the zero-cost equivalence test, property tests, ADR 0010, `docs/engine.md`
+and `docs/strategy-spec.md`.
+
+**Part 2 (`feature/costs-results`, created from `main` after part 1 is merged)**:
+
+- `run_backtest` builds `BpsCosts.from_spec(spec.costs)`, so `costs_applied` becomes True and the risk flag
+  `costs_not_applied` is no longer emitted in a normal run; `zero_costs` stays when all cost components are zero.
+- Keyword `apply_costs=True` of `run_backtest`: with `False` the run has no costs (`costs_applied` False, gross equals
+  net) and keeps the flag `costs_not_applied` when the spec has non-zero costs, so an opt-out cannot go unnoticed.
+- Gross versus net: a twin simulation without costs on the same data and signals gives the exact gross path. The result
+  has the costs per bar, `total_costs`, `gross_equity`, the gross final equity, the cost drag (gross return minus net
+  return) and the share of the gross return that the costs ate (none when the gross return is not positive).
+- Fixture H14 stays the zero-cost regression (it runs with `apply_costs=False`); new fixture H23 is a runner-level
+  example with total costs, gross and net results; the subagent check of the expected values is repeated for H23.
+- Runner, example and risk-flag tests updated; the live `network` test (buy and hold on real SPY, TLT and GLD) gets an
+  independent cost calculation written without engine code, which is also run offline on fake data.
+- Every statement "costs are not applied" is removed from code and docs (`costs_not_applied` remains only for the
+  opt-out); README, `docs/architecture.md`, CLAUDE.md, CHANGELOG; Phase 5 set to **Done**.
+
 Done when:
 
 - A hand-calculated example confirms the cost arithmetic.
-- With all costs at zero, results are identical to Phase 4.
-- Higher turnover with the same costs always means higher total costs (test).
+- With all costs at zero, results are identical to Phase 4 (exact comparison).
+- Adding a round trip to the signal on a world with flat prices strictly raises both turnover and total costs, and
+  without a minimum fee the cost of every trade is the combined rate times its notional, so costs are a strictly
+  increasing function of the traded notional (tests). The general statement "higher turnover always means higher costs"
+  is not a theorem, see "Deviations from the plan".
 
 ## Phase 6: Metrics and benchmark
 

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Costs (F-10, part 1 of 2): `BpsCosts` applies commission, half-spread and slippage in basis points of the traded
+  value, with the optional `costs.min_commission` (per trade, commission only, default 0) in the spec. Costs are cash
+  fees on the bar of the fill: the `trades` table has a `cost` column and the portfolio has costs per bar and
+  `total_costs`. Sells are filled first and net of their fees (a sale's fee is capped at its proceeds), buys must also
+  cover their fees and are scaled down by one factor otherwise; the part of a buy that only fees kept from being bought
+  is dropped, so a full rebalance does not inflate the deferred and unfilled counters. With zero costs the behaviour is
+  identical to before. Hand-calculated fixtures H16 to H22, a bit-exact zero-cost equivalence test, property tests,
+  ADR 0010. `run_backtest` does not apply the costs yet (part 2). Fees can drive a portfolio to zero: its weights and
+  turnover are then 0 instead of NaN.
+
 - Project roadmap with 16 phases in `docs/ROADMAP.md`
 - Project skeleton (F-01): `pyproject.toml` for Python 3.12 and `uv`, src layout with the package `backtest_agent`,
   a smoke test, `ruff` and `pytest` configuration
