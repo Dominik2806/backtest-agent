@@ -336,7 +336,7 @@ minus 1; it is not a compounded or annualized figure.
 
 Each fixture is a tiny world with round numbers. The arithmetic is written out here, and the tests in
 `tests/test_engine_hand_calculated.py` (H1 to H13), `tests/test_engine_runner.py` (H14), `tests/test_engine_warmup_marks.py`
-(H15), `tests/test_engine_costs_hand_calculated.py` (H16 to H22 and H19c) and `tests/test_engine_runner_costs.py` (H23, H23b) contain
+(H15), `tests/test_engine_costs_hand_calculated.py` (H16 to H22 and H19c) and `tests/test_engine_runner_costs.py` (H23, H23b, H23c) contain
 the **expected values as literals taken from this document**; they never compute an expected value with engine code or
 with a helper that mirrors it. H1 to H15 run without costs and are compared with a relative tolerance of 1e-12; the
 cost fixtures H16 to H22 are compared with a relative and absolute tolerance of 1e-9 (the bisection of the funding rule
@@ -950,6 +950,24 @@ The setup of H23. A: open 100, 100, 90, 81, 72.9; close 100, 90, 81, 72.9, 65.61
 
 Scalars: `total_costs` 200; `net_return` = 524.88 / 1000 - 1 = -0.47512; `gross_return` = 656.1 / 1000 - 1 = -0.3439;
 `cost_drag` = -0.3439 - (-0.47512) = 0.13122; `cost_share` = **None** because the gross return is not positive.
+
+### H23c A portfolio ruined by fees, through `run_backtest`
+
+The setup of H23 with a test signal that is 1.0 where the close is above the previous close (as in H14) and costs
+`min_commission` 500, everything else 0 (a flat fee of 500 per trade). A: open 100, 100, 100, 100, 100; close 100, 101, 100,
+100, 100. The signal is 0, 1, 0, 0, 0, so the target changes on bar 1 (to 1.0) and on bar 2 (to 0). The initial decision
+(bar 0, target 0) has no order. The world has no row before Jan 2, so the signal is not warmed up on the first bar and the
+run also carries the flag and the warning `insufficient_warmup`; this does not change any number below.
+
+- Jan 4 (bar 2, executes bar 1's decision): V = 1000, q = +10, notional 1000. `f0 = 1`, the fee is 500 whatever the
+  size, so the outlay `f * 1000 + 500` equals the cash at `f = 0.5`: 5 shares, notional 500, fee 500, cash 0. Close 5 * 100 = 500.
+- Jan 5 (bar 3, executes bar 2's decision): V = 500, q = -5, notional 500, fee min(500, 500) = 500, proceeds 0, cash 0,
+  equity 0. Jan 8: equity 0, no order.
+- Equity 1000, 1000, 500, 0, 0. The weights and the turnover are never NaN. Gross twin: 10 shares bought and sold at 100,
+  equity 1000 on every bar.
+
+Scalars: `total_costs` 1000; `net_return` = -1; `gross_return` = 0; `cost_drag` = 0 - (-1) = 1; `cost_share` = **None**
+(the gross return is not positive).
 
 ### Sizing examples (used in `tests/test_engine_sizing.py`)
 
