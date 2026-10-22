@@ -50,6 +50,8 @@ This section is the specification of the engine. Everything below it (code, test
   ([data.md](data.md)); an absolute price level means nothing, only ratios do.
 - Costs are **not** applied in Phase 4 (see "Cost hook"). The result of a run says so.
 - A symbol without a price on a bar is valued at its **last close** (carried forward) and cannot be traded on that bar.
+  The last close may come from a bar before the first bar: those bars are not traded or valued, but their closes are
+  known (H15).
 
 ### Sizing: signal values to target weights
 
@@ -554,6 +556,33 @@ those of bar 5, bar 7 with those of bar 6 and bar 9 with those of bar 8.
 Trades: Jan 8 A +8 @ 125 (+1000); Jan 10 A -8 @ 130 (-1040); Jan 12 B +16 @ 55 (+880); Jan 15 A +10 @ 144 (+1440),
 B -16 @ 80 (-1280). `deferred_orders` = 1. Returns: 0.04, 0, 0, 0, 1120 / 1040 - 1 = 1/13, 1500 / 1120 - 1 = 19/56.
 Risk flags: only `costs_not_applied` (the costs are non-zero, the delay is 1). `costs_applied` is False.
+
+### H15 A symbol without a price on the first bar (its last close is from the warm-up)
+
+Input: bars Jan 2, 3, 4, 5. A: open 100, 100, 100, 120; close 100, 100, 110, 120. B: open 50, 50, NaN, 50; close 50, 50,
+NaN, 70 (B did not trade on Jan 4). Signals A = B = 1 on every bar. Rebalance `on_signal`, delay 1, open fills, first bar
+**Jan 4**.
+
+- The initial decision is bar 1 (Jan 3, warm-up, targets 0.5 and 0.5), executed on the first bar Jan 4. B has no price
+  there; its last close is the close of Jan 3, 50. Mark: A 100 (open), B 50. V = 1000. Orders: A q = 500 / 100 = +5; B
+  q = 500 / 50 = +10 (quantity fixed now).
+- A is filled: +5 @ 100, cash 500. B has no price: its order stays open (`deferred_orders` = 1). Jan 4 close: A 5 * 110 =
+  550, cash 500, equity 1050. Turnover 500 / 1000 = 0.5.
+- Jan 5: B has the open 50 and fills: +10 @ 50, cost 500, cash 0. V at the mark = 500 + 5 * 120 = 1100, turnover
+  500 / 1100 = 5/11. Close: A 5 * 120 = 600, B 10 * 70 = 700, equity 1300.
+
+| | Jan 4 | Jan 5 |
+|---|---|---|
+| equity | 1050 | 1300 |
+| cash | 500 | 0 |
+| shares A | 5 | 5 |
+| shares B | 0 | 10 |
+| weight A | 550 / 1050 = 11/21 | 600 / 1300 = 6/13 |
+| weight B | 0 | 700 / 1300 = 7/13 |
+| turnover | 0.5 | 5/11 |
+
+Trades: Jan 4 A +5 @ 100 (+500); Jan 5 B +10 @ 50 (+500). `deferred_orders` = 1, `unfilled_orders` = 0. Without the
+closes of the warm-up bars B would have no mark on Jan 4 and the order could not be sized.
 
 ### Sizing examples (used in `tests/test_engine_sizing.py`)
 
