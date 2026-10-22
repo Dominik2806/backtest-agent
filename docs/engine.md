@@ -218,7 +218,8 @@ rule above can be read and checked line by line. A few thousand bars run in mill
 
 `run_backtest(spec, provider, *, allow_short_warmup=True, apply_costs=True)` in `runner.py` turns a validated
 `StrategySpec` into a `BacktestResult`. The costs of the spec are deducted (`apply_costs=False` switches them off, see
-"Result and risk flags") and the benchmark is **not loaded** (Phases 6 and 9).
+"Result and risk flags") and the benchmark is **not loaded** by `run_backtest`: `evaluate` in `backtest_agent.metrics` runs it through this same
+function (see [metrics.md](metrics.md), "Benchmark and relative metrics").
 
 1. **Window.** Let `N = spec.warmup_rows + delay_bars`. History is fetched from `period.start` minus `2 * N + 14`
    calendar days up to `period.end` for the symbols of the universe (`provider.get_prices`). The buffer is generous
