@@ -13,7 +13,8 @@ import pandas as pd
 
 from backtest_agent.data import FIELDS, DataProvider, DataUnavailableError, FakeProvider
 from backtest_agent.data.provider import check_request
-from backtest_agent.spec import StrategySpec, parse_spec
+from backtest_agent.spec import SIGNALS, Signal, SignalParams, StrategySpec, parse_spec
+from backtest_agent.spec.signals import per_symbol_signal
 from specs import to_yaml, valid
 
 
@@ -153,3 +154,21 @@ class PerturbedProvider(DataProvider):
                 column = frame.columns.get_loc((symbol, field))
                 frame.iloc[later, column] = frame.iloc[later, column].to_numpy() * factor
         return frame
+
+
+class UpDayParams(SignalParams):
+    """Params of the test signal ``fixture_up_day``: it needs one row of history."""
+
+    def warmup_rows(self) -> int:
+        return 1
+
+
+def up_day(prices: pd.DataFrame, params: UpDayParams) -> pd.DataFrame:
+    """1.0 where the close is above the symbol's previous own close, else 0.0 (the fixture H14 signal)."""
+    return per_symbol_signal(prices, lambda close: (close > close.shift(1)).astype("float64"))
+
+
+def register_up_day(monkeypatch) -> None:
+    """Register ``fixture_up_day`` for one test only: other tests pin the registry to the built-in signals."""
+    signal = Signal("fixture_up_day", UpDayParams, up_day, "test signal of fixture H14")
+    monkeypatch.setitem(SIGNALS._signals, signal.id, signal)

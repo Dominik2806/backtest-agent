@@ -16,7 +16,7 @@ from backtest_agent.engine import (
     run_backtest,
 )
 from backtest_agent.spec import get_signal
-from runner_helpers import LiteralProvider, fake_frame, make_spec, nan_rows
+from runner_helpers import LiteralProvider, fake_frame, make_spec, nan_rows, price_frame, register_up_day
 
 SYMBOLS = ("AAA", "BBB")
 START, END = date(2024, 3, 1), date(2024, 4, 30)  # a Friday and a Tuesday
@@ -275,3 +275,103 @@ def test_the_benchmark_is_not_loaded() -> None:
     result = run_backtest(make_spec(), provider)  # benchmark is the first universe symbol in make_spec
     assert [symbols for symbols, _, _ in provider.calls] == [SYMBOLS]
     assert list(result.positions.columns) == list(SYMBOLS)
+
+
+# --- fixture H14 of docs/engine.md: expected values are the literals written out there -------------------------
+
+NAN = float("nan")
+H14_OPENS = {
+    "A": [100, 100, 105, 115, 125, 130, 130, 120, 130, 144],
+    "B": [50, 55, 60, 55, 50, 50, 60, NAN, 55, 80],
+}
+H14_CLOSES = {
+    "A": [100, 100, 110, 120, 130, 130, 120, 120, 140, 150],
+    "B": [50, 60, 60, 50, 50, 50, 65, NAN, 60, 75],
+}
+H14_DATES = [date(2024, 1, d) for d in (8, 9, 10, 11, 12, 15)]
+
+
+@pytest.fixture
+def fixture_signal(monkeypatch: pytest.MonkeyPatch) -> None:
+    register_up_day(monkeypatch)
+
+
+def h14_spec():
+    return make_spec(
+        universe=("A", "B"),
+        start="2024-01-06",
+        end="2024-01-15",
+        signal="fixture_up_day",
+        costs=(1.0, 2.0, 2.0),
+        capital=1000,
+    )
+
+
+def test_h14_a_whole_run_with_warm_up_a_decision_before_the_first_bar_and_a_holiday(fixture_signal: None) -> None:
+    provider = LiteralProvider(price_frame(H14_OPENS, H14_CLOSES))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = run_backtest(h14_spec(), provider)
+
+    assert provider.calls == [(("A", "B"), date(2023, 12, 19), date(2024, 1, 15))]
+    assert result.data_hash == hash_frame(provider.last_frame)
+    assert not result.validation.has_errors
+    assert result.validation.warnings == ()
+
+    def dates(index: pd.Index) -> list[date]:
+        return [ts.date() for ts in index]
+
+    for frame in (result.equity, result.cash, result.positions, result.weights, result.turnover):
+        assert dates(frame.index) == H14_DATES
+    assert dates(result.signals.index) == dates(result.target_weights.index) == H14_DATES
+    assert result.initial_equity == 1000.0
+
+    np.testing.assert_allclose(result.equity, [1040, 1040, 1040, 1040, 1120, 1500], rtol=1e-12)
+    np.testing.assert_allclose(result.cash, [0, 0, 1040, 1040, 160, 0], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(result.positions["A"], [8, 8, 0, 0, 0, 10], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(result.positions["B"], [0, 0, 0, 0, 16, 0], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(result.weights["A"], [1, 1, 0, 0, 0, 1], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(result.weights["B"], [0, 0, 0, 0, 6 / 7, 0], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(result.turnover, [1.0, 0, 1.0, 0, 11 / 13, 17 / 9], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(result.returns, [0.04, 0, 0, 0, 1 / 13, 19 / 56], rtol=1e-12, atol=1e-12)
+
+    assert result.signals["A"].tolist() == [1, 0, 0, 0, 1, 1]
+    assert result.signals["B"].tolist() == [0, 0, 1, 1, 0, 1]
+    assert result.target_weights["A"].tolist() == [1, 0, 0, 0, 1, 0.5]
+    assert result.target_weights["B"].tolist() == [0, 0, 1, 1, 0, 0.5]
+
+    trades = result.trades
+    assert dates(pd.DatetimeIndex(trades["date"])) == [date(2024, 1, d) for d in (8, 10, 12, 15, 15)]
+    assert trades["symbol"].tolist() == ["A", "A", "B", "A", "B"]
+    assert trades["shares"].tolist() == [8, -8, 16, 10, -16]
+    assert trades["price"].tolist() == [125, 130, 55, 144, 80]
+    assert trades["notional"].tolist() == [1000, -1040, 880, 1440, -1280]
+    assert (result.deferred_orders, result.unfilled_orders) == (1, 0)
+
+    warmup = result.warmup
+    assert warmup.first_bar == date(2024, 1, 8)
+    assert warmup.first_decision_date == date(2024, 1, 5)
+    assert warmup.initial_target_weights == {"A": 1.0, "B": 0.0}
+    assert warmup.rows_before == {"A": 3, "B": 3}
+    assert warmup.first_data == {"A": date(2024, 1, 2), "B": date(2024, 1, 2)}
+    assert (warmup.required_rows, warmup.delay_bars, warmup.rows_needed, warmup.buffer_days) == (1, 1, 2, 18)
+    assert warmup.fetch_start == date(2023, 12, 19)
+    assert warmup.short_symbols == ()
+    assert warmup.sufficient
+
+    assert [flag.code for flag in result.risk_flags] == ["costs_not_applied"]
+    assert result.costs_applied is False
+
+
+def test_h14_without_the_warm_up_rows_the_first_decision_is_cash_and_the_run_says_so(fixture_signal: None) -> None:
+    frame = price_frame(H14_OPENS, H14_CLOSES).loc["2024-01-08":]
+    with pytest.warns(InsufficientWarmupWarning):
+        result = run_backtest(h14_spec(), LiteralProvider(frame))
+    warmup = result.warmup
+    assert not warmup.sufficient
+    assert warmup.rows_before == {"A": 0, "B": 0}
+    assert warmup.short_symbols == ("A", "B")
+    assert warmup.first_decision_date == warmup.first_bar == date(2024, 1, 8)
+    assert warmup.initial_target_weights == {"A": 0.0, "B": 0.0}  # no previous close: the signal is 0 on bar 0
+    assert result.equity.iloc[0] == 1000.0  # delay 1: nothing is bought on the first bar
+    assert [flag.code for flag in result.risk_flags] == ["costs_not_applied", "insufficient_warmup"]
