@@ -64,9 +64,19 @@ because a default would be an assumption nobody approved.
 | `benchmark` | symbol | **required** | Buy-and-hold comparison; may or may not be in the universe. |
 | `initial_capital` | number, above 0 | **required** | Starting cash. |
 
-Sizing, rebalancing, costs and the execution fields are applied by the engine (Phases 4 and 5); this phase defines
-and validates them. The intended meaning of `fixed_fraction` is: each position weighs its signal value times
-`fraction` of the equity, the total capped at 100 percent, the rest is cash.
+Sizing, rebalancing and the execution fields are applied by the engine ([engine.md](engine.md), Phase 4); costs follow
+in Phase 5. The meaning of the sizing methods is:
+
+- `equal_weight`: capital is split equally among the **selected symbols only**, those with a signal above 0, and each
+  weight is scaled by its signal value: `weight = signal / n` with `n` the number of selected symbols. Empty slots are
+  not kept in cash. Example: `momentum_12_1` with `top_n: 3` and `positive_only: true` on a day when only one symbol has
+  a positive score gives that symbol 100 percent of the equity (1000 of 1000), not a third with 667 in cash; with two
+  qualifying symbols each gets 50 percent. With all signal values at 1.0 the portfolio is fully invested whenever at
+  least one symbol is selected; a signal of 0.5 on a lone symbol invests half. Keeping empty slots in cash ("slot-based
+  equal weight") is a possible later extension.
+- `fixed_fraction`: each position weighs its signal value times `fraction` of the equity. If the weights add up to
+  more than 100 percent they are divided by their sum (0.6 and 0.6 become 0.5 and 0.5), so there is never leverage;
+  otherwise the rest is cash.
 
 ### Rules
 
