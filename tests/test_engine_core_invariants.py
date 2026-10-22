@@ -166,6 +166,8 @@ class _FixedCost:
         return self.value
 
 
+# The test below relies on the funding rule calling the model once for planning (the fee of the buy at the cap) before
+# the fill is booked: the first call is free, every later call is expensive.
 class _ChangesItsMind:
     """Says trading is free while the core plans the fill and charges a fortune when the fill is booked."""
 

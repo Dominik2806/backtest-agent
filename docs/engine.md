@@ -185,7 +185,7 @@ the trades are bit-identical to the behaviour of Phase 4; the tests compare them
 notional plus their fees): it ends with `f < 1` and cash of about 0, and the remainder is dropped, so it does not
 inflate `deferred_orders` and `unfilled_orders`. These two counters count only orders that wait for a price or for
 cash that exists without fees (H20, H21). Orders are sized on the portfolio value `V` before costs, so after a
-rebalance the portfolio is slightly under its target weights by the amount of the fees.
+rebalance the portfolio is slightly under its target weights by the amount of the fees. A minimum fee can make the engine sell for a buy that then cannot be paid (H19b, Jan 4): the fee of the sale is lost and the portfolio ends slightly off target. This follows the rules and is not an error.
 
 **Gross and net.** The *net* result is the run with costs. The *gross* result is a twin run of the same simulation with
 all costs at zero (same data, same signals, same orders). Costs compound (a fee paid today is not invested tomorrow), so
@@ -273,7 +273,7 @@ costs, and `insufficient_warmup` when applicable.
 ## Hand-calculated fixtures
 
 Each fixture is a tiny world with round numbers. The arithmetic is written out here, and the tests in
-`tests/test_engine_hand_calculated.py` (H1 to H13) and `tests/test_engine_costs_hand_calculated.py` (H16 to H22) contain
+`tests/test_engine_hand_calculated.py` (H1 to H13) and `tests/test_engine_costs_hand_calculated.py` (H16 to H22 and H19c) contain
 the **expected values as literals taken from this document**; they never compute an expected value with engine code or
 with a helper that mirrors it. H1 to H15 run without costs and are compared with a relative tolerance of 1e-12; the
 cost fixtures H16 to H22 are compared with a relative and absolute tolerance of 1e-9 (the bisection of the funding rule
@@ -730,6 +730,21 @@ Signals A = B = 1. `equal_weight`, `daily`, delay 1, open fills. Costs: `min_com
 
 Equity 1000, 980, 994.5. Cash 1000, 0, 2.25. Costs 0, 20, 10. Trades: Jan 3 A +4.9 @ 100 (cost 10), B +9.8 @ 50 (cost
 10); Jan 4 A -7/60 @ 105 (-12.25, cost 10). `deferred_orders` = 0, `unfilled_orders` = 0.
+
+### H19c Fees use up the whole portfolio
+
+Input: bars Jan 2, 3, 4, 5. A: open = close = 100. Signal A = 1, 0, 0, 0. `fixed_fraction` 0.5, `on_signal`, delay 1, open
+fills. Costs: `min_commission` 500, everything else 0.
+
+- Jan 3 (initial decision, target 0.5): V = 1000, q = +5, notional 500, fee 500. The outlay 500 + 500 equals the cash,
+  so `f = 1` and cash = 0. Close 5 * 100 = 500, equity 500. Turnover 500 / 1000 = 0.5.
+- Jan 4 (the target changed to 0 on bar 1): V = 500, q = -5, notional 500, fee min(500, 500) = 500, proceeds 0, cash 0,
+  equity 0. Turnover 500 / 500 = 1.0. The weights are 0.
+- Jan 5: no order, V = 0, equity 0, turnover 0. A portfolio worth nothing has weights and turnover 0, never NaN.
+
+Equity 1000, 500, 0, 0. Cash 1000, 0, 0, 0. Costs 0, 500, 500, 0. Shares A 0, 5, 0, 0. Turnover 0, 0.5, 1.0, 0. Weights
+of A 0, 1, 0, 0. Trades: Jan 3 A +5 @ 100 (+500, cost 500); Jan 4 A -5 @ 100 (-500, cost 500). `deferred_orders` = 0,
+`unfilled_orders` = 0.
 
 ### H20 A full rebalance with a 25 percent cost rate (the fee scale-down and the dropped remainder)
 

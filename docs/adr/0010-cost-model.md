@@ -59,4 +59,5 @@ factors only (cannot express a minimum fee for a general model).
   resolution; the zero-cost behaviour is compared exactly.
 - Orders are sized on the value before costs, so after a rebalance the weights are below target by the fees.
 - A portfolio can be ruined by fees: equity 0, weights and turnover are then 0 instead of NaN.
+- A minimum fee can make the engine sell for a buy that then cannot be paid (H19b, Jan 4): the fee of the sale is lost and the portfolio ends slightly off target. This follows the rules and is not an error.
 - Phase 6 runs the benchmark through the same engine with the same costs and uses the gross and net results.

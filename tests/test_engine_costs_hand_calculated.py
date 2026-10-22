@@ -137,6 +137,23 @@ def test_h19b_a_buy_that_cannot_pay_its_minimum_fee_is_not_made_and_does_not_sta
     )
 
 
+def test_h19c_fees_use_up_the_whole_portfolio_and_nothing_is_nan() -> None:
+    price = {"A": [100, 100, 100, 100]}
+    p = run(price, price, {"A": [1, 0, 0, 0]}, cost_model=BpsCosts(0, 0, 0, min_commission=500), **HALF)
+    check(
+        p,
+        dates=D4,
+        equity=[1000, 500, 0, 0],
+        cash=[1000, 0, 0, 0],
+        costs=[0, 500, 500, 0],
+        shares={"A": [0, 5, 0, 0]},
+        turnover=[0, 0.5, 1.0, 0],
+        trades=[("2024-01-03", "A", 5, 100, 500, 500), ("2024-01-04", "A", -5, 100, -500, 500)],
+    )
+    assert list(p.weights["A"]) == approx([0, 1, 0, 0])
+    assert not p.weights.isna().to_numpy().any() and not p.turnover.isna().any()
+
+
 H20_COSTS = BpsCosts(1000, 1000, 500)  # a total rate of 25 percent
 
 
