@@ -18,3 +18,4 @@ To add one, copy [0000-template.md](0000-template.md) to the next free number an
 | [0008](0008-engine-semantics.md) | Engine semantics: timeline, sizing, orders, turnover | Accepted |
 | [0009](0009-run-pipeline-and-warmup.md) | Run pipeline, warm-up and result object | Accepted |
 | [0010](0010-cost-model.md) | Cost model: fees, half-spread, minimum commission, funding rule, gross definition | Accepted |
+| [0011](0011-gross-net-result.md) | Gross versus net result and the `apply_costs` opt-out | Accepted |
