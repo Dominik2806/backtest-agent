@@ -153,7 +153,7 @@ def simulate(
             )
             trade_rows.append(row)
         costs_path[i] = trade_cost.sum()
-        turnover_path[i] = np.abs(filled_notional).sum() / value
+        turnover_path[i] = np.abs(filled_notional).sum() / value if value > 0.0 else 0.0
 
         # 4. Carry: orders that are still open after this bar are counted once.
         pending = open_orders != 0.0
@@ -167,7 +167,7 @@ def simulate(
         equity_path[i] = equity
         cash_path[i] = cash
         shares_path[i] = shares
-        weights_path[i] = held_at_close / equity
+        weights_path[i] = held_at_close / equity if equity > 0.0 else 0.0  # fees can use up the whole portfolio
 
     columns = closes.columns
     return Portfolio(
