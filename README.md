@@ -23,7 +23,7 @@ strategy family, and the auditor's findings. The trial counter makes overfitting
 the same as one.
 
 The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton, the data
-layer, the strategy spec and the pure portfolio simulation of the engine (Phase 4, part 1) exist; the other features described above arrive in the phases named in the
+layer, the strategy spec and the engine with `run_backtest` (Phase 4; costs are not applied yet) exist; the other features described above arrive in the phases named in the
 [roadmap](docs/ROADMAP.md).
 
 ## Requirements
@@ -41,7 +41,8 @@ uv run pytest
 ```
 
 The tests should pass without network access. The `bt` command line arrives in Phase 9; until then there is nothing
-to run besides the test suite and the data layer as a Python library, see [docs/data.md](docs/data.md):
+to run besides the test suite and the Python library: the data layer ([docs/data.md](docs/data.md)) and the engine
+(`run_backtest`, see below):
 
 ```python
 from datetime import date
@@ -66,6 +67,22 @@ spec = load_spec("strategies/sma_crossover.yaml")
 print(spec.signal.id, spec.warmup_rows, spec.risk_flags())
 ```
 
+A run loads history with a warm-up for the signal, validates and hashes it, and returns a result (equity, cash,
+positions, trades, turnover, risk flags). Costs are not deducted yet and the result says so
+([docs/engine.md](docs/engine.md)):
+
+```python
+from datetime import date
+from backtest_agent.data import FakeProvider  # offline; use CachedProvider(YFinanceProvider()) for real prices
+from backtest_agent.engine import run_backtest
+from backtest_agent.spec import load_spec
+
+spec = load_spec("strategies/buy_and_hold.yaml")
+spec = spec.model_copy(update={"period": spec.period.model_copy(update={"start": date(2020, 1, 1)})})
+result = run_backtest(spec, FakeProvider(symbols=spec.universe))
+print(result.equity.iloc[-1], [flag.code for flag in result.risk_flags], result.warmup.sufficient)
+```
+
 One live test against yfinance exists and is excluded by default; run it manually with `uv run pytest -m network`.
 
 ## What is inside
@@ -75,7 +92,7 @@ One live test against yfinance exists and is excluded by default; run it manuall
 | Data layer | Provider interface, yfinance and fake providers, Parquet cache, data quality validation and data hash. See [docs/data.md](docs/data.md) | [`src/backtest_agent/data/`](src/backtest_agent/data) |
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals; see [docs/strategy-spec.md](docs/strategy-spec.md) | [`src/backtest_agent/spec/`](src/backtest_agent/spec) |
 | Example specs | SMA crossover, 12-1 momentum and buy and hold on liquid ETFs | [`strategies/`](strategies) |
-| Engine (part 1 of 2) | Portfolio simulation with execution delay, rebalancing and a cost hook, long-only, multi-asset; the runner with data, warm-up and the result object follows. See [docs/engine.md](docs/engine.md) | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
+| Engine | Portfolio simulation with execution delay, rebalancing and a cost hook, long-only, multi-asset, and `run_backtest` (data with warm-up, validation, hash, result object). See [docs/engine.md](docs/engine.md) | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
 | Metrics (planned) | Performance and risk metrics, benchmark comparison | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
 | Reporting (planned) | Markdown and HTML reports with charts and caveats | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
 | Journal (planned) | Run log with trial counter per strategy family | [`src/backtest_agent/journal/`](src/backtest_agent/journal) |
@@ -118,7 +135,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 1 | Provider interface, yfinance provider, Parquet cache | Done |
 | 2 | Data checks and a reproducibility hash | Done |
 | 3 | YAML strategy spec, signal interface, example strategies | Done |
-| 4 | Engine with execution delay, proven by hand-calculated tests | In progress (part 1 of 2 merged) |
+| 4 | Engine with execution delay, proven by hand-calculated tests | Done |
 | 5 | Commission, spread and slippage models | Planned |
 | 6 | Performance metrics and buy-and-hold comparison | Planned |
 | 7 | Markdown and HTML report with charts and caveats | Planned |
