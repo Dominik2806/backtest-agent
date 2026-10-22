@@ -185,6 +185,11 @@ class CostsSpec(_Model):
     slippage_bps: Bps
     min_commission: Money = 0.0  # per trade, account currency, commission only; 0 = no minimum
 
+    @property
+    def is_zero(self) -> bool:
+        """True if no cost can ever be charged: all four numbers are 0."""
+        return math.fsum((self.commission_bps, self.spread_bps, self.slippage_bps, self.min_commission)) == 0
+
 
 class StrategySpec(_Model):
     """A validated strategy spec. Use ``load_spec`` or ``parse_spec`` to create one from YAML."""
@@ -248,8 +253,7 @@ class StrategySpec(_Model):
                     "the result may contain look-ahead bias.",
                 )
             )
-        costs = self.costs
-        if math.fsum((costs.commission_bps, costs.spread_bps, costs.slippage_bps, costs.min_commission)) == 0:
+        if self.costs.is_zero:
             flags.append(
                 RiskFlag(
                     "zero_costs",

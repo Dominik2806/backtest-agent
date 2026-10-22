@@ -171,17 +171,17 @@ def test_the_data_hash_is_the_hash_of_the_frame_the_provider_delivered_warm_up_i
 @pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
-        ({}, ["costs_not_applied"]),
+        ({}, []),
         ({"costs": (0.0, 0.0, 0.0)}, ["zero_costs"]),
-        ({"costs": (0.0, 0.0, 0.5)}, ["costs_not_applied"]),
-        ({"delay": 0, "price": "close"}, ["same_bar_execution", "costs_not_applied"]),
+        ({"costs": (0.0, 0.0, 0.5)}, []),
+        ({"delay": 0, "price": "close"}, ["same_bar_execution"]),
         ({"delay": 0, "price": "close", "costs": (0.0, 0.0, 0.0)}, ["same_bar_execution", "zero_costs"]),
     ],
 )
 def test_risk_flags(kwargs: dict, expected: list[str]) -> None:
     result = run_backtest(make_spec(**kwargs), fake_provider())
     assert [flag.code for flag in result.risk_flags] == expected
-    assert result.costs_applied is False
+    assert result.costs_applied is True
 
 
 def test_the_insufficient_warmup_flag_comes_last(short_history: LiteralProvider) -> None:
@@ -191,7 +191,7 @@ def test_the_insufficient_warmup_flag_comes_last(short_history: LiteralProvider)
     assert [flag.code for flag in result.risk_flags] == ["same_bar_execution", "zero_costs", "insufficient_warmup"]
     with pytest.warns(InsufficientWarmupWarning):
         costly = run_backtest(make_spec(), short_history)
-    assert [flag.code for flag in costly.risk_flags] == ["costs_not_applied", "insufficient_warmup"]
+    assert [flag.code for flag in costly.risk_flags] == ["insufficient_warmup"]
 
 
 def test_returns_use_the_initial_equity_for_the_first_bar() -> None:
@@ -311,7 +311,7 @@ def test_h14_a_whole_run_with_warm_up_a_decision_before_the_first_bar_and_a_holi
     provider = LiteralProvider(price_frame(H14_OPENS, H14_CLOSES))
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        result = run_backtest(h14_spec(), provider)
+        result = run_backtest(h14_spec(), provider, apply_costs=False)  # the zero-cost regression of the runner
 
     assert provider.calls == [(("A", "B"), date(2023, 12, 19), date(2024, 1, 15))]
     assert result.data_hash == hash_frame(provider.last_frame)
@@ -374,4 +374,4 @@ def test_h14_without_the_warm_up_rows_the_first_decision_is_cash_and_the_run_say
     assert warmup.first_decision_date == warmup.first_bar == date(2024, 1, 8)
     assert warmup.initial_target_weights == {"A": 0.0, "B": 0.0}  # no previous close: the signal is 0 on bar 0
     assert result.equity.iloc[0] == 1000.0  # delay 1: nothing is bought on the first bar
-    assert [flag.code for flag in result.risk_flags] == ["costs_not_applied", "insufficient_warmup"]
+    assert [flag.code for flag in result.risk_flags] == ["insufficient_warmup"]
