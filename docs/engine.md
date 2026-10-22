@@ -6,10 +6,10 @@ and its arithmetic is proven by hand-calculated fixtures at the end of this docu
 `src/backtest_agent/engine/`; the decisions behind it are in [ADR 0008](adr/0008-engine-semantics.md). This project is
 educational and not investment advice.
 
-Phase 4 is delivered in two parts. **Part 1 (this document's code)** is the pure simulation: sizing, rebalance
-schedule, delay shift, cost hook and the portfolio core, driven by `simulate_signals` on price and signal frames.
-**Part 2** adds `run_backtest(spec, provider)` (data loading, warm-up, validation, data hash, the signal call) and the
-`BacktestResult` object; the parts of this document that describe them are marked "part 2".
+The pure simulation (sizing, rebalance schedule, delay shift, cost hook and the portfolio core, driven by
+`simulate_signals` on price and signal frames) is described by the semantics below. On top of it,
+`run_backtest(spec, provider)` loads the data with a warm-up, validates and hashes it, calls the signal and returns a
+`BacktestResult` (see "Running a spec").
 
 | Module | Responsibility |
 |---|---|
@@ -18,6 +18,8 @@ schedule, delay shift, cost hook and the portfolio core, driven by `simulate_sig
 | `core.py` | `simulate(...)`: the bar loop that executes orders and returns a `Portfolio` |
 | `simulation.py` | `simulate_signals(...)`: sizing, schedule, shift and core in one call |
 | `costs.py` | `CostModel` hook, `NoCosts` (the only model in Phase 4) |
+| `result.py` | `BacktestResult` and `WarmupInfo`: the frozen result of a run |
+| `runner.py` | `run_backtest(spec, provider)`: data with warm-up, validation, hash, signal, simulation, trimming |
 
 ## Semantics
 
@@ -110,6 +112,13 @@ On every bar `e` from the first bar on, in this order:
 Sells before buys on a bar means proceeds fund purchases of the same bar. If a sale is deferred (no price) the
 buys that depended on it are limited by the cash on hand and wait in the same way until the sale has happened.
 
+**Documented simplification.** A deferred order keeps its original **share quantity**, fixed on its execution bar
+from the prices of that bar (H11, H12, H14). When it is filled later at another price, the portfolio is not re-sized.
+With `on_signal` there is no new decision before the signal changes, so the portfolio can stay slightly off target
+(a bit of cash left over, or a weight a little different from the target) until the next decision. With `daily`,
+`weekly` and `monthly` the next decision corrects it. Re-sizing deferred orders is a possible later extension; ADR
+0008 explains why a quantity was chosen over a weight or a notional.
+
 ### Turnover
 
 **Turnover is two-sided.** The turnover of a bar is the **sum of the absolute trade notionals divided by the
@@ -131,16 +140,8 @@ raises `EngineInvariantError`.
 `turnover`; the `trades` table (`date`, `symbol`, `shares` signed, `price`, `notional` signed, ordered by bar then by
 symbol order); `initial_equity` (the initial capital); the counters `deferred_orders` and `unfilled_orders`.
 `returns` is `equity / equity.shift(1, fill_value=initial_equity) - 1`, so the **return of the first bar is
-well defined**: it is measured against the initial capital. Part 2 wraps this in `BacktestResult` with the spec, data
-hash, validation result, risk flags, warm-up information and the field that states that costs were not applied.
-
-### Warm-up (part 2)
-
-`run_backtest` loads history from `period.start` minus the warm-up of the signal (`StrategySpec.warmup_rows` plus
-`delay_bars` rows, turned into a generous calendar-day buffer and then counted in actual rows), validates it, hashes
-it, computes the signals on all of it and passes the whole timeline to `simulate_signals`, which trims to the first
-bar. The signals are therefore already warmed up on the first bar. If the provider has less history than needed, the
-result says so. The core described here only needs to know where the first bar is.
+well defined**: it is measured against the initial capital. `BacktestResult` (see "Running a spec") wraps the same
+series and frames.
 
 ### Why a loop and not a vectorized calculation
 
@@ -149,6 +150,64 @@ the cash constraint depend on the path (what was bought yesterday decides what c
 run cannot be written as a few cumulative array operations without hiding the rules. A loop is the form in which each
 rule above can be read and checked line by line. A few thousand bars run in milliseconds. This deviates from the word
 "vectorized" in the roadmap and is recorded there.
+
+## Running a spec
+
+`run_backtest(spec, provider, *, allow_short_warmup=True)` in `runner.py` turns a validated `StrategySpec` into a
+`BacktestResult`. The costs of the spec are **not applied** (Phase 5) and the benchmark is **not loaded** (Phases 6
+and 9).
+
+1. **Window.** Let `N = spec.warmup_rows + delay_bars`. History is fetched from `period.start` minus `2 * N + 14`
+   calendar days up to `period.end` for the symbols of the universe (`provider.get_prices`). The buffer is generous
+   (about 1.4 trading rows per row needed, plus two weeks for holidays); the rows are then counted, there is no
+   retry.
+2. **Checks.** The frame must follow the standard format with the universe symbols in order; rows after `period.end`
+   are a broken provider contract (`ValueError`). `validate_prices` runs on the whole frame; errors raise
+   `DataValidationError`, warnings and infos go into `BacktestResult.validation`.
+3. **Hash.** `data_hash` is `hash_frame` of the frame as loaded, warm-up rows included.
+4. **Signals.** The registered signal runs through `Signal.generate` (the runtime contract check) on the **whole**
+   loaded frame; the history is not trimmed before, so the signals are warmed up on the first bar.
+5. **Simulation.** `simulate_signals` runs with the sizing, execution, rebalance rule and initial capital of the spec
+   from the **first bar**, the first bar on or after `period.start`.
+6. **Trim.** Everything in the result starts on the first bar and ends on the last bar of the loaded frame (at most
+   `period.end`). `signals` and `target_weights` are the values at decision time (before the shift by `delay_bars`).
+
+### Warm-up information
+
+`WarmupInfo` states what history the run had. The **first decision bar** is the bar that executes on the first bar
+(bar `max(first - delay_bars, 0)`, "Initial decision" above); its date is `first_decision_date`.
+`initial_target_weights` are the target weights (same sizing as `target_weights`) of that bar. They show what the very
+first trade was based on, which the trimmed `signals` and `target_weights` of the result cannot, because they start
+on the first bar. `rows_before[s]` is the number of rows of symbol `s` strictly before the first decision bar, counted
+on the symbol's own trading rows (close not NaN). The run is **sufficient** when `rows_before[s] >= warmup_rows` for
+every symbol; `warmup_rows = 0` is always sufficient. The other fields are `required_rows`, `delay_bars`,
+`rows_needed` (`N`), `fetch_start`, `buffer_days`, `first_bar`, `first_data` (first own trading date of each symbol)
+and `short_symbols`.
+
+If the run is not sufficient it continues: `WarmupInfo.sufficient` is False, the risk flag `insufficient_warmup` is
+added and an `InsufficientWarmupWarning` is issued. With `allow_short_warmup=False` the runner raises
+`InsufficientHistoryError` (with the `WarmupInfo` in `.warmup`) instead.
+
+### Result and risk flags
+
+`BacktestResult` is a frozen dataclass (compared by field, not by `==`, because frames have no unambiguous equality)
+with: `spec`, `data_hash`, `validation`, `risk_flags`, `warmup`, `costs_applied` (False), `initial_equity`, `equity`,
+`cash`, `positions`, `weights`, `trades`, `turnover`, `signals`, `target_weights`, `deferred_orders`,
+`unfilled_orders` and the property `returns` (as in `Portfolio`, no synthetic row is prepended). Fields are plain
+Python types and standard pandas frames, so the journal (Phase 8) can serialize them. `risk_flags` are, in this
+order: the flags of the spec (`same_bar_execution`, `zero_costs`), `costs_not_applied` when the spec has non-zero
+costs, and `insufficient_warmup` when applicable.
+
+### When the data does not match the period
+
+| Case | What happens |
+|---|---|
+| A symbol's data starts after `period.start` | Not an error. Its signal is 0 until its first row, `validation` has an info `starts_late`, `first_data` shows the date; with `warmup_rows > 0` it is also short. |
+| All data starts after `period.start` | The first bar is the first available bar. `rows_before` is 0, so a signal that needs history is insufficient. |
+| No bar on or after `period.start` | `DataUnavailableError`. |
+| `period.end` after the last available date | Not an error. The result ends on the last available bar, `validation` has an info `ends_early`; the equity index is the truth. |
+| The provider returns fewer symbols than requested | `DataUnavailableError` naming them. Other symbols or another order: `ValueError`. |
+| A requested symbol has no data at all | `no_data` validation error, `DataValidationError`. |
 
 ## Hand-calculated fixtures
 
@@ -417,6 +476,84 @@ Input: prices and signal of H1 (A: open 100, 100, 110, 121, 133.1; close 100, 11
   Jan 8: 1464.1 / 1331 - 1 = 0.1.
 
 In H1 (first bar Jan 2, bought on Jan 3) the return of the first bar is 1000 / 1000 - 1 = 0.
+
+### H14 A whole run: warm-up, a decision before the first bar, a holiday (`run_backtest`)
+
+Used in `tests/test_engine_runner.py`. A tiny provider delivers these literal prices for the symbols A and B on ten
+consecutive business days. The spec: universe A, B; period 2024-01-06 (a Saturday) to 2024-01-15; test signal
+`fixture_up_day`; `equal_weight`; `on_signal`; `delay_bars` 1, fills at the `open`; initial capital 1000; costs
+1 / 2 / 2 bps (not applied). The signal is a test signal with `warmup_rows` 1: for each symbol on its own trading rows,
+1.0 if the close is above its previous close, else 0.0 (0.0 on its first row); it is carried over days the symbol did
+not trade.
+
+| Bar | 0 Jan 2 | 1 Jan 3 | 2 Jan 4 | 3 Jan 5 | 4 Jan 8 | 5 Jan 9 | 6 Jan 10 | 7 Jan 11 | 8 Jan 12 | 9 Jan 15 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| A open | 100 | 100 | 105 | 115 | 125 | 130 | 130 | 120 | 130 | 144 |
+| A close | 100 | 100 | 110 | 120 | 130 | 130 | 120 | 120 | 140 | 150 |
+| B open | 50 | 55 | 60 | 55 | 50 | 50 | 60 | NaN | 55 | 80 |
+| B close | 50 | 60 | 60 | 50 | 50 | 50 | 65 | NaN | 60 | 75 |
+
+B did not trade on Jan 11 (bar 7).
+
+*Signals.* A: 0 (first row), 100 > 100 no: 0, 110 > 100: 1, 120 > 110: 1, 130 > 120: 1, 130 > 130 no: 0, 120 > 130 no: 0,
+120 > 120 no: 0, 140 > 120: 1, 150 > 140: 1. B (own rows; Jan 11 carries the value of Jan 10): 0, 60 > 50: 1, 60 > 60
+no: 0, 50 > 60 no: 0, 50 > 50 no: 0, 50 > 50 no: 0, 65 > 50: 1, Jan 11 carried: 1, 60 > 65 no: 0, 75 > 60: 1.
+
+| Bar | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| signal A | 0 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 1 | 1 |
+| signal B | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 1 | 0 | 1 |
+| target A | 0 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 1 | 0.5 |
+| target B | 0 | 1 | 0 | 0 | 0 | 0 | 1 | 1 | 0 | 0.5 |
+
+*Window and first bar.* The signal needs 1 row and the delay is 1 bar, so `N = 2` and the buffer is
+`2 * 2 + 14 = 18` days: the fetch starts on 2024-01-06 minus 18 days = 2023-12-19. The provider has data from Jan 2,
+so bars 0 to 3 are warm-up. The first bar is the first bar on or after Jan 6: **Jan 8 (bar 4)**.
+
+*Decisions.* `on_signal`: the target changes on bars 1 (to B), 2 (to A), 5 (to cash), 6 (to B), 8 (to A) and 9 (to
+both). Bars 1 and 2 would execute on bars 2 and 3, before the first bar, so they are dropped. The initial decision is
+bar 3 (Jan 5), the bar that executes on the first bar (`4 - 1`); its target is A 1.0, B 0 (signals A 1, B 0, `n = 1`).
+So `first_decision_date` = 2024-01-05 and `initial_target_weights` = {A: 1.0, B: 0.0}. The decision of bar 9 would
+execute on bar 10, which does not exist, and is dropped. Executions: bar 4 with the targets of bar 3, bar 6 with
+those of bar 5, bar 7 with those of bar 6 and bar 9 with those of bar 8.
+
+*Warm-up information.* Rows before the first decision bar (bars 0 to 2): A 3, B 3; `warmup_rows` is 1, so
+`sufficient` is True and no symbol is short. `first_data`: A and B on 2024-01-02. `rows_needed` 2, `buffer_days` 18.
+
+*Bars.*
+
+- Jan 8 (bar 4): target A 1.0. V = 1000 (cash). A: q = 1000 / 125 = +8 shares, cost 1000, cash 0. B: no order. Turnover
+  1000 / 1000 = 1.0. Close: 8 * 130 = 1040. The return of the first bar is 1040 / 1000 - 1 = 0.04.
+- Jan 9 (bar 5): no execution. Close: 8 * 130 = 1040.
+- Jan 10 (bar 6): target cash. Mark: A open 130, V = 8 * 130 = 1040. A: q = -8 (target 0), proceeds 1040, cash 1040.
+  Turnover 1040 / 1040 = 1.0. Equity 1040.
+- Jan 11 (bar 7): target B 1.0. B has no price. Mark: A none held, B's last close 65, V = 1040 (cash). B: q =
+  (1.0 * 1040 - 0) / 65 = +16 shares, fixed now. B cannot be filled: the order stays open (`deferred_orders` = 1).
+  Nothing is traded, turnover 0, equity 1040, cash 1040.
+- Jan 12 (bar 8): no new execution (the target did not change on bar 7). B has the open 55 and fills the open order: +16
+  at 55, cost 880, cash 1040 - 880 = 160. Mark V = 1040 (B had no shares yet), turnover 880 / 1040 = 11/13. The
+  quantity was fixed on Jan 11, so the portfolio is not re-sized: 160 stays in cash (the simplification above). Close:
+  16 * 60 = 960, equity 160 + 960 = 1120. Weight of B 960 / 1120 = 6/7.
+- Jan 15 (bar 9): target A 1.0 (from bar 8). Marks: A open 144, B open 80. V = 160 + 16 * 80 = 1440. A: q =
+  (1440 - 0) / 144 = +10; B: q = -16 (target 0). Sells first: proceeds 16 * 80 = 1280, cash 1440; the buy costs
+  10 * 144 = 1440, filled in full, cash 0. Turnover (1280 + 1440) / 1440 = 17/9. Close: 10 * 150 = 1500.
+  `unfilled_orders` = 0.
+
+| | Jan 8 | Jan 9 | Jan 10 | Jan 11 | Jan 12 | Jan 15 |
+|---|---|---|---|---|---|---|
+| equity | 1040 | 1040 | 1040 | 1040 | 1120 | 1500 |
+| cash | 0 | 0 | 1040 | 1040 | 160 | 0 |
+| shares A | 8 | 8 | 0 | 0 | 0 | 10 |
+| shares B | 0 | 0 | 0 | 0 | 16 | 0 |
+| weight A | 1 | 1 | 0 | 0 | 0 | 1 |
+| weight B | 0 | 0 | 0 | 0 | 6/7 | 0 |
+| turnover | 1.0 | 0 | 1.0 | 0 | 11/13 | 17/9 |
+| signal A, B | 1, 0 | 0, 0 | 0, 1 | 0, 1 | 1, 0 | 1, 1 |
+| target A, B | 1, 0 | 0, 0 | 0, 1 | 0, 1 | 1, 0 | 0.5, 0.5 |
+
+Trades: Jan 8 A +8 @ 125 (+1000); Jan 10 A -8 @ 130 (-1040); Jan 12 B +16 @ 55 (+880); Jan 15 A +10 @ 144 (+1440),
+B -16 @ 80 (-1280). `deferred_orders` = 1. Returns: 0.04, 0, 0, 0, 1120 / 1040 - 1 = 1/13, 1500 / 1120 - 1 = 19/56.
+Risk flags: only `costs_not_applied` (the costs are non-zero, the delay is 1). `costs_applied` is False.
 
 ### Sizing examples (used in `tests/test_engine_sizing.py`)
 
