@@ -40,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `strategies/`, loaded by a test so every future example is checked by CI
 - `docs/strategy-spec.md`, ADR 0006 (signal contract) and ADR 0007 (strict, explicit spec)
 - Runtime dependencies `pydantic` and `pyyaml`
+- Engine, part 1 of Phase 4 (F-09, F-11): the pure portfolio simulation in `backtest_agent.engine` (`target_weights`,
+  `decision_bars`, `execution_orders`, `simulate`, `simulate_signals`, a `CostModel` hook with `NoCosts`). Signals are
+  executed `delay_bars` bars later at the open or close, long-only without leverage, with `daily`, `weekly`, `monthly`
+  and `on_signal` rebalancing, deferred orders for symbols without a price, two-sided turnover and a well-defined
+  return of the first bar. Costs are not applied yet. Hand-calculated fixtures (H1 to H13) and seeded invariant tests
+  (cash never negative, weights at most 100 percent, determinism, permuted universe, doubled capital, causality)
+- `docs/engine.md` (semantics, assumptions and the fixtures with their arithmetic) and ADR 0008 (engine semantics)
 
 ### Changed
 

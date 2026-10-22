@@ -22,8 +22,8 @@ You get a report with metrics, charts and a fixed section of caveats, a log of e
 strategy family, and the auditor's findings. The trial counter makes overfitting visible: ten tried variants are not
 the same as one.
 
-The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton and the data
-layer (providers and cache, Phase 1) exist; the other features described above arrive in the phases named in the
+The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton, the data
+layer, the strategy spec and the pure portfolio simulation of the engine (Phase 4, part 1) exist; the other features described above arrive in the phases named in the
 [roadmap](docs/ROADMAP.md).
 
 ## Requirements
@@ -75,7 +75,7 @@ One live test against yfinance exists and is excluded by default; run it manuall
 | Data layer | Provider interface, yfinance and fake providers, Parquet cache, data quality validation and data hash. See [docs/data.md](docs/data.md) | [`src/backtest_agent/data/`](src/backtest_agent/data) |
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals; see [docs/strategy-spec.md](docs/strategy-spec.md) | [`src/backtest_agent/spec/`](src/backtest_agent/spec) |
 | Example specs | SMA crossover, 12-1 momentum and buy and hold on liquid ETFs | [`strategies/`](strategies) |
-| Engine (planned) | Vectorized daily backtest, long-only, multi-asset, costs and slippage | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
+| Engine (part 1 of 2) | Portfolio simulation with execution delay, rebalancing and a cost hook, long-only, multi-asset; the runner with data, warm-up and the result object follows. See [docs/engine.md](docs/engine.md) | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
 | Metrics (planned) | Performance and risk metrics, benchmark comparison | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
 | Reporting (planned) | Markdown and HTML reports with charts and caveats | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
 | Journal (planned) | Run log with trial counter per strategy family | [`src/backtest_agent/journal/`](src/backtest_agent/journal) |
@@ -118,7 +118,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 1 | Provider interface, yfinance provider, Parquet cache | Done |
 | 2 | Data checks and a reproducibility hash | Done |
 | 3 | YAML strategy spec, signal interface, example strategies | Done |
-| 4 | Vectorized engine with execution delay, proven by hand-calculated tests | Planned |
+| 4 | Engine with execution delay, proven by hand-calculated tests | In progress (part 1 of 2 merged) |
 | 5 | Commission, spread and slippage models | Planned |
 | 6 | Performance metrics and buy-and-hold comparison | Planned |
 | 7 | Markdown and HTML report with charts and caveats | Planned |
