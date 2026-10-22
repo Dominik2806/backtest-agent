@@ -1,6 +1,6 @@
 """Engine: deterministic portfolio simulation with execution delay (see docs/engine.md).
 
-The pure simulation (sizing, rebalance schedule, cost hook, portfolio core) and ``run_backtest``, which loads data
+The pure simulation (sizing, rebalance schedule, costs, portfolio core) and ``run_backtest``, which loads data
 with warm-up, validates and hashes it, runs the signal and returns a ``BacktestResult``.
 """
 
