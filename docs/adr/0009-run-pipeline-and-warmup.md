@@ -37,4 +37,5 @@ signals (signals would not be warmed up on the first bar).
 
 - A result always says how much history stood behind its first decision.
 - The benchmark of Phase 6 has to run through the same engine with the same execution rules as the strategy.
-- Phase 5 plugs the costs in and sets `costs_applied` and removes `costs_not_applied` accordingly.
+- Phase 5 plugs the costs in and sets `costs_applied` and removes `costs_not_applied` accordingly (second part of
+  the phase, see [ADR 0010](0010-cost-model.md)).

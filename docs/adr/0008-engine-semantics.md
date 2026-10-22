@@ -48,7 +48,8 @@ buy-and-hold benchmark); a fully vectorized core.
 - Every number can be reproduced by hand from the rules in `engine.md`, and the tests say how.
 - A strategy whose signals are fractional invests less than 100 percent; the built-in signals are 0 or 1.
 - A bar on which a symbol cannot trade can delay its orders; the counts are part of the result.
-- Phase 5 plugs costs into the hook and has to extend the funding rule (a purchase must also cover its costs).
+- Phase 5 plugs costs into the hook and extends the funding rule (a purchase must also cover its costs), see
+  [ADR 0010](0010-cost-model.md).
 - Phase 6 must treat turnover as two-sided when it labels turnover metrics.
 - The runner adds data loading, warm-up, validation, the data hash and the result object on top of the pure
   simulation described here ([ADR 0009](0009-run-pipeline-and-warmup.md)).
