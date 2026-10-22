@@ -142,7 +142,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Done |
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Done |
 | 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | Done |
-| 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | In progress (part 1 of 2 merged) |
+| 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | Done |
 | 6 | `feature/metrics-benchmark` | Performance metrics and buy-and-hold comparison | F-12, F-13 | M | Planned |
 | 7 | `feature/report` | Markdown and HTML report with charts and caveats | F-14 | M | Planned |
 | 8 | `feature/experiment-journal` | Run log with trial counter | F-15 | S | Planned |
@@ -228,6 +228,15 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 - Phase 5: the third "Done when" bullet ("higher turnover with the same costs always means higher total costs") is not a
   theorem: costs are in currency and turnover is a ratio, and a minimum commission depends on the trade count. It is
   replaced by the claim that is tested exactly (see Phase 5 and ADR 0010).
+- Phase 5 part 2: the result scalars (`total_costs`, `gross_final_equity`, `net_return`, `gross_return`, `cost_drag`,
+  `cost_share`) are read-only properties derived from the stored `costs`, `gross_equity`, `equity` and `initial_equity`
+  (the journal serializes them explicitly); `costs_applied` is True also for a spec whose costs are all 0; the twin is
+  skipped, and `gross_equity` is a copy of `equity`, when no cost can be charged; `CostsSpec.is_zero` defines "all four
+  numbers 0" once; ADR 0011 records the result decisions. Added beyond the Part 2 block: fixtures H23b (falling market,
+  no cost share) and H23c (a portfolio ruined by fees). Existing tests that had to change: the risk-flag and
+  H14 tests of `test_engine_runner.py` (H14 runs with `apply_costs=False`, its expected values are unchanged),
+  `test_engine_examples.py`, and the buy-and-hold identity of `test_engine_invariants.py` (`apply_costs=False`).
+  The Phase 4 entries of the CHANGELOG are reworded where they said that costs are not applied.
 - Phase 5: one Phase 4 test was replaced, `test_a_cost_model_that_makes_cash_negative_is_an_invariant_error` in
   `tests/test_engine_core_invariants.py`. It tested the documented temporary behaviour (a 10 percent model makes cash
   negative until the funding rule is extended), which no longer exists; the new tests keep the guard with
@@ -340,7 +349,7 @@ H1 to H13 and the invariant tests on literal frames and seeded random worlds, `d
 
 - `BacktestResult` (frozen): equity at the close of each bar, `initial_equity`, cash, positions, weights, trades,
   turnover, signals, target weights, spec, data hash, validation result, risk flags, warm-up information, the field
-  that states that costs were not applied yet, deferred and unfilled order counts.
+  `costs_applied` (False in Phase 4, set by Phase 5), deferred and unfilled order counts.
 - `run_backtest(spec, provider)`: loads history from `period.start` minus the warm-up (`StrategySpec.warmup_rows` plus
   `delay_bars` rows, converted into a generous calendar-day buffer and counted in actual rows), validates it
   (`raise_for_errors`), computes the data hash, calls the registered signal through `Signal.generate`, runs
@@ -374,14 +383,15 @@ Tasks:
 - Costs come from the spec; the report shows total costs paid and their share of gross return.
 
 Semantics: "Costs" in [engine.md](engine.md), [ADR 0010](adr/0010-cost-model.md). The phase is split into two pull
-requests (see "Deviations from the plan"); it is **Done** with part 2.
+requests (see "Deviations from the plan"); it is **Done** with part 2. Semantics of the result:
+[ADR 0011](adr/0011-gross-net-result.md).
 
 **Part 1 (`feature/costs-slippage`, delivered)**: `BpsCosts` (commission, half-spread, slippage, `min_commission`),
 `costs.min_commission` in the spec, the fee-aware funding rule and remainder rule in the core, `trades.cost` and
 `Portfolio.costs`, fixtures H16 to H22, the zero-cost equivalence test, property tests, ADR 0010, `docs/engine.md`
 and `docs/strategy-spec.md`.
 
-**Part 2 (`feature/costs-results`, created from `main` after part 1 is merged)**:
+**Part 2 (`feature/costs-results`, created from `main` after part 1 was merged, delivered)**:
 
 - `run_backtest` builds `BpsCosts.from_spec(spec.costs)`, so `costs_applied` becomes True and the risk flag
   `costs_not_applied` is no longer emitted in a normal run; `zero_costs` stays when all cost components are zero.
@@ -395,7 +405,7 @@ and `docs/strategy-spec.md`.
 - Runner, example and risk-flag tests updated; the live `network` test (buy and hold on real SPY, TLT and GLD) gets an
   independent cost calculation written without engine code, which is also run offline on fake data.
 - Every statement "costs are not applied" is removed from code and docs (`costs_not_applied` remains only for the
-  opt-out); README, `docs/architecture.md`, CLAUDE.md, CHANGELOG; Phase 5 set to **Done**.
+  opt-out); README, `docs/architecture.md`, CLAUDE.md, CHANGELOG; Phase 5 set to **Done**. Fixtures H23, H23b and H23c.
 
 Done when:
 

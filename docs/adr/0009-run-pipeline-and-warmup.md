@@ -24,8 +24,9 @@ number can be trusted and compared later (metrics, benchmark, report, journal).
   `DataUnavailableError`, no bar on or after `period.start` raises `DataUnavailableError`, rows after `period.end`
   raise `ValueError`. The benchmark is not loaded yet.
 - **Result.** `BacktestResult` is a frozen dataclass of plain types and standard frames (compared by field), so the
-  journal can serialize it later. `costs_applied` is False and the flag `costs_not_applied` is added while the costs
-  of the spec are not deducted (Phase 5).
+  journal can serialize it later. `costs_applied` is False and the flag `costs_not_applied` was added while the costs
+  of the spec were not deducted; since Phase 5 the costs are deducted and `costs_not_applied` only marks the opt-out
+  `apply_costs=False` ([ADR 0011](0011-gross-net-result.md)).
 - **Last close from the warm-up.** A symbol without a price on the first bar is valued at its last close, which may
   come from a warm-up bar. Without it a holiday of one symbol on the first bar made the run fail.
 
@@ -37,5 +38,5 @@ signals (signals would not be warmed up on the first bar).
 
 - A result always says how much history stood behind its first decision.
 - The benchmark of Phase 6 has to run through the same engine with the same execution rules as the strategy.
-- Phase 5 plugs the costs in and sets `costs_applied` and removes `costs_not_applied` accordingly (second part of
-  the phase, see [ADR 0010](0010-cost-model.md)).
+- Phase 5 plugged the costs in: `costs_applied` is True and `costs_not_applied` is gone from a normal run, see
+  [ADR 0010](0010-cost-model.md) and [ADR 0011](0011-gross-net-result.md).

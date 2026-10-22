@@ -10,6 +10,8 @@ from backtest_agent.data.checks import validate_prices
 from backtest_agent.data.errors import DataUnavailableError
 from backtest_agent.data.hash import hash_frame
 from backtest_agent.data.provider import DataProvider, validate_standard_frame
+from backtest_agent.engine.core import Portfolio
+from backtest_agent.engine.costs import BpsCosts, CostModel, NoCosts
 from backtest_agent.engine.errors import InsufficientHistoryError, InsufficientWarmupWarning
 from backtest_agent.engine.result import BacktestResult, WarmupInfo
 from backtest_agent.engine.simulation import simulate_signals
@@ -18,15 +20,19 @@ from backtest_agent.spec.schema import RiskFlag, StrategySpec
 from backtest_agent.spec.signals import close_frame, get_signal
 
 
-def run_backtest(spec: StrategySpec, provider: DataProvider, *, allow_short_warmup: bool = True) -> BacktestResult:
+def run_backtest(
+    spec: StrategySpec, provider: DataProvider, *, allow_short_warmup: bool = True, apply_costs: bool = True
+) -> BacktestResult:
     """Run ``spec`` on the data of ``provider`` and return the result trimmed to the period.
 
     History is loaded from ``period.start`` minus a calendar buffer for the warm-up (``warmup_rows`` plus
     ``delay_bars`` rows), validated (errors raise ``DataValidationError``), hashed as loaded and given to the signal
     as a whole. If a symbol has fewer rows before the first decision than the signal needs, the run continues with
     the flag ``insufficient_warmup`` and an ``InsufficientWarmupWarning``, or raises ``InsufficientHistoryError``
-    when ``allow_short_warmup`` is False. The costs of the spec are not applied yet (Phase 5). The benchmark is not
-    loaded.
+    when ``allow_short_warmup`` is False. The costs of the spec are deducted (``BpsCosts``); with
+    ``apply_costs=False`` the run is free of costs and keeps the flag ``costs_not_applied`` if the spec has any.
+    If costs are applied and the spec has a non-zero cost number, a twin simulation without costs on the same data,
+    signals and orders gives ``gross_equity``. The benchmark is not loaded.
     """
     period, universe = spec.period, list(spec.universe)
     required = spec.warmup_rows
@@ -58,13 +64,12 @@ def run_backtest(spec: StrategySpec, provider: DataProvider, *, allow_short_warm
     warmup = _warmup_info(spec, closes, targets, first_pos, required, rows_needed, buffer_days, fetch_start)
 
     flags: list[RiskFlag] = list(spec.risk_flags())
-    costs = spec.costs
-    if any(bps > 0 for bps in (costs.commission_bps, costs.spread_bps, costs.slippage_bps)):
+    if not apply_costs and not spec.costs.is_zero:
         flags.append(
             RiskFlag(
                 "costs_not_applied",
-                "The costs of the spec are not deducted in this version of the engine; the result overstates what "
-                "trading would return.",
+                "run_backtest was called with apply_costs=False: the costs of the spec were not deducted, "
+                "so the result overstates what trading would return.",
             )
         )
     if not warmup.sufficient:
@@ -78,23 +83,31 @@ def run_backtest(spec: StrategySpec, provider: DataProvider, *, allow_short_warm
         warnings.warn(message, InsufficientWarmupWarning, stacklevel=2)
 
     opens = frame.xs("open", axis=1, level="field").astype("float64")
-    portfolio = simulate_signals(
-        opens,
-        closes,
-        signals,
-        spec.sizing,
-        spec.execution,
-        spec.rebalance,
-        spec.initial_capital,
-        frame.index[first_pos],
-    )
+
+    def simulate(cost_model: CostModel) -> Portfolio:
+        return simulate_signals(
+            opens,
+            closes,
+            signals,
+            spec.sizing,
+            spec.execution,
+            spec.rebalance,
+            spec.initial_capital,
+            frame.index[first_pos],
+            cost_model,
+        )
+
+    portfolio = simulate(BpsCosts.from_spec(spec.costs) if apply_costs else NoCosts())
+    # The gross path is the same simulation without costs; it is only run if costs can make a difference.
+    twin_needed = apply_costs and not spec.costs.is_zero
+    gross_equity = (simulate(NoCosts()).equity if twin_needed else portfolio.equity.copy()).rename("gross_equity")
     return BacktestResult(
         spec=spec,
         data_hash=data_hash,
         validation=validation,
         risk_flags=tuple(flags),
         warmup=warmup,
-        costs_applied=False,
+        costs_applied=apply_costs,
         initial_equity=portfolio.initial_equity,
         equity=portfolio.equity,
         cash=portfolio.cash,
@@ -102,6 +115,8 @@ def run_backtest(spec: StrategySpec, provider: DataProvider, *, allow_short_warm
         weights=portfolio.weights,
         trades=portfolio.trades,
         turnover=portfolio.turnover,
+        costs=portfolio.costs,
+        gross_equity=gross_equity,
         signals=signals.iloc[first_pos:],
         target_weights=targets.iloc[first_pos:],
         deferred_orders=portfolio.deferred_orders,

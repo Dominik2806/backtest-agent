@@ -66,8 +66,8 @@ because a default would be an assumption nobody approved.
 | `initial_capital` | number, above 0 | **required** | Starting cash. |
 
 Sizing, rebalancing and the execution fields are applied by the engine ([engine.md](engine.md), Phase 4). The portfolio
-core applies the costs (Phase 5, formulas in "Costs" of engine.md and [ADR 0010](adr/0010-cost-model.md)); `run_backtest`
-is wired to them in the second part of Phase 5. The meaning of the sizing methods is:
+core applies the costs and `run_backtest` deducts them (Phase 5, formulas in "Costs" of engine.md and
+[ADR 0010](adr/0010-cost-model.md)). The meaning of the sizing methods is:
 
 - `equal_weight`: capital is split equally among the **selected symbols only**, those with a signal above 0, and each
   weight is scaled by its signal value: `weight = signal / n` with `n` the number of selected symbols. Empty slots are

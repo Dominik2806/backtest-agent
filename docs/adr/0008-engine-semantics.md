@@ -29,8 +29,8 @@ decided once, written down in [engine.md](../engine.md) and proven by hand-calcu
   and the rest is carried the same way; cash is never negative. Deferred and unfilled orders are counted and reported.
 - **Turnover** is two-sided: the sum of absolute trade notionals divided by the portfolio value at the execution mark.
 - **First bar return** is defined against an explicit `initial_equity`, the initial capital.
-- **Costs** are a hook (`CostModel`, default `NoCosts`); Phase 4 does not apply the costs of the spec and the result
-  says so.
+- **Costs** are a hook (`CostModel`, default `NoCosts`); Phase 4 did not apply the costs of the spec, Phase 5 does
+  ([ADR 0010](0010-cost-model.md), [ADR 0011](0011-gross-net-result.md)).
 - **A loop over bars, not a vectorized cumulative calculation.** The path dependence of cash, deferred orders and the
   cash constraint makes a loop the readable and verifiable form. Numpy vector operations are used across symbols.
 - **Tests.** Expected values of engine tests are hand-calculated literals written out in `docs/engine.md`, never

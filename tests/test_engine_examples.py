@@ -36,9 +36,10 @@ def test_example_spec_runs_end_to_end(name: str) -> None:
     assert (result.cash >= 0).all() and (result.weights.sum(axis=1) <= 1 + 1e-9).all()
     assert list(result.positions.columns) == list(spec.universe)
 
-    # The costs of the example specs are non-zero but not applied yet, and the result says so.
-    assert result.costs_applied is False
-    assert [flag.code for flag in result.risk_flags] == ["costs_not_applied"]
+    # The costs of the example specs are non-zero and applied: no flag, fees were paid.
+    assert result.costs_applied is True
+    assert result.risk_flags == ()
+    assert result.total_costs > 0 and result.total_costs == pytest.approx(result.trades["cost"].sum())
 
     # Only the universe is requested; the benchmark is not loaded in this phase.
     assert [symbols for symbols, _, _ in provider.calls] == [tuple(spec.universe)]

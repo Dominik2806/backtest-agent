@@ -176,3 +176,15 @@ def test_min_commission_is_a_cost_for_the_zero_costs_flag() -> None:
     assert spec_of(data).risk_flags() == ()
     data["costs"]["min_commission"] = 0
     assert [f.code for f in spec_of(data).risk_flags()] == ["zero_costs"]
+
+
+def test_costs_is_zero_only_when_all_four_numbers_are_zero() -> None:
+    zero = {"commission_bps": 0, "spread_bps": 0, "slippage_bps": 0}
+    for extra in ({}, {"min_commission": 0}):
+        data = valid()
+        data["costs"] = zero | extra
+        assert spec_of(data).costs.is_zero
+    for name in ("commission_bps", "spread_bps", "slippage_bps", "min_commission"):
+        data = valid()
+        data["costs"] = zero | {name: 0.5}
+        assert not spec_of(data).costs.is_zero, name

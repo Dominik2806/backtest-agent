@@ -39,7 +39,7 @@ The details are specified in "Costs" of [engine.md](../engine.md).
 - **Gross definition.** The gross result is the same simulation with all costs at zero (a twin run). Costs compound, so
   adding the total costs back to the net equity would be wrong. The cost drag is the gross return minus the net return,
   and the share of the gross return that costs ate is the drag divided by the gross return (none if that is not positive).
-  `run_backtest` reports them in the second part of Phase 5.
+  [ADR 0011](0011-gross-net-result.md) decides how `run_backtest` runs the twin and reports the result.
 - **"More turnover means higher costs" is tested in the form in which it is true.** As a general statement it is not a
   theorem: costs are in currency while turnover is a ratio to the portfolio value, and a minimum commission depends on the
   number of trades, so a strategy with higher turnover on lower prices or a smaller portfolio can pay less. What holds

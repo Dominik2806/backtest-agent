@@ -8,8 +8,8 @@ educational and not investment advice.
 
 The pure simulation (sizing, rebalance schedule, delay shift, costs and the portfolio core, driven by
 `simulate_signals` on price and signal frames) is described by the semantics below. On top of it,
-`run_backtest(spec, provider)` loads the data with a warm-up, validates and hashes it, calls the signal and returns a
-`BacktestResult` (see "Running a spec").
+`run_backtest(spec, provider)` loads the data with a warm-up, validates and hashes it, calls the signal, deducts the
+costs of the spec and returns a `BacktestResult` with the net and the gross result (see "Running a spec").
 
 | Module | Responsibility |
 |---|---|
@@ -19,7 +19,7 @@ The pure simulation (sizing, rebalance schedule, delay shift, costs and the port
 | `simulation.py` | `simulate_signals(...)`: sizing, schedule, shift and core in one call |
 | `costs.py` | `CostModel` hook, `NoCosts` and `BpsCosts`, the cost model of the spec (Phase 5) |
 | `result.py` | `BacktestResult` and `WarmupInfo`: the frozen result of a run |
-| `runner.py` | `run_backtest(spec, provider)`: data with warm-up, validation, hash, signal, simulation, trimming |
+| `runner.py` | `run_backtest(spec, provider)`: data with warm-up, validation, hash, signal, simulation with costs, gross twin, trimming |
 
 ## Semantics
 
@@ -49,7 +49,8 @@ This section is the specification of the engine. Everything below it (code, test
   inside). The engine never adds dividends. Adjusted prices are not the prices that were quoted on the day
   ([data.md](data.md)); an absolute price level means nothing, only ratios do.
 - Costs are cash fees on the bar of the fill (see "Costs"). The portfolio core applies them when it is given a cost
-  model; `run_backtest` does **not** pass the costs of the spec yet (second part of Phase 5), and its result says so.
+  model, and `run_backtest` gives it the costs of the spec (`BpsCosts.from_spec`), unless it is called with
+  `apply_costs=False`.
 - A symbol without a price on a bar is valued at its **last close** (carried forward) and cannot be traded on that bar.
   The last close may come from a bar before the first bar: those bars are not traded or valued, but their closes are
   known (H15).
@@ -189,10 +190,9 @@ rebalance the portfolio is slightly under its target weights by the amount of th
 
 **Gross and net.** The *net* result is the run with costs. The *gross* result is a twin run of the same simulation with
 all costs at zero (same data, same signals, same orders). Costs compound (a fee paid today is not invested tomorrow), so
-adding the total costs back to the net equity would not give the gross path. How `run_backtest` reports gross final
-equity, the cost drag and the share of the gross return that the costs ate is specified with the result object in the
-second part of Phase 5 (cost drag = gross return minus net return; share = cost drag divided by the gross return, none
-if the gross return is not positive).
+adding the total costs back to the net equity would not give the gross path. How `run_backtest` runs the twin and
+reports gross final equity, the cost drag and the share of the gross return that the costs ate is specified in "Gross
+and net" under "Running a spec" ([ADR 0011](adr/0011-gross-net-result.md)).
 
 ### Output of the core
 
@@ -214,9 +214,9 @@ rule above can be read and checked line by line. A few thousand bars run in mill
 
 ## Running a spec
 
-`run_backtest(spec, provider, *, allow_short_warmup=True)` in `runner.py` turns a validated `StrategySpec` into a
-`BacktestResult`. The costs of the spec are **not applied yet** (`run_backtest` is wired to the cost model in the second
-part of Phase 5) and the benchmark is **not loaded** (Phases 6 and 9).
+`run_backtest(spec, provider, *, allow_short_warmup=True, apply_costs=True)` in `runner.py` turns a validated
+`StrategySpec` into a `BacktestResult`. The costs of the spec are deducted (`apply_costs=False` switches them off, see
+"Result and risk flags") and the benchmark is **not loaded** (Phases 6 and 9).
 
 1. **Window.** Let `N = spec.warmup_rows + delay_bars`. History is fetched from `period.start` minus `2 * N + 14`
    calendar days up to `period.end` for the symbols of the universe (`provider.get_prices`). The buffer is generous
@@ -229,7 +229,15 @@ part of Phase 5) and the benchmark is **not loaded** (Phases 6 and 9).
 4. **Signals.** The registered signal runs through `Signal.generate` (the runtime contract check) on the **whole**
    loaded frame; the history is not trimmed before, so the signals are warmed up on the first bar.
 5. **Simulation.** `simulate_signals` runs with the sizing, execution, rebalance rule and initial capital of the spec
-   from the **first bar**, the first bar on or after `period.start`.
+   from the **first bar**, the first bar on or after `period.start`, and with the cost model `BpsCosts.from_spec(
+   spec.costs)` (`NoCosts` if `apply_costs=False`). This is the **net** run; positions, trades, turnover, costs and
+   the order counters of the result are its.
+   **Gross twin.** If costs are applied and the spec has a non-zero cost number (`spec.costs.is_zero` is False), the
+   same call is made a second time with `NoCosts()`: the same `opens`, `closes` and `signals` frames (loaded and
+   computed once above), the same sizing, execution, rebalance rule, initial capital and first bar, hence the same
+   decisions and orders. Only its `equity` is kept, as `gross_equity`. In every other case nothing is simulated
+   twice: `gross_equity` is an independent copy of `equity` (`.copy()`, so changing one never changes the other), named
+   `gross_equity`.
 6. **Trim.** Everything in the result starts on the first bar and ends on the last bar of the loaded frame (at most
    `period.end`). `signals` and `target_weights` are the values at decision time (before the shift by `delay_bars`).
 
@@ -252,12 +260,66 @@ added and an `InsufficientWarmupWarning` is issued. With `allow_short_warmup=Fal
 ### Result and risk flags
 
 `BacktestResult` is a frozen dataclass (compared by field, not by `==`, because frames have no unambiguous equality)
-with: `spec`, `data_hash`, `validation`, `risk_flags`, `warmup`, `costs_applied` (False), `initial_equity`, `equity`,
-`cash`, `positions`, `weights`, `trades`, `turnover`, `signals`, `target_weights`, `deferred_orders`,
-`unfilled_orders` and the property `returns` (as in `Portfolio`, no synthetic row is prepended). Fields are plain
-Python types and standard pandas frames, so the journal (Phase 8) can serialize them. `risk_flags` are, in this
-order: the flags of the spec (`same_bar_execution`, `zero_costs`), `costs_not_applied` when the spec has non-zero
-costs, and `insufficient_warmup` when applicable.
+with: `spec`, `data_hash`, `validation`, `risk_flags`, `warmup`, `costs_applied`, `initial_equity`, `equity`, `cash`,
+`positions`, `weights`, `trades` (with the fee in `cost`), `turnover`, `costs`, `gross_equity`, `signals`,
+`target_weights`, `deferred_orders`, `unfilled_orders`, and the properties `returns` (as in `Portfolio`, no synthetic
+row is prepended) and the scalars of "Gross and net" below. Everything except `gross_equity` is the **net** run. Fields
+are plain Python types and standard pandas frames and series, so the journal (Phase 8) can serialize them.
+
+`costs_applied` is True if a cost model was applied, also one that charges nothing (a spec with all four cost numbers 0),
+and False only for `run_backtest(..., apply_costs=False)`. `risk_flags` are, in this order: the flags of the spec
+(`same_bar_execution`, `zero_costs`), `costs_not_applied`, and `insufficient_warmup` when applicable. The flags about
+costs are:
+
+| `apply_costs` | spec cost numbers | `costs_applied` | flag about costs |
+|---|---|---|---|
+| True | all 0 | True | `zero_costs` |
+| True | any non-zero | True | none |
+| False | all 0 | False | `zero_costs` |
+| False | any non-zero | False | `costs_not_applied` |
+
+`costs_not_applied` is never emitted in a normal run. It exists so that the opt-out `apply_costs=False` (used for the
+cost-free regression fixtures and for tests of exact no-cost identities) cannot go unnoticed in a result that is read
+later: the result overstates what trading would return.
+
+### Gross and net
+
+The result is the **net** run. `gross_equity` is the equity of the twin run without costs (see step 5 of "Running a
+spec"; it is the same values as `equity` if no cost was charged). The scalars are **read-only properties** of the
+result, computed from `costs`, `gross_equity`, `equity` and `initial_equity`, so they cannot disagree with the series
+(a journal has to serialize them explicitly). The return of a run is its final equity divided by `initial_equity`
+minus 1; it is not a compounded or annualized figure.
+
+| Property | Definition |
+|---|---|
+| `total_costs` | `float(costs.sum())`, all fees paid |
+| `net_return` | `equity[-1] / initial_equity - 1` |
+| `gross_final_equity` | `gross_equity[-1]` |
+| `gross_return` | `gross_final_equity / initial_equity - 1` |
+| `cost_drag` | `gross_return - net_return` |
+| `cost_share` | `cost_drag / gross_return`, **None** if `gross_return <= 0` |
+
+*Edge cases.*
+
+- **No cost charged** (`apply_costs=False`, or a spec with all four numbers 0, where `costs_applied` is still True when
+  `apply_costs` is True): `costs` is 0.0 on every bar, `total_costs` is 0.0, no twin is run, `gross_equity` is a copy of
+  `equity`, `cost_drag` is exactly 0.0 (a float minus the same float) and `cost_share` is 0.0 if the return is positive,
+  else None. The result is bit-identical to the same spec with costs `(0, 0, 0)`.
+- **Gross return zero or negative:** `cost_share` is None, because the share of a loss is not defined. `cost_drag` is
+  still defined (H23b).
+- **No trades:** the twin is still run if the spec has costs, and is identical: `total_costs` 0.0, `cost_drag` 0.0.
+- **A portfolio ruined by fees** (equity 0): `net_return` is -1. If the gross return is positive, `cost_drag` is
+  `gross_return + 1` and `cost_share` is above 1. Weights and turnover are 0, never NaN.
+- **A period with warm-up:** net and gross both start on the first bar with `initial_equity` as the starting value.
+  The warm-up bars are loaded and used for the signals once; the twin uses the same decisions, including the
+  initial decision on the bar before the first bar. The warm-up information, the validation, the warning and the flag
+  `insufficient_warmup` belong to the run, not to a simulation, and appear once.
+- **`cost_drag` is not guaranteed to be 0 or more, and `cost_share` is not guaranteed to be 1 or less.** Costs change
+  the path, so the two runs are not the same trades at different prices: a fee can block a bad purchase or leave cash
+  in a falling market, so the net run can end above the gross run; and with a negative net return and a positive gross
+  return the costs have eaten more than the whole gross return, so the share exceeds 1. The share is not clamped. Only
+  identities that are exact are tested: for buy and hold on a price path without holidays, the net equity is the gross
+  equity divided by `1 + r` from the day of the purchase (`r` the combined rate, no minimum commission).
 
 ### When the data does not match the period
 
@@ -273,7 +335,8 @@ costs, and `insufficient_warmup` when applicable.
 ## Hand-calculated fixtures
 
 Each fixture is a tiny world with round numbers. The arithmetic is written out here, and the tests in
-`tests/test_engine_hand_calculated.py` (H1 to H13) and `tests/test_engine_costs_hand_calculated.py` (H16 to H22 and H19c) contain
+`tests/test_engine_hand_calculated.py` (H1 to H13), `tests/test_engine_runner.py` (H14), `tests/test_engine_warmup_marks.py`
+(H15), `tests/test_engine_costs_hand_calculated.py` (H16 to H22 and H19c) and `tests/test_engine_runner_costs.py` (H23, H23b, H23c) contain
 the **expected values as literals taken from this document**; they never compute an expected value with engine code or
 with a helper that mirrors it. H1 to H15 run without costs and are compared with a relative tolerance of 1e-12; the
 cost fixtures H16 to H22 are compared with a relative and absolute tolerance of 1e-9 (the bisection of the funding rule
@@ -546,7 +609,8 @@ In H1 (first bar Jan 2, bought on Jan 3) the return of the first bar is 1000 / 1
 Used in `tests/test_engine_runner.py`. A tiny provider delivers these literal prices for the symbols A and B on ten
 consecutive business days. The spec: universe A, B; period 2024-01-06 (a Saturday) to 2024-01-15; test signal
 `fixture_up_day`; `equal_weight`; `on_signal`; `delay_bars` 1, fills at the `open`; initial capital 1000; costs
-1 / 2 / 2 bps (not applied). The signal is a test signal with `warmup_rows` 1: for each symbol on its own trading rows,
+1 / 2 / 2 bps, which this fixture does not deduct: it is the zero-cost regression of the runner and runs with
+`apply_costs=False`. The signal is a test signal with `warmup_rows` 1: for each symbol on its own trading rows,
 1.0 if the close is above its previous close, else 0.0 (0.0 on its first row); it is carried over days the symbol did
 not trade.
 
@@ -617,7 +681,8 @@ those of bar 5, bar 7 with those of bar 6 and bar 9 with those of bar 8.
 
 Trades: Jan 8 A +8 @ 125 (+1000); Jan 10 A -8 @ 130 (-1040); Jan 12 B +16 @ 55 (+880); Jan 15 A +10 @ 144 (+1440),
 B -16 @ 80 (-1280). `deferred_orders` = 1. Returns: 0.04, 0, 0, 0, 1120 / 1040 - 1 = 1/13, 1500 / 1120 - 1 = 19/56.
-Risk flags: only `costs_not_applied` (the costs are non-zero, the delay is 1). `costs_applied` is False.
+Risk flags: only `costs_not_applied` (`apply_costs=False` with non-zero costs, the delay is 1). `costs_applied` is False.
+`gross_equity` equals `equity`, `total_costs` is 0.0 and `cost_drag` is 0.0.
 
 ### H15 A symbol without a price on the first bar (its last close is from the warm-up)
 
@@ -832,6 +897,77 @@ throughout). Signals A = B = 1, `equal_weight`, `daily`, delay 1, open fills.
 
 Trades: Jan 3 A +4 @ 100 (cost 100), B +8 @ 50 (cost 100); Jan 4 A -0.4 @ 125 (-50, cost 12.5), B +0.6 @ 50 (+30, cost
 7.5); Jan 5 A -11/30 @ 150 (-55, cost 13.75), B +0.66 @ 50 (+33, cost 8.25). Total costs 242.
+
+### H23 A whole run with costs: buy and hold on the world of H1 (`run_backtest`, net and gross)
+
+Used in `tests/test_engine_runner_costs.py`. A tiny provider delivers the prices of H1 for the symbol A. The spec: universe
+A; period 2024-01-02 to 2024-01-08; signal `buy_and_hold` (1.0 from the first trading row, as H1's constant signal);
+`equal_weight`, `on_signal`, delay 1, open fills; capital 1000; costs commission 1000, spread 1000, slippage 500 bps
+(total rate 25 percent, absurd on purpose so that every number is round), `min_commission` 0. A: open 100, 100, 110, 121,
+133.1; close 100, 110, 121, 133.1, 146.41. The signal needs no history, so the first bar is Jan 2 (bar 0) and the
+warm-up is sufficient.
+
+*Net run.*
+
+- Jan 2 (bar 0, first bar): nothing is executed (delay 1). Cash 1000, equity 1000, turnover 0, costs 0. The initial
+  decision is bar 0 (target A 1.0), executed on bar 1.
+- Jan 3 (bar 1): open 100, V = 1000, q = 1.0 * 1000 / 100 = +10, notional 1000. `f0 = 1` (the cash covers the notional)
+  but the outlay would be 1000 + 0.25 * 1000 = 1250 > 1000, so `f = 1000 / 1250 = 0.8`: 8 shares, notional 800, fee
+  0.25 * 800 = 200 (commission 80, spread 80, slippage 40), cash 1000 - 800 - 200 = 0. The remaining 2 shares are dropped.
+  Close 110: 8 * 110 = 880. Turnover 800 / 1000 = 0.8.
+- Jan 4: the target never changes, so there is no decision. Close 121: 8 * 121 = 968.
+- Jan 5: close 133.1: 8 * 133.1 = 1064.8.
+- Jan 8: close 146.41: 8 * 146.41 = 1171.28.
+
+*Gross twin* (the same orders without costs): Jan 3 buys 10 shares at 100 (cash 0); equity 1000, 1100, 1210, 1331,
+1464.1, the literals of H1.
+
+| | Jan 2 | Jan 3 | Jan 4 | Jan 5 | Jan 8 |
+|---|---|---|---|---|---|
+| equity | 1000 | 880 | 968 | 1064.8 | 1171.28 |
+| gross equity | 1000 | 1100 | 1210 | 1331 | 1464.1 |
+| cash | 1000 | 0 | 0 | 0 | 0 |
+| shares A | 0 | 8 | 8 | 8 | 8 |
+| weight A | 0 | 1 | 1 | 1 | 1 |
+| turnover | 0 | 0.8 | 0 | 0 | 0 |
+| costs | 0 | 200 | 0 | 0 | 0 |
+| return of the bar | 0 | 880 / 1000 - 1 = -0.12 | 968 / 880 - 1 = 0.1 | 0.1 | 0.1 |
+
+One trade: Jan 3 A +8 @ 100 (+800, cost 200). `deferred_orders` = 0, `unfilled_orders` = 0. `costs_applied` is True and there
+are no risk flags (non-zero costs, delay 1).
+
+*Scalars.* `total_costs` = 200. `gross_final_equity` = 1464.1. `net_return` = 1171.28 / 1000 - 1 = 0.17128.
+`gross_return` = 1464.1 / 1000 - 1 = 0.4641. `cost_drag` = 0.4641 - 0.17128 = 0.29282. `cost_share` = 0.29282 / 0.4641 =
+292.82 / 464.1 (about 0.631). (The net equity is the gross equity divided by 1.25 from Jan 3 on: 1100 / 1.25 = 880.)
+
+### H23b The same run in a falling market (the share of a loss is not defined)
+
+The setup of H23. A: open 100, 100, 90, 81, 72.9; close 100, 90, 81, 72.9, 65.61.
+
+- Jan 3: V = 1000, buy 8 shares at the open 100 (notional 800, fee 200, cash 0) as in H23. Close 90: 8 * 90 = 720.
+- Jan 4 close 81: 648. Jan 5 close 72.9: 583.2. Jan 8 close 65.61: 8 * 65.61 = 524.88.
+- Gross twin: 10 shares, equity 1000, 900, 810, 729, 656.1.
+
+Scalars: `total_costs` 200; `net_return` = 524.88 / 1000 - 1 = -0.47512; `gross_return` = 656.1 / 1000 - 1 = -0.3439;
+`cost_drag` = -0.3439 - (-0.47512) = 0.13122; `cost_share` = **None** because the gross return is not positive.
+
+### H23c A portfolio ruined by fees, through `run_backtest`
+
+The setup of H23 with a test signal that is 1.0 where the close is above the previous close (as in H14) and costs
+`min_commission` 500, everything else 0 (a flat fee of 500 per trade). A: open 100, 100, 100, 100, 100; close 100, 101, 100,
+100, 100. The signal is 0, 1, 0, 0, 0, so the target changes on bar 1 (to 1.0) and on bar 2 (to 0). The initial decision
+(bar 0, target 0) has no order. The world has no row before Jan 2, so the signal is not warmed up on the first bar and the
+run also carries the flag and the warning `insufficient_warmup`; this does not change any number below.
+
+- Jan 4 (bar 2, executes bar 1's decision): V = 1000, q = +10, notional 1000. `f0 = 1`, the fee is 500 whatever the
+  size, so the outlay `f * 1000 + 500` equals the cash at `f = 0.5`: 5 shares, notional 500, fee 500, cash 0. Close 5 * 100 = 500.
+- Jan 5 (bar 3, executes bar 2's decision): V = 500, q = -5, notional 500, fee min(500, 500) = 500, proceeds 0, cash 0,
+  equity 0. Jan 8: equity 0, no order.
+- Equity 1000, 1000, 500, 0, 0. The weights and the turnover are never NaN. Gross twin: 10 shares bought and sold at 100,
+  equity 1000 on every bar.
+
+Scalars: `total_costs` 1000; `net_return` = -1; `gross_return` = 0; `cost_drag` = 0 - (-1) = 1; `cost_share` = **None**
+(the gross return is not positive).
 
 ### Sizing examples (used in `tests/test_engine_sizing.py`)
 

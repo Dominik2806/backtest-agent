@@ -43,7 +43,10 @@ class BacktestResult:
     """Everything a run produced, trimmed to the period (first bar on or after ``period.start`` up to ``period.end``).
 
     ``signals`` and ``target_weights`` are the values at decision time (before the shift by ``delay_bars``).
-    ``costs_applied`` is False in Phase 4: the costs of the spec are not deducted yet.
+    Everything except ``gross_equity`` is the **net** run, with the costs of the spec deducted. ``costs_applied`` is
+    True if a cost model was applied (also one that charges nothing) and False for ``run_backtest(apply_costs=False)``.
+    ``gross_equity`` is the equity path of a twin run with all costs at zero; without costs it is a copy of ``equity``.
+    The scalars below are properties, so a journal has to serialize them explicitly (see docs/engine.md).
     """
 
     spec: StrategySpec
@@ -59,10 +62,45 @@ class BacktestResult:
     weights: pd.DataFrame  # share of equity per symbol, cash is the rest
     trades: pd.DataFrame  # date, symbol, shares (signed), price, notional (signed)
     turnover: pd.Series  # two-sided
+    costs: pd.Series  # fees paid on each bar (0.0 without costs)
+    gross_equity: pd.Series  # equity of the twin run without costs
     signals: pd.DataFrame
     target_weights: pd.DataFrame
     deferred_orders: int
     unfilled_orders: int
+
+    @property
+    def total_costs(self) -> float:
+        """All fees paid over the run."""
+        return float(self.costs.sum())
+
+    @property
+    def gross_final_equity(self) -> float:
+        return float(self.gross_equity.iloc[-1])
+
+    @property
+    def net_return(self) -> float:
+        """Return of the whole run: final equity over ``initial_equity`` minus 1."""
+        return float(self.equity.iloc[-1]) / self.initial_equity - 1.0
+
+    @property
+    def gross_return(self) -> float:
+        """Return of the whole run of the twin without costs."""
+        return self.gross_final_equity / self.initial_equity - 1.0
+
+    @property
+    def cost_drag(self) -> float:
+        """Gross return minus net return. Not guaranteed to be 0 or more: costs change the path."""
+        return self.gross_return - self.net_return
+
+    @property
+    def cost_share(self) -> float | None:
+        """The share of the gross return that the costs ate; None if the gross return is not positive.
+
+        Not guaranteed to be 1 or less: with a negative net and a positive gross return it exceeds 1.
+        """
+        gross = self.gross_return
+        return self.cost_drag / gross if gross > 0.0 else None
 
     @property
     def returns(self) -> pd.Series:

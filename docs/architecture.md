@@ -5,7 +5,7 @@ around it. The agents turn ideas into a strategy spec and a small signal functio
 never write the engine. Status: the data layer is implemented (provider interface, yfinance provider, fake provider
 and Parquet cache in Phase 1, data validation and data hash in Phase 2; see [data.md](data.md)), the strategy spec and
 signal interface (Phase 3; see [strategy-spec.md](strategy-spec.md)) and the engine (Phase 4: the portfolio simulation and `run_backtest`, which loads data with warm-up, validates, hashes
-and returns a `BacktestResult`; see [engine.md](engine.md)). Costs are still a hook (Phase 5). Every other component below is **planned** and arrives in the phase named in the [roadmap](ROADMAP.md). For the reasons behind
+and returns a `BacktestResult`; see [engine.md](engine.md)). Costs (commission, half-spread, slippage) are deducted by the engine (Phase 5; see [ADR 0010](adr/0010-cost-model.md)). Every other component below is **planned** and arrives in the phase named in the [roadmap](ROADMAP.md). For the reasons behind
 the design see [adr/](adr/README.md).
 
 ## Components
@@ -26,7 +26,7 @@ flowchart LR
 |---|---|---|---|
 | Strategy architect | Asks clarifying questions, writes the spec and a list of assumptions, never runs a backtest | Agent | Planned (Phase 10) |
 | Signal coder | Writes the signal function and its tests, only under `strategies/` and tests | Agent | Planned (Phase 10) |
-| Engine and data layer | Fetches and validates data, runs the backtest, computes metrics | Deterministic code | Data fetching, cache, validation and hash done (Phases 1 and 2); portfolio simulation, runner with warm-up and result object done (Phase 4); costs are a hook, applied in Phase 5; metrics planned (Phase 6) |
+| Engine and data layer | Fetches and validates data, runs the backtest, computes metrics | Deterministic code | Data fetching, cache, validation and hash done (Phases 1 and 2); portfolio simulation, runner with warm-up and result object done (Phase 4); costs and the gross versus net result done (Phase 5); metrics planned (Phase 6) |
 | Bias auditor | Reviews spec, signal code and results in its own context | Agent | Planned (Phase 11) |
 | Report interpreter | Writes an honest plain-language verdict | Agent | Planned (Phase 11) |
 
@@ -53,7 +53,7 @@ The same steps run without any agent through the `bt` command (Phase 9).
 |---|---|---|
 | Data layer | Provider interface, yfinance provider, fake provider, Parquet cache (Phase 1); validation, data hash (Phase 2) | `src/backtest_agent/data/` |
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals, example specs (Phase 3; see [strategy-spec.md](strategy-spec.md)) | `src/backtest_agent/spec/`, `strategies/` |
-| Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; costs are a hook (Phase 4, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
+| Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; costs and gross versus net (Phases 4 and 5, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
 | Metrics | Performance and risk metrics, benchmark comparison | `src/backtest_agent/metrics/` |
 | Reporting | Markdown and HTML reports with charts and caveats | `src/backtest_agent/reporting/` |
 | Journal | Run log with trial counter per strategy family | `src/backtest_agent/journal/` |

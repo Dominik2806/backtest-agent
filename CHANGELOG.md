@@ -9,15 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Costs (F-10, part 1 of 2): `BpsCosts` applies commission, half-spread and slippage in basis points of the traded
+- Costs and slippage (F-10): `BpsCosts` applies commission, half-spread and slippage in basis points of the traded
   value, with the optional `costs.min_commission` (per trade, commission only, default 0) in the spec. Costs are cash
   fees on the bar of the fill: the `trades` table has a `cost` column and the portfolio has costs per bar and
   `total_costs`. Sells are filled first and net of their fees (a sale's fee is capped at its proceeds), buys must also
   cover their fees and are scaled down by one factor otherwise; the part of a buy that only fees kept from being bought
   is dropped, so a full rebalance does not inflate the deferred and unfilled counters. With zero costs the behaviour is
-  identical to before. Hand-calculated fixtures H16 to H22 and H19c, a bit-exact zero-cost equivalence test, property tests,
-  ADR 0010. `run_backtest` does not apply the costs yet (part 2). Fees can drive a portfolio to zero: its weights and
-  turnover are then 0 instead of NaN.
+  identical to before. Fees can drive a portfolio to zero: its weights and turnover are then 0 instead of NaN.
+  Hand-calculated fixtures H16 to H22 and H19c, a bit-exact zero-cost equivalence test, property tests, ADR 0010.
+- `run_backtest` deducts the costs of the spec (`costs_applied` True) and reports gross versus net (F-10): the result
+  has `costs` per bar, `gross_equity` (a twin run without costs on the same data, signals and orders, only run when the
+  spec has costs) and the properties `total_costs`, `gross_final_equity`, `net_return`, `gross_return`, `cost_drag` and
+  `cost_share` (none if the gross return is not positive; neither a sign of the drag nor a bound of the share is
+  guaranteed). `run_backtest(..., apply_costs=False)` runs without costs and keeps the flag `costs_not_applied` when the
+  spec has costs. `CostsSpec.is_zero`. Hand-calculated fixtures H23, H23b and H23c, an independent cost calculation
+  (`tests/cost_reference.py`) for the live network test, checked offline too, ADR 0011.
 - Project roadmap with 16 phases in `docs/ROADMAP.md`
 - Project skeleton (F-01): `pyproject.toml` for Python 3.12 and `uv`, src layout with the package `backtest_agent`,
   a smoke test, `ruff` and `pytest` configuration
@@ -53,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `decision_bars`, `execution_orders`, `simulate`, `simulate_signals`, a `CostModel` hook with `NoCosts`). Signals are
   executed `delay_bars` bars later at the open or close, long-only without leverage, with `daily`, `weekly`, `monthly`
   and `on_signal` rebalancing, deferred orders for symbols without a price, two-sided turnover and a well-defined
-  return of the first bar. Costs are not applied yet. Hand-calculated fixtures (H1 to H13) and seeded invariant tests
+  return of the first bar. Costs follow in Phase 5. Hand-calculated fixtures (H1 to H13) and seeded invariant tests
   (cash never negative, weights at most 100 percent, determinism, permuted universe, doubled capital, causality)
 - `docs/engine.md` (semantics, assumptions and the fixtures with their arithmetic) and ADR 0008 (engine semantics)
 - Engine, part 2 of Phase 4 (F-09, F-11): `run_backtest(spec, provider, allow_short_warmup=True)` loads history from
@@ -63,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   risk flags, `costs_applied`). `WarmupInfo` reports how much history stood behind the first decision, including
   `first_decision_date` and `initial_target_weights`; too little history gives the flag `insufficient_warmup`, an
   `InsufficientWarmupWarning`, or `InsufficientHistoryError` with `allow_short_warmup=False`. The risk flag
-  `costs_not_applied` is set while the costs of the spec are not deducted. Hand-calculated fixtures H14 and H15,
+  `costs_not_applied` marks a run whose costs were not deducted (since Phase 5 only `apply_costs=False`). Hand-calculated fixtures H14 and H15,
   invariant tests through the runner (including a causality test that perturbs all prices after a date), the three
   example specs end to end and a live `network` test of buy and hold on SPY, TLT and GLD
 - ADR 0009 (run pipeline, warm-up and result object)

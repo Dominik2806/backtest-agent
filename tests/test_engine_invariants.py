@@ -109,7 +109,9 @@ def test_buy_and_hold_of_one_asset_equals_the_asset_return(delay: int, price: st
     spec = make_spec(
         universe=("AAA",), start=START, end=END, signal="buy_and_hold", rebalance=rebalance, delay=delay, price=price
     )
-    result = run_backtest(spec, provider)
+    result = run_backtest(
+        spec, provider, apply_costs=False
+    )  # the exact asset return; with costs see test_engine_runner_costs
     frame = provider.last_frame
     prices = frame["AAA"]
     first = result.equity.index[0]

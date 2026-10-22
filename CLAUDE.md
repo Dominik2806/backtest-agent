@@ -34,8 +34,10 @@ Tests never touch the network: use `FakeProvider` or mock `yfinance`. A test tha
 `tests/test_data_hash.py` is a literal: a change of the hash layout needs a `HASH_VERSION` bump and an ADR first.
 
 Engine: `run_backtest(spec, provider)` in `backtest_agent.engine` is the one entry point that loads data with warm-up,
-validates, hashes, runs the signal and returns a `BacktestResult` (costs are not applied until Phase 5). A test that
-expects the short-history `InsufficientWarmupWarning` must catch it (`pytest.warns`); the test summary shows no warnings.
+validates, hashes, runs the signal and returns a `BacktestResult`. It deducts the costs of the spec (`BpsCosts`) and
+reports the gross path from a twin run; `apply_costs=False` gives a cost-free run (it keeps the flag `costs_not_applied`),
+which the zero-cost regressions (H14, buy and hold equals the asset return) use. A test that expects the short-history
+`InsufficientWarmupWarning` must catch it (`pytest.warns`); the test summary shows no warnings.
 A test signal is registered per test with `monkeypatch` (see `tests/runner_helpers.py`), never permanently.
 
 Signal contract (details in `docs/strategy-spec.md`, ADR 0006): a signal `fn(prices, params) -> DataFrame` returns
@@ -76,7 +78,10 @@ PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` wh
 - **PRs:** squash-merged; add a CHANGELOG entry under "Unreleased".
 - **Releases:** follow `docs/RELEASING.md`.
 - **Engine tests:** the expected values of engine tests are hand-calculated literals written out step by step in
-  `docs/engine.md` (`tests/test_engine_hand_calculated.py`); never compute an expected value with engine code or a
-  helper that mirrors it. Random-world tests use fixed seeds.
+  `docs/engine.md` (`tests/test_engine_hand_calculated.py`, `tests/test_engine_costs_hand_calculated.py`,
+  `tests/test_engine_runner_costs.py`); never compute an expected value with engine code or a helper that mirrors it.
+  Random-world tests use fixed seeds. Zero-cost behaviour is compared exactly, the cost fixtures with a tolerance of
+  1e-9 (the funding search leaves a float residual). `tests/cost_reference.py` is the engine-free reference for costs; no
+  test asserts a sign of `cost_drag` or a bound of `cost_share` in general.
 - **Never commit** secrets, `.env`, market data, run outputs or reports (`data/`, `runs/`, `reports/`, `*.parquet`).
 - Update this file when new commands or conventions are introduced.
