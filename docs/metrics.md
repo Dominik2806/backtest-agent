@@ -83,11 +83,12 @@ the report of Phase 7. `None` for `n = 0`.
 
 **Exposure.** With `s_i` the sum of the weights of bar `i` (`BacktestResult.weights`, share of equity at the end of the
 bar, cash is the rest): `exposure_mean = mean(s_i)`; `exposure_invested_share = #(s_i > 1e-9) / n` (the tolerance keeps
-float dust of a fill from counting as a position). `None` for `n = 0`.
+float dust of a fill from counting as a position; the mean itself includes the dust, which changes it only at the
+15th digit). `None` for `n = 0`.
 
 **Turnover.** The engine's turnover is **two-sided**: the sum of the absolute trade notionals of a bar over the portfolio
 value, so buying the whole portfolio from cash is 1.0 and a complete switch from one asset to another is 2.0. The
-annualized two-sided turnover is `sum(turnover) / Y`; the **one-sided** figure (the value bought, or equivalently
+annualized two-sided turnover is `sum(turnover) / Y` (`Y = n / P` over all `n` bars, the first one included); the **one-sided** figure (the value bought, or equivalently
 sold, per year; the figure that most sources call turnover) is **half of it**. Both are reported and labelled
 (`turnover_two_sided_annual`, `turnover_one_sided_annual`). `None` for `n = 0`.
 

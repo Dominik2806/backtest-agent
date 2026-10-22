@@ -1,1 +1,41 @@
-"""Metrics: performance and risk metrics and benchmark comparison (planned)."""
+"""Metrics: performance and risk metrics of a run (see docs/metrics.md); the benchmark comparison follows."""
+
+from backtest_agent.metrics.performance import (
+    MetricAssumptions,
+    PerformanceMetrics,
+    cagr,
+    calmar,
+    compute_metrics,
+    current_drawdown,
+    drawdown_path,
+    exposure,
+    hit_rate,
+    longest_drawdown,
+    max_drawdown,
+    monthly_returns,
+    sharpe,
+    sortino,
+    total_return,
+    turnover_annual,
+    volatility,
+)
+
+__all__ = [
+    "MetricAssumptions",
+    "PerformanceMetrics",
+    "cagr",
+    "calmar",
+    "compute_metrics",
+    "current_drawdown",
+    "drawdown_path",
+    "exposure",
+    "hit_rate",
+    "longest_drawdown",
+    "max_drawdown",
+    "monthly_returns",
+    "sharpe",
+    "sortino",
+    "total_return",
+    "turnover_annual",
+    "volatility",
+]
