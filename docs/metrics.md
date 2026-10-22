@@ -2,7 +2,8 @@
 
 Performance and risk metrics on the **net** return series of a `BacktestResult` (F-12). The code is in
 `src/backtest_agent/metrics/performance.py`, the decisions are in [ADR 0012](adr/0012-metric-conventions.md). The
-benchmark comparison (F-13) follows in the second part of Phase 6 and extends this document.
+benchmark comparison (F-13, `benchmark.py`, `relative.py`, `evaluation.py`, [ADR 0013](adr/0013-benchmark-comparison.md))
+is described in "Benchmark and relative metrics" at the end of this document.
 
 All functions are pure: a metric is a function of a return series (and, for exposure and turnover, of the weights and the
 turnover of the run). Results are plain `float`, `int`, `str` or `None`, so the journal (Phase 8) can serialize them.
@@ -269,3 +270,235 @@ of the Sharpe ratio is the sign of the mean excess return; a constant series (an
 volatility 0.0, no Sharpe and, if positive, no drawdown; the best month is at least the worst month; the one-sided turnover is
 half the two-sided one; no output is NaN or inf, also for degenerate series; and the metrics of a run do not change when its
 initial capital is doubled (tolerance 1e-9).
+
+## Benchmark and relative metrics
+
+A run is judged next to a benchmark (F-13). The code is in `src/backtest_agent/metrics/` (`benchmark.py`, `relative.py`,
+`evaluation.py`), the decisions are in [ADR 0013](adr/0013-benchmark-comparison.md). `evaluate(spec, provider)` is the
+single entry point: it runs the strategy, runs the benchmark, and reports the metrics of both and the relative metrics.
+`run_backtest` itself loads no benchmark.
+
+### The benchmark
+
+The benchmark is a buy-and-hold run through the **same `run_backtest`**, loaded through the **same provider**. Its spec is
+derived from the strategy spec by `benchmark_spec(spec)`:
+
+| Field | Value |
+|---|---|
+| `universe` | `[spec.benchmark]` |
+| `signal` | `buy_and_hold`, params `{}` |
+| `sizing` | `equal_weight` (a `fixed_fraction` strategy still gets a fully invested benchmark) |
+| `rebalance` | `on_signal` |
+| `benchmark` | unchanged |
+| `name` | `"<name> (benchmark <SYM>)"`; the strategy name is cut so that the whole name stays within the 100 characters the spec allows |
+| `period`, `initial_capital`, `execution` (delay, price, same-bar flag), `costs`, `data`, `description`, `schema_version` | copied unchanged |
+
+The benchmark therefore pays the strategy's costs and executes with the strategy's delay and price rule, so the first bar
+is measured identically. If the benchmark symbol is also in the universe there is **no special case**: the benchmark is
+its own `run_backtest` call with its own provider call, its own data hash and its own validation. A benchmark whose data
+cannot be loaded raises the provider's error unchanged; no partial result is returned.
+
+### Alignment on equity levels
+
+Strategy and benchmark may not have the same bar dates (different exchange holidays, a benchmark that starts late or ends
+early). A per-bar return across a date that exists in only one series covers a different holding period, so the comparison
+does **not** align per-bar returns. It aligns the **equity levels** on the common dates and computes the returns from them.
+
+Inputs: the equity series of both runs (one point per bar) and their initial equities. The rule:
+
+1. `common` is the intersection of the bar dates of both results, sorted; `n_common = len(common)`.
+2. If `n_common > 0` and `common[0]` is the first bar of **both** runs, the base of the first return is the **initial equity**
+   of each run (nothing is lost): the returns are `bar_returns(equity[common], initial_equity)`, so the first return is
+   `equity[common[0]] / initial_equity - 1`, and `n_compared = n_common`. `base = "initial_equity"`.
+3. Otherwise the base is the **equity at `common[0]`** of each run, and that date has no return: the returns are
+   `bar_returns(equity[common[1:]], equity[common[0]])` and `n_compared = max(n_common - 1, 0)`. `base = "first_common_date"`,
+   `base_date = common[0]`. (`bar_returns` is the engine's: a base of 0, a ruined portfolio, gives 0.0, never NaN.) With no
+   common date (`n_common = 0`) there is no base point: `base` is `"first_common_date"` and `base_date` is `None`.
+4. `n_dropped_strategy = n_strategy_bars - n_common`, `n_dropped_benchmark = n_benchmark_bars - n_common`;
+   `dates_dropped` is True if either is above 0; `insufficient_overlap` is True if `n_compared < 2`.
+5. Nothing is dropped silently and the function never raises because the calendars differ. No common date gives
+   `n_compared = 0`.
+
+A return across a gap in the common grid (a date missing in one series) is the ratio of the two levels on the common dates
+around it, so it covers the same holding period in both series.
+
+**What is lost, stated plainly.** When the first common date is not the first bar of both runs (rule 3), the first-bar
+return of each run, measured against its initial equity, is **not part of the compared window**; the window starts at the
+equity of `common[0]`. This applies to the strategy as well as to the benchmark. Hence the excess return (computed over the
+window) can differ from the difference of the two `net_return`s of the results, which cover each run's own full path. They
+are equal when `base = "initial_equity"` and nothing is dropped at the end. `RelativeMetrics` reports the two window totals
+(`strategy_return_compared`, `benchmark_return_compared`) so the window is visible, and the `Alignment` fields below.
+
+`Alignment` (scalars only, JSON-ready; the frames are not part of it):
+
+| Field | Meaning |
+|---|---|
+| `n_strategy_bars`, `n_benchmark_bars` | bars of each result |
+| `n_common` | size of the intersection |
+| `n_compared` | return observations after the alignment (rule 2 or 3) |
+| `n_dropped_strategy`, `n_dropped_benchmark` | bars of each result that are not on the common grid |
+| `dates_dropped` | True if either dropped count is above 0 |
+| `insufficient_overlap` | True if `n_compared < 2`; the relative metrics are then `None` |
+| `base` | `"initial_equity"` or `"first_common_date"` |
+| `base_date` | ISO date of the base point when `base = "first_common_date"`, else `None` |
+| `first_compared_date`, `last_compared_date` | ISO dates of the first and the last return; set whenever `n_compared >= 1` (also when the metrics are `None` for lack of observations), else `None` |
+
+### Relative metrics
+
+With the aligned returns `r_s` (strategy) and `r_b` (benchmark) on the `n_compared` dates, the per-bar **active return** is
+`a_i = r_s,i - r_b,i`. `P` and the zero tolerance `eps = 1e-12` are the assumptions of part 1 (`periods_per_year`; the
+risk-free rate is not used).
+
+- **Excess return.** `prod(1 + r_s) - prod(1 + r_b)`, the compounded totals over the compared window.
+- **Tracking error.** `std(a, ddof = 1) * sqrt(P)`. If the per-bar standard deviation is below `eps` the tracking error is
+  exactly 0.0.
+- **Information ratio.** `mean(a) * P / TE`, which equals `mean(a) / std(a) * sqrt(P)` (annualized mean active return over
+  the tracking error). `None` if the tracking error is 0.0.
+- `strategy_return_compared`, `benchmark_return_compared`: the two totals above.
+
+All of them are `None` if `n_compared < 2` (with `insufficient_overlap = True`), and for `n_compared >= 2` only the
+information ratio can still be `None`. The standard deviation is computed without the input check of `volatility`, because
+an active return can be below -1. No output is NaN or inf.
+
+The `PerformanceMetrics` of each run are those of the run's own full result. They agree with the relative metrics when
+nothing is dropped and `base = "initial_equity"`.
+
+### `evaluate` and `evaluate_result`
+
+`evaluate(spec, provider, *, allow_short_warmup=True, apply_costs=True, assumptions=DEFAULT_ASSUMPTIONS)` runs the
+strategy, then `run_backtest(benchmark_spec(spec), provider, ...)` with the same `allow_short_warmup` and `apply_costs`,
+computes `PerformanceMetrics` for both and the relative metrics. `evaluate_result(result, benchmark_result, assumptions)`
+is the pure part: it raises `ValueError` unless `benchmark_result.spec == benchmark_spec(result.spec)` and both have the
+same `costs_applied`, so a result is never compared with a different yardstick.
+
+`Evaluation.to_dict()` is JSON serializable (`float`, `int`, `str`, `bool`, `None`, `dict` and lists of strings; no frames):
+
+```
+{"strategy":  {"name", "data_hash", "costs_applied", "risk_flags": [codes], "metrics": {...}},
+ "benchmark": {"symbol", "name", "data_hash", "costs_applied", "risk_flags": [codes], "metrics": {...}},
+ "relative":  {"excess_return", "tracking_error", "information_ratio",
+               "strategy_return_compared", "benchmark_return_compared", "alignment": {...}},
+ "assumptions": {...}}
+```
+
+`risk_flags` are the flag codes (strings); the messages stay on the results.
+
+### Benchmark fixtures R1 to R3
+
+The expected values are literals taken from this document; the tests never compute one with project code or a helper that
+mirrors it. Tolerance `1e-9` (relative and absolute). Dates are consecutive business days from 2024-01-02 unless stated.
+
+#### R1 Pure relative numbers (`P = 4`)
+
+Dates Jan 2, 3, 4, 5, 8. Strategy returns `[0.14, 0.16, 0.14, 0.16, 0.15]`, benchmark `0.10` on every bar.
+
+- Active `[0.04, 0.06, 0.04, 0.06, 0.05]`; mean `0.25 / 5 = 0.05`; deviations `-0.01, +0.01, -0.01, +0.01, 0`; sum of
+  squares `4 * 0.0001 = 0.0004`; `/ 4 = 0.0001`; std `0.01`.
+- `TE = 0.01 * sqrt(4) = 0.02`. `IR = 0.05 * 4 / 0.02 = 10`.
+- Strategy total `1.14 * 1.16 * 1.14 * 1.16 * 1.15 - 1 = 1.3224^2 * 1.15 - 1 = 1.74874176 * 1.15 - 1 = 1.011053024`.
+  Benchmark total `1.1^5 - 1 = 0.61051`. Excess return `0.400543024`.
+
+#### R2a Calendar mismatch (`P = 4`, both initial equities 1000)
+
+Strategy bars Jan 2, 3, 4, 5 with equity `1000, 1100, 1210, 1089`. Benchmark bars Jan 3, 4, 5, 8 with equity
+`1000, 1050, 1102.5, 1157.625`.
+
+- Common dates: Jan 3, 4, 5, so `n_common = 3`. Jan 3 is the strategy's second bar, so the base is the equity at Jan 3
+  (1100 and 1000) and Jan 3 has no return: `n_compared = 3 - 1 = 2`, `base = first_common_date`, `base_date = 2024-01-03`.
+- Counts: dropped from the strategy `4 - 3 = 1` (Jan 2), dropped from the benchmark `4 - 3 = 1` (Jan 8); `dates_dropped =
+  True`, `insufficient_overlap = False`. First and last compared date Jan 4 and Jan 5.
+- Strategy returns: Jan 4 `1210 / 1100 - 1 = 0.1`, Jan 5 `1089 / 1210 - 1 = -0.1`. Benchmark: Jan 4 `1050 / 1000 - 1 =
+  0.05`, Jan 5 `1102.5 / 1050 - 1 = 0.05`.
+- Active `[0.05, -0.15]`; mean `-0.05`; deviations `+0.10, -0.10`; sum of squares `0.02`; `/ 1 = 0.02`; std `sqrt(0.02) =
+  0.141421356237`.
+- `TE = 0.141421356237 * 2 = 0.282842712475` (`sqrt(0.08)`). `IR = -0.05 * 4 / 0.282842712475 = -0.707106781187`
+  (`-1 / sqrt(2)`).
+- Window totals: strategy `1.1 * 0.9 - 1 = -0.01` (`1089 / 1100 - 1`), benchmark `1.05^2 - 1 = 0.1025`. Excess return
+  `-0.01 - 0.1025 = -0.1125`.
+- The own net returns are `1089 / 1000 - 1 = 0.089` and `1157.625 / 1000 - 1 = 0.157625`; their difference `-0.068625` is
+  not the excess return, because the own paths cover different dates (the strategy's own first-bar return and the
+  benchmark's are not part of the window).
+
+#### R2b Fewer than two observations (`P = 4`)
+
+Strategy Jan 2, 3, 4 with `1000, 1100, 1210`; benchmark Jan 3, 4, 5 with `1000, 1050, 1102.5`. Common Jan 3, 4: `n_common =
+2`, base Jan 3, `n_compared = 1`, dropped 1 and 1, `dates_dropped = True`, `insufficient_overlap = True`. Excess return,
+tracking error and information ratio are all `None`.
+
+**R2b'** (no common date): strategy Jan 2, 3 with `1000, 1100`; benchmark Jan 4, 5 with `1000, 1050`. `n_common = 0`,
+`n_compared = 0`, dropped 2 and 2, both flags True, `base_date = None`, everything `None`, no exception.
+
+#### R2c Identical calendars (`P = 4`)
+
+Jan 2, 3, 4, 5, both initial equities 1000. Benchmark equity `1100, 1210, 1331, 1464.1` (0.10 per bar); strategy `1200,
+1392, 1670.4, 1937.664` (returns `0.20, 0.16, 0.20, 0.16`).
+
+- The first common date (Jan 2) is the first bar of both runs: base is the initial equity, `n_compared = 4`, nothing
+  dropped, `dates_dropped = False`, `insufficient_overlap = False`, `base_date = None`.
+- Active `[0.10, 0.06, 0.10, 0.06]`; mean `0.08`; deviations `+0.02, -0.02, +0.02, -0.02`; sum of squares `0.0016`; `/ 3 =
+  0.000533333`; std `0.04 / sqrt(3) = 0.023094010768`.
+- `TE = 0.023094010768 * 2 = 0.046188021535`. `IR = 0.08 * 4 / 0.046188021535 = 4 * sqrt(3) = 6.928203230276`.
+- Totals: strategy `1.2 * 1.16 * 1.2 * 1.16 - 1 = 1.392^2 - 1 = 0.937664`, benchmark `1.1^4 - 1 = 0.4641`. Excess
+  `0.473564`.
+
+#### R2d The first common date is the first bar of only one run (`P = 4`)
+
+Benchmark bars Jan 2, 3, 4, 5 with `1000, 1100, 1210, 1331`; strategy bars Jan 3, 4, 5 with `1000, 1200, 1440`.
+
+- Common Jan 3, 4, 5. Jan 3 is the strategy's first bar but the benchmark's second, so rule 3 applies: base is the equity at
+  Jan 3 (1000 and 1100), `n_compared = 2`, dropped from the strategy 0, from the benchmark 1, `dates_dropped = True`.
+- Strategy returns `1200 / 1000 - 1 = 0.2`, `1440 / 1200 - 1 = 0.2`. Benchmark `1210 / 1100 - 1 = 0.1`, `1331 / 1210 - 1 =
+  0.1`. Active `[0.1, 0.1]`: std 0, `TE = 0.0`, `IR = None`.
+- Totals: strategy `1.2^2 - 1 = 0.44`, benchmark `1.1^2 - 1 = 0.21`; excess `0.23`. (With the initial equity as the base the
+  benchmark total would be `1331 / 1000 - 1 = 0.331`, a window the strategy never had.)
+
+#### R3 Through `evaluate` with a literal provider (`P = 5`)
+
+Setup of H23 in [engine.md](engine.md): capital 1000, period 2024-01-02 to 2024-01-08, signal `buy_and_hold` (warm-up 0),
+`equal_weight`, `on_signal`, delay 1, open fills, costs commission 1000, spread 1000, slippage 500 bps (25 percent). The
+fetch start is `2024-01-02` minus `2 * (0 + 1) + 14 = 16` days = 2023-12-17. A: open `100, 100, 110, 121, 133.1`; close
+`100, 110, 121, 133.1, 146.41`. The signal of Jan 2 is executed at the Jan 3 open (delay 1): 8 shares of A bought at 100
+after the 25 percent funding rule of H23 (as H23, equity `1000, 880, 968, 1064.8, 1171.28`, returns `[0, -0.12, 0.1, 0.1, 0.1]`, net
+return `0.17128`).
+
+**R3a Benchmark equals the strategy's symbol.** Strategy on A with `benchmark: A`. The benchmark spec is the same run, so
+both equities and returns are those of H23 and both `PerformanceMetrics` equal the M12 literals (total return `0.17128`,
+Sharpe `0.826767381914`, Sortino `1.5`, max drawdown `-0.12`, ...). Active returns are all 0: excess return `0.0`, tracking
+error `0.0`, information ratio `None`; nothing dropped, `base = initial_equity`, `n_compared = 5`. The provider is called
+twice with `(("A",), 2023-12-17, 2024-01-08)`.
+
+**R3b Strategy on A, benchmark B, with costs.** Prices of B (each open equals the previous close, moves of +-10 percent):
+open `50, 50, 55, 49.5, 54.45`; close `50, 55, 49.5, 54.45, 49.005`. The strategy is buy and hold on A as in R3a.
+
+- Benchmark net run: Jan 3 open 50, V = 1000, q = 1000 / 50 = 20 shares (notional 1000), the outlay 1000 + 0.25 * 1000 = 1250
+  exceeds the cash 1000, so `f = 1000 / 1250 = 0.8`: 16 shares, notional 800, fee 200, cash 0. Equity: Jan 2 `1000`, Jan 3
+  `16 * 55 = 880`, Jan 4 `16 * 49.5 = 792`, Jan 5 `16 * 54.45 = 871.2`, Jan 8 `16 * 49.005 = 784.08`. Returns `[0,
+  -0.12, -0.1, 0.1, -0.1]`. Net return `784.08 / 1000 - 1 = -0.21592`; total costs 200; hit rate `1 / 5`; maximum drawdown
+  (peak 1000, trough 784.08) `-0.21592`.
+- The benchmark without costs (the wrong yardstick): 20 shares, equity `1000, 1100, 990, 1089, 980.1`, return `-0.0199`.
+- Active `[0, 0, 0.2, 0, 0.2]` (strategy `[0, -0.12, 0.1, 0.1, 0.1]` minus benchmark `[0, -0.12, -0.1, 0.1, -0.1]`); mean `0.4 / 5 =
+  0.08`; deviations `-0.08, -0.08, +0.12, -0.08, +0.12`; sum of squares `3 * 0.0064 + 2 * 0.0144 = 0.048`; `/ 4 = 0.012`;
+  std `0.109544511501`.
+- `TE = 0.109544511501 * sqrt(5) = sqrt(0.06) = 0.244948974278`. `IR = 0.08 * 5 / 0.244948974278 = 1.632993161855` (`2 *
+  sqrt(6) / 3`).
+- Excess return `0.17128 - (-0.21592) = 0.3872`. With a cost-free benchmark it would be `0.17128 + 0.0199 = 0.19118`: the
+  difference proves that the benchmark carries the strategy's costs.
+- The provider is called twice: `(("A",), 2023-12-17, 2024-01-08)` for the universe and `(("B",), 2023-12-17, 2024-01-08)`
+  for the benchmark.
+
+**R3c `apply_costs=False` on the world of R3b.** Both runs are cost-free and carry the flag `costs_not_applied`,
+`costs_applied` is False. Strategy equity `1000, 1100, 1210, 1331, 1464.1` (return `0.4641`), benchmark `-0.0199`; excess
+return `0.4641 + 0.0199 = 0.4840`. Active is again `[0, 0, 0.2, 0, 0.2]`, so tracking error and information ratio equal R3b.
+
+### Tests (beyond the fixtures)
+
+`benchmark_spec` copies period, capital, execution (also delay 0 with price close and the same-bar flag) and costs, sets the
+universe to `[benchmark]`, the signal to `buy_and_hold` with no params, the sizing to `equal_weight` (also for a
+`fixed_fraction` strategy), keeps the benchmark field, builds the name and does not change the strategy spec; a benchmark
+that is also in the universe is its own run. `evaluate_result` raises `ValueError` for a benchmark result of another spec and
+for another `costs_applied`. Swapping strategy and benchmark in `compare_equity` flips the sign of excess return and
+information ratio and keeps the tracking error. A strategy against itself has tracking error 0.0 and no information ratio.
+No output is NaN or inf, also for seeded random series and degenerate inputs (a single bar, constants, a ruin before the
+base, no common date, empty series). `to_dict` is JSON serializable (`json.dumps`) and contains both data hashes, both
+names, the risk flag codes and the alignment. `apply_costs=False` reaches both runs. A benchmark that starts late or ends
+early aligns without an error, and a benchmark with no data raises the provider's error unchanged.
