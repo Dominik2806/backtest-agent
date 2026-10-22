@@ -4,6 +4,7 @@ The input is prices and, for every bar on which the portfolio is rebalanced, tar
 signals, delays, specs or data providers, so it can be checked by hand on tiny worlds.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -28,10 +29,16 @@ class Portfolio:
     cash: pd.Series
     positions: pd.DataFrame  # shares per symbol
     weights: pd.DataFrame  # share of equity per symbol, cash is the rest
-    trades: pd.DataFrame  # date, symbol, shares (signed), price, notional (signed)
+    trades: pd.DataFrame  # date, symbol, shares (signed), price, notional (signed), cost (fee, 0 or more)
+    costs: pd.Series  # fees paid per bar, deducted from cash on the bar of the fill
     turnover: pd.Series  # two-sided: sum of absolute trade notionals / portfolio value at the execution mark
     deferred_orders: int  # orders carried past their execution bar (no price, or not enough cash)
     unfilled_orders: int  # orders still open after the last bar
+
+    @property
+    def total_costs(self) -> float:
+        """All fees paid over the run."""
+        return float(self.costs.sum())
 
     @property
     def returns(self) -> pd.Series:
@@ -82,7 +89,8 @@ def simulate(
     turnover_path = np.zeros(n_bars)
     shares_path = np.empty((n_bars, n_symbols))
     weights_path = np.empty((n_bars, n_symbols))
-    trade_rows: list[tuple[pd.Timestamp, str, float, float, float]] = []
+    costs_path = np.zeros(n_bars)
+    trade_rows: list[tuple[pd.Timestamp, str, float, float, float, float]] = []
 
     for i in range(n_bars):
         price = fills[i]
@@ -103,18 +111,31 @@ def simulate(
         safe_price = np.where(priced, price, 0.0)
         quantity = np.where(fillable, open_orders, 0.0)
         notional = quantity * safe_price
-        cash_after_sells = cash - notional[notional < 0.0].sum()
-        buy_total = notional[notional > 0.0].sum()
-        factor = 1.0
-        if buy_total > cash_after_sells:
-            factor = max(cash_after_sells, 0.0) / buy_total
-        filled = quantity * np.where(notional > 0.0, factor, 1.0)
+        sells, buys = notional < 0.0, notional > 0.0
+
+        def fee(s: int, amount: float, bar: pd.Timestamp = index[i]) -> float:
+            return _checked_cost(cost_model, symbols[s], amount, bar)
+
+        # A sale pays its fee out of its proceeds, so the fee is capped at the proceeds.
+        sell_cost = np.zeros(n_symbols)
+        for s in np.flatnonzero(sells):
+            sell_cost[s] = min(fee(s, -float(notional[s])), -float(notional[s]))
+        gross_cash = cash - notional[sells].sum()
+        buy_total = notional[buys].sum()
+        cap = 1.0  # the part of the buys that cash can cover if trading were free
+        if buy_total > gross_cash:
+            cap = max(gross_cash, 0.0) / buy_total
+        factor = _affordable_factor(cap, np.flatnonzero(buys), notional, fee, gross_cash - sell_cost.sum(), sell_cost)
+        filled = quantity * np.where(buys, factor, 1.0)
         filled_notional = filled * safe_price
-        remainder = open_orders - filled
+        # What fees alone kept from being bought (cap - factor) is dropped; only the cost-free shortfall stays open.
+        remainder = open_orders - quantity * np.where(buys, cap, 1.0)
         open_orders = np.where(np.abs(remainder * mark) <= DUST * value, 0.0, remainder)
 
-        cost = sum(cost_model.cost(symbols[s], abs(float(filled_notional[s]))) for s in np.flatnonzero(filled))
-        cash = cash - filled_notional.sum() - cost
+        trade_cost = sell_cost.copy()
+        for s in np.flatnonzero(buys & (filled != 0.0)):
+            trade_cost[s] = fee(s, float(filled_notional[s]))
+        cash = cash - filled_notional.sum() - trade_cost.sum()
         if cash < -DUST * value:
             raise EngineInvariantError(f"cash became negative ({cash}) on {index[i].date()}")
         cash = max(cash, 0.0)
@@ -122,7 +143,16 @@ def simulate(
         if (shares < 0.0).any():
             raise EngineInvariantError(f"a position became negative on {index[i].date()}")
         for s in np.flatnonzero(filled):
-            trade_rows.append((index[i], symbols[s], float(filled[s]), float(price[s]), float(filled_notional[s])))
+            row = (
+                index[i],
+                symbols[s],
+                float(filled[s]),
+                float(price[s]),
+                float(filled_notional[s]),
+                float(trade_cost[s]),
+            )
+            trade_rows.append(row)
+        costs_path[i] = trade_cost.sum()
         turnover_path[i] = np.abs(filled_notional).sum() / value
 
         # 4. Carry: orders that are still open after this bar are counted once.
@@ -147,6 +177,7 @@ def simulate(
         positions=pd.DataFrame(shares_path, index=index, columns=columns),
         weights=pd.DataFrame(weights_path, index=index, columns=columns),
         trades=_trades_frame(trade_rows),
+        costs=pd.Series(costs_path, index=index, name="costs"),
         turnover=pd.Series(turnover_path, index=index, name="turnover"),
         deferred_orders=deferred_orders,
         unfilled_orders=int((open_orders != 0.0).sum()),
@@ -175,11 +206,62 @@ def _new_orders(
     return np.where(traded_value <= DUST * value, 0.0, quantity)
 
 
-def _trades_frame(rows: list[tuple[pd.Timestamp, str, float, float, float]]) -> pd.DataFrame:
-    columns = ["date", "symbol", "shares", "price", "notional"]
+#: Halvings of the search for the affordable share of the buys; 2**-64 is below the resolution of a float.
+_BISECTION_STEPS = 64
+
+
+def _checked_cost(cost_model: CostModel, symbol: str, notional: float, date: pd.Timestamp) -> float:
+    """A cost of the model; a custom model is not trusted, so an invalid value is an invariant error."""
+    value = cost_model.cost(symbol, notional)
+    if not np.isfinite(value) or value < 0.0:
+        raise EngineInvariantError(
+            f"the cost model returned {value!r} for a trade of {notional} in {symbol} on {date.date()}; "
+            "a cost must be finite and not negative"
+        )
+    return float(value)
+
+
+def _affordable_factor(
+    cap: float,
+    buy_symbols: np.ndarray,
+    notional: np.ndarray,
+    fee: Callable[[int, float], float],
+    budget: float,
+    sell_cost: np.ndarray,
+) -> float:
+    """The largest share ``f <= cap`` of every buy that cash can pay for, fees included.
+
+    ``budget`` is the cash after the sells, net of their fees. The outlay ``sum(f * N + fee(f * N))`` grows with ``f``,
+    so the answer is found by bisection with the fee function of the model itself. If trading is free (no fee on the
+    sells and none on the buys at ``cap``) the answer is ``cap`` exactly, as in the free-trading rule of Phase 4.
+    Returns 0 if not even the smallest fill can pay its fee.
+    """
+    if len(buy_symbols) == 0:
+        return cap
+
+    def outlay(f: float) -> float:
+        return sum(f * float(notional[s]) + fee(s, f * float(notional[s])) for s in buy_symbols)
+
+    fees_at_cap = sum(fee(s, cap * float(notional[s])) for s in buy_symbols)
+    if fees_at_cap == 0.0 and not sell_cost.any():
+        return cap
+    if outlay(cap) <= budget:
+        return cap
+    low, high = 0.0, cap
+    for _ in range(_BISECTION_STEPS):
+        middle = (low + high) / 2
+        if outlay(middle) <= budget:
+            low = middle
+        else:
+            high = middle
+    return low
+
+
+def _trades_frame(rows: list[tuple[pd.Timestamp, str, float, float, float, float]]) -> pd.DataFrame:
+    columns = ["date", "symbol", "shares", "price", "notional", "cost"]
     frame = pd.DataFrame(rows, columns=columns)
     frame["date"] = frame["date"].astype("datetime64[ns]")
-    for name in ("shares", "price", "notional"):
+    for name in ("shares", "price", "notional", "cost"):
         frame[name] = frame[name].astype("float64")
     return frame
 

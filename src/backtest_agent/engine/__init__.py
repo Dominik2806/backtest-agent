@@ -5,7 +5,7 @@ with warm-up, validates and hashes it, runs the signal and returns a ``BacktestR
 """
 
 from backtest_agent.engine.core import Portfolio, simulate
-from backtest_agent.engine.costs import CostModel, NoCosts
+from backtest_agent.engine.costs import BpsCosts, CostModel, NoCosts
 from backtest_agent.engine.errors import (
     EngineError,
     EngineInvariantError,
@@ -20,6 +20,7 @@ from backtest_agent.engine.sizing import target_weights
 
 __all__ = [
     "BacktestResult",
+    "BpsCosts",
     "CostModel",
     "EngineError",
     "EngineInvariantError",
