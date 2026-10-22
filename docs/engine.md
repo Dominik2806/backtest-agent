@@ -129,8 +129,9 @@ With `on_signal` there is no new decision before the signal changes, so the port
 
 **Turnover is two-sided.** The turnover of a bar is the **sum of the absolute trade notionals divided by the
 portfolio value `V` at the execution mark** of that bar (step 1). Buying the whole portfolio from cash gives 1.0, a
-complete switch from one asset to another gives 2.0. It is 0.0 on bars without trades. Phase 6 must label turnover
-metrics accordingly (a one-sided figure is half of this).
+complete switch from one asset to another gives 2.0. It is 0.0 on bars without trades. The metrics of Phase 6 label
+both figures: the annualized two-sided turnover and the one-sided one, which is half of it (see "Turnover" in
+[metrics.md](metrics.md)).
 
 ### Costs
 
@@ -201,7 +202,8 @@ and net" under "Running a spec" ([ADR 0011](adr/0011-gross-net-result.md)).
 signed, `cost`, ordered by bar then by symbol order); `initial_equity` (the initial capital); the counters
 `deferred_orders` and `unfilled_orders`; and the property `total_costs`.
 `returns` is `equity / equity.shift(1, fill_value=initial_equity) - 1`, so the **return of the first bar is
-well defined**: it is measured against the initial capital. `BacktestResult` (see "Running a spec") wraps the same
+well defined**: it is measured against the initial capital. After a portfolio ruined by fees (equity 0) the return of
+every later bar is **0.0**, not 0/0 = NaN; the bar that ruined it has the return -1 (H23c: `[0, 0, -0.5, -1, 0]`). `BacktestResult` (see "Running a spec") wraps the same
 series and frames.
 
 ### Why a loop and not a vectorized calculation

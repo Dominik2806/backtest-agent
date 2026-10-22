@@ -83,5 +83,9 @@ PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` wh
   Random-world tests use fixed seeds. Zero-cost behaviour is compared exactly, the cost fixtures with a tolerance of
   1e-9 (the funding search leaves a float residual). `tests/cost_reference.py` is the engine-free reference for costs; no
   test asserts a sign of `cost_drag` or a bound of `cost_share` in general.
+- **Metrics tests:** the expected values of `tests/test_metrics_hand_calculated.py` (M1 to M14) are literals written out in
+  `docs/metrics.md`, compared with 1e-9 (relative and absolute); never compute one with project code. A metric that is
+  not defined is `None`, never NaN or inf; a per-bar deviation below 1e-12 counts as zero (`docs/metrics.md`). Turnover
+  is reported two-sided (the engine's) and one-sided (half). `BacktestResult.returns` is 0.0 after a ruin.
 - **Never commit** secrets, `.env`, market data, run outputs or reports (`data/`, `runs/`, `reports/`, `*.parquet`).
 - Update this file when new commands or conventions are introduced.

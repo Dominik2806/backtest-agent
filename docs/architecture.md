@@ -26,7 +26,7 @@ flowchart LR
 |---|---|---|---|
 | Strategy architect | Asks clarifying questions, writes the spec and a list of assumptions, never runs a backtest | Agent | Planned (Phase 10) |
 | Signal coder | Writes the signal function and its tests, only under `strategies/` and tests | Agent | Planned (Phase 10) |
-| Engine and data layer | Fetches and validates data, runs the backtest, computes metrics | Deterministic code | Data fetching, cache, validation and hash done (Phases 1 and 2); portfolio simulation, runner with warm-up and result object done (Phase 4); costs and the gross versus net result done (Phase 5); metrics planned (Phase 6) |
+| Engine and data layer | Fetches and validates data, runs the backtest, computes metrics | Deterministic code | Data fetching, cache, validation and hash done (Phases 1 and 2); portfolio simulation, runner with warm-up and result object done (Phase 4); costs and the gross versus net result done (Phase 5); performance metrics done (Phase 6 part 1, see [metrics.md](metrics.md)), benchmark comparison planned (Phase 6 part 2) |
 | Bias auditor | Reviews spec, signal code and results in its own context | Agent | Planned (Phase 11) |
 | Report interpreter | Writes an honest plain-language verdict | Agent | Planned (Phase 11) |
 
@@ -54,7 +54,7 @@ The same steps run without any agent through the `bt` command (Phase 9).
 | Data layer | Provider interface, yfinance provider, fake provider, Parquet cache (Phase 1); validation, data hash (Phase 2) | `src/backtest_agent/data/` |
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals, example specs (Phase 3; see [strategy-spec.md](strategy-spec.md)) | `src/backtest_agent/spec/`, `strategies/` |
 | Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; costs and gross versus net (Phases 4 and 5, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
-| Metrics | Performance and risk metrics, benchmark comparison | `src/backtest_agent/metrics/` |
+| Metrics | Performance and risk metrics (Phase 6 part 1, see [metrics.md](metrics.md)); benchmark comparison (planned, Phase 6 part 2) | `src/backtest_agent/metrics/` |
 | Reporting | Markdown and HTML reports with charts and caveats | `src/backtest_agent/reporting/` |
 | Journal | Run log with trial counter per strategy family | `src/backtest_agent/journal/` |
 | CLI | The `bt` command (planned, Phase 9) | `src/backtest_agent/cli.py` |

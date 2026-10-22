@@ -143,7 +143,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Done |
 | 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | Done |
 | 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | Done |
-| 6 | `feature/metrics-benchmark` | Performance metrics and buy-and-hold comparison | F-12, F-13 | M | Planned |
+| 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | In progress (part 1 of 2 merged) |
 | 7 | `feature/report` | Markdown and HTML report with charts and caveats | F-14 | M | Planned |
 | 8 | `feature/experiment-journal` | Run log with trial counter | F-15 | S | Planned |
 | 9 | `feature/cli` | `bt` command; release `v0.1.0` | F-16 | M | Planned |
@@ -241,6 +241,19 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   `tests/test_engine_core_invariants.py`. It tested the documented temporary behaviour (a 10 percent model makes cash
   negative until the funding rule is extended), which no longer exists; the new tests keep the guard with
   pathological models. No expected value of H1 to H15 changed.
+- Phase 6: `Portfolio.returns` and `BacktestResult.returns` return 0.0 for every bar after a portfolio was ruined by
+  fees (equity 0), instead of 0/0 = NaN, through the shared helper `bar_returns` in `engine/core.py` (the bar that
+  ruined it keeps -1). The metrics must never see NaN. A test pins the H23c returns `[0, 0, -0.5, -1, 0]`; no
+  expected value of H1 to H23c changed.
+- Phase 6: the phase is split into two pull requests because it exceeds one reviewable PR. Part 1
+  (`feature/metrics-benchmark`): the metrics of F-12 (`metrics/performance.py`), `docs/metrics.md` with fixtures M1 to M14,
+  ADR 0012, the `returns` fix above. Part 2 (`feature/benchmark-comparison`, created from `main` after part 1 is merged):
+  the benchmark run through `run_backtest`, relative metrics, the evaluation that reports both, ADR 0013, status **Done**.
+  Effort is M for each part.
+- Phase 6 part 1: beyond the roadmap text, `PerformanceMetrics` also reports the current drawdown, the number of bars,
+  years, and the labels of the best and worst month; "zero" for a deviation is a documented tolerance of 1e-12, not an
+  exact zero; an undefined metric is `None`. The benchmark is already the required spec field `benchmark`, so no schema
+  change is planned for part 2.
 
 ---
 

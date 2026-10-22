@@ -10,6 +10,7 @@ from datetime import date
 import pandas as pd
 
 from backtest_agent.data.validation import ValidationResult
+from backtest_agent.engine.core import bar_returns
 from backtest_agent.spec.schema import RiskFlag, StrategySpec
 
 
@@ -104,5 +105,5 @@ class BacktestResult:
 
     @property
     def returns(self) -> pd.Series:
-        """Return per bar; the first bar is measured against ``initial_equity``."""
-        return self.equity / self.equity.shift(1, fill_value=self.initial_equity) - 1.0
+        """Return per bar; the first bar is measured against ``initial_equity``, 0.0 after a ruin (``bar_returns``)."""
+        return bar_returns(self.equity, self.initial_equity)
