@@ -23,7 +23,7 @@ strategy family, and the auditor's findings. The trial counter makes overfitting
 the same as one.
 
 The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton, the data
-layer, the strategy spec and the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage) exist; the other features described above arrive in the phases named in the
+layer, the strategy spec and the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage) and the performance metrics of a run (Phase 6, part 1) exist; the other features described above arrive in the phases named in the
 [roadmap](docs/ROADMAP.md).
 
 ## Requirements
@@ -93,7 +93,7 @@ One live test against yfinance exists and is excluded by default; run it manuall
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals; see [docs/strategy-spec.md](docs/strategy-spec.md) | [`src/backtest_agent/spec/`](src/backtest_agent/spec) |
 | Example specs | SMA crossover, 12-1 momentum and buy and hold on liquid ETFs | [`strategies/`](strategies) |
 | Engine | Portfolio simulation with execution delay, rebalancing and costs (commission, half-spread, slippage), long-only, multi-asset, and `run_backtest` (data with warm-up, validation, hash, net and gross result). See [docs/engine.md](docs/engine.md) | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
-| Metrics (planned) | Performance and risk metrics, benchmark comparison | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
+| Metrics | CAGR, volatility, Sharpe, Sortino, drawdown, Calmar, hit rate, turnover, exposure and monthly returns of a run (benchmark comparison planned, Phase 6 part 2). See [docs/metrics.md](docs/metrics.md) | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
 | Reporting (planned) | Markdown and HTML reports with charts and caveats | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
 | Journal (planned) | Run log with trial counter per strategy family | [`src/backtest_agent/journal/`](src/backtest_agent/journal) |
 | Robustness (planned) | Out-of-sample, walk-forward, sensitivity, regimes, deflated Sharpe | [`src/backtest_agent/robustness/`](src/backtest_agent/robustness) |
@@ -137,7 +137,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 3 | YAML strategy spec, signal interface, example strategies | Done |
 | 4 | Engine with execution delay, proven by hand-calculated tests | Done |
 | 5 | Commission, spread and slippage models | Done |
-| 6 | Performance metrics and buy-and-hold comparison | Planned |
+| 6 | Performance metrics and buy-and-hold comparison | In progress (part 1 of 2 merged) |
 | 7 | Markdown and HTML report with charts and caveats | Planned |
 | 8 | Run log with trial counter | Planned |
 | 9 | `bt` command; release `v0.1.0` | Planned |

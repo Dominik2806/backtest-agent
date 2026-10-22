@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Performance metrics (F-12, Phase 6 part 1): `compute_metrics(result, MetricAssumptions(periods_per_year, risk_free_rate))`
+  returns `PerformanceMetrics` (total return from `net_return`, CAGR, annualized volatility, Sharpe, Sortino, maximum and
+  current drawdown, longest drawdown in bars and days, Calmar, hit rate, two-sided and one-sided annualized turnover,
+  exposure, best and worst month) and the pure functions behind it. Undefined values are `None`, never NaN or inf; a
+  per-bar deviation below 1e-12 counts as zero. `docs/metrics.md` has every formula and assumption and the
+  hand-calculated fixtures M1 to M14, with tests and property tests, ADR 0012. The benchmark comparison follows in part 2.
 - Costs and slippage (F-10): `BpsCosts` applies commission, half-spread and slippage in basis points of the traded
   value, with the optional `costs.min_commission` (per trade, commission only, default 0) in the spec. Costs are cash
   fees on the bar of the fill: the `trades` table has a `cost` column and the portfolio has costs per bar and
@@ -76,6 +82,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Portfolio.returns` and `BacktestResult.returns` are 0.0 after a portfolio was ruined by fees (equity 0) instead of
+  NaN (0/0); the bar that ruined it keeps the return -1.
 - A symbol without a price on the first bar is valued at its last close from the warm-up bars (before, the core
   raised `EngineError` when such a symbol got an order on the first bar); `simulate` takes the optional
   `initial_last_close`

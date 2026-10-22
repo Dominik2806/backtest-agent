@@ -129,8 +129,9 @@ With `on_signal` there is no new decision before the signal changes, so the port
 
 **Turnover is two-sided.** The turnover of a bar is the **sum of the absolute trade notionals divided by the
 portfolio value `V` at the execution mark** of that bar (step 1). Buying the whole portfolio from cash gives 1.0, a
-complete switch from one asset to another gives 2.0. It is 0.0 on bars without trades. Phase 6 must label turnover
-metrics accordingly (a one-sided figure is half of this).
+complete switch from one asset to another gives 2.0. It is 0.0 on bars without trades. The metrics of Phase 6 label
+both figures: the annualized two-sided turnover and the one-sided one, which is half of it (see "Turnover" in
+[metrics.md](metrics.md)).
 
 ### Costs
 
