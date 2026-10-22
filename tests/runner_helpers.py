@@ -32,8 +32,12 @@ def make_spec(
     fraction: float | None = None,
     costs: tuple[float, float, float] = (1.0, 2.0, 2.0),
     capital: float = 100000,
+    benchmark: str | None = None,
 ) -> StrategySpec:
-    """A valid spec; the defaults are an SMA crossover with short windows (warm-up 19 rows) on two fake symbols."""
+    """A valid spec; the defaults are an SMA crossover with short windows (warm-up 19 rows) on two fake symbols.
+
+    The benchmark is the first symbol of the universe unless given.
+    """
     data = valid()
     data["universe"] = list(universe)
     data["period"] = {"start": start, "end": end}
@@ -44,7 +48,7 @@ def make_spec(
     data["sizing"] = {"method": method} | ({} if fraction is None else {"fraction": fraction})
     data["rebalance"] = rebalance
     data["costs"] = dict(zip(("commission_bps", "spread_bps", "slippage_bps"), costs, strict=True))
-    data["benchmark"] = universe[0]
+    data["benchmark"] = universe[0] if benchmark is None else benchmark
     data["initial_capital"] = capital
     return parse_spec(to_yaml(data))
 

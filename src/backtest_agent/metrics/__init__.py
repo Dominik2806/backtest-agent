@@ -1,6 +1,9 @@
-"""Metrics: performance and risk metrics of a run (see docs/metrics.md); the benchmark comparison follows."""
+"""Metrics: performance and risk metrics of a run and its comparison with a benchmark (see docs/metrics.md)."""
 
+from backtest_agent.metrics.benchmark import benchmark_spec
+from backtest_agent.metrics.evaluation import Evaluation, evaluate, evaluate_result
 from backtest_agent.metrics.performance import (
+    DEFAULT_ASSUMPTIONS,
     MetricAssumptions,
     PerformanceMetrics,
     cagr,
@@ -19,20 +22,39 @@ from backtest_agent.metrics.performance import (
     turnover_annual,
     volatility,
 )
+from backtest_agent.metrics.relative import (
+    AlignedReturns,
+    Alignment,
+    RelativeMetrics,
+    align_equity,
+    compare_equity,
+    relative_from_returns,
+)
 
 __all__ = [
+    "DEFAULT_ASSUMPTIONS",
+    "AlignedReturns",
+    "Alignment",
+    "Evaluation",
     "MetricAssumptions",
     "PerformanceMetrics",
+    "RelativeMetrics",
+    "align_equity",
+    "benchmark_spec",
     "cagr",
     "calmar",
+    "compare_equity",
     "compute_metrics",
     "current_drawdown",
     "drawdown_path",
+    "evaluate",
+    "evaluate_result",
     "exposure",
     "hit_rate",
     "longest_drawdown",
     "max_drawdown",
     "monthly_returns",
+    "relative_from_returns",
     "sharpe",
     "sortino",
     "total_return",
