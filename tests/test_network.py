@@ -10,6 +10,7 @@ from backtest_agent.data.yfinance_provider import YFinanceProvider
 from backtest_agent.engine import run_backtest
 from backtest_agent.spec import load_spec
 from backtest_agent.spec.schema import Period
+from cost_reference import independent_buy_and_hold
 
 SYMBOLS = ["AAPL", "SAP.DE", "SPY"]  # US stock, German stock (tz-aware Europe/Berlin index), US ETF
 START = date(2023, 1, 2)
@@ -70,29 +71,39 @@ def test_live_buy_and_hold_final_equity_matches_an_independent_calculation(tmp_p
     frame = provider.frame
     assert frame is not None
 
-    # Independent calculation from the same downloaded frame, written out by hand: equal thirds bought at the open of
-    # the first bar (the initial decision is made on the bar before, 2022-12-30), then rebalanced to equal thirds at
-    # the opens of 2023-02-01 and 2023-03-01 (the bars after the month ends 2023-01-31 and 2023-02-28; 2023-03-31 is the
-    # last bar of the data, so it is no decision bar). Delay 1, open fills, no costs.
-    def px(day: str, symbol: str, field: str) -> float:
-        return float(frame.loc[pd.Timestamp(day), (symbol, field)])
+    # Independent calculation from the same downloaded frame, in plain arithmetic (tests/cost_reference.py, no engine
+    # code): equal thirds bought at the open of the first bar (the initial decision is made on the bar before,
+    # 2022-12-30), then rebalanced to equal thirds at the opens of 2023-02-01 and 2023-03-01 (the bars after the month
+    # ends 2023-01-31 and 2023-02-28; 2023-03-31 is the last bar of the data, so it is no decision bar). Delay 1, open
+    # fills. Run once without costs (the gross path) and once with the spec's costs, which are cash fees.
+    def px(field: str):
+        return lambda day, symbol: float(frame.loc[pd.Timestamp(day), (symbol, field)])
 
-    symbols = ["SPY", "TLT", "GLD"]
-    shares = dict.fromkeys(symbols, 0.0)
-    cash = 100000.0
-    for symbol in symbols:
-        shares[symbol] = (cash / 3) / px("2023-01-03", symbol, "open")
-    cash = 0.0
-    for day in ("2023-02-01", "2023-03-01"):
-        value = sum(shares[s] * px(day, s, "open") for s in symbols)
-        for symbol in symbols:
-            shares[symbol] = (value / 3) / px(day, symbol, "open")
-    expected = sum(shares[s] * px("2023-03-31", s, "close") for s in symbols)
+    capital = spec.initial_capital
+    costs = spec.costs
+    rate = (costs.commission_bps + costs.spread_bps + costs.slippage_bps) / 10_000
+    assert costs.min_commission == 0  # the reference solves proportional fees only
+    days = ["2023-01-03", "2023-02-01", "2023-03-01"]
+    gross, _ = independent_buy_and_hold(px("open"), px("close"), list(spec.universe), capital, 0.0, days, "2023-03-31")
+    net, fees = independent_buy_and_hold(
+        px("open"), px("close"), list(spec.universe), capital, rate, days, "2023-03-31"
+    )
 
     assert result.equity.index[0] == pd.Timestamp("2023-01-03")
     assert result.equity.index[-1] == pd.Timestamp("2023-03-31")
-    assert result.equity.iloc[-1] == pytest.approx(expected, rel=1e-9)
-    assert sorted({ts.date().isoformat() for ts in result.trades["date"]}) == ["2023-01-03", "2023-02-01", "2023-03-01"]
+    assert result.equity.iloc[-1] == pytest.approx(net, rel=1e-9)
+    assert result.gross_final_equity == pytest.approx(gross, rel=1e-9)
+    assert result.total_costs == pytest.approx(fees, rel=1e-9)
+    assert result.trades["cost"].sum() == pytest.approx(fees, rel=1e-9)
+    assert result.trades["cost"].sum() == pytest.approx(rate * result.trades["notional"].abs().sum(), rel=1e-9)
+    assert result.net_return == pytest.approx(net / capital - 1, rel=1e-9)
+    assert result.cost_drag == pytest.approx((gross - net) / capital, rel=1e-6)
+    if gross > capital:
+        assert result.cost_share == pytest.approx((gross - net) / (gross - capital), rel=1e-6)
+    else:
+        assert result.cost_share is None
+    assert result.costs_applied and result.risk_flags == ()
+    assert sorted({ts.date().isoformat() for ts in result.trades["date"]}) == days
     assert len(result.trades) == 9
     assert result.data_hash == hash_frame(frame)
     assert not result.validation.has_errors
