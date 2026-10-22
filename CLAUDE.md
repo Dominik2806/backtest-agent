@@ -70,5 +70,8 @@ PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` wh
   to Claude sessions, or any other attribution trailer.
 - **PRs:** squash-merged; add a CHANGELOG entry under "Unreleased".
 - **Releases:** follow `docs/RELEASING.md`.
+- **Engine tests:** the expected values of engine tests are hand-calculated literals written out step by step in
+  `docs/engine.md` (`tests/test_engine_hand_calculated.py`); never compute an expected value with engine code or a
+  helper that mirrors it. Random-world tests use fixed seeds.
 - **Never commit** secrets, `.env`, market data, run outputs or reports (`data/`, `runs/`, `reports/`, `*.parquet`).
 - Update this file when new commands or conventions are introduced.

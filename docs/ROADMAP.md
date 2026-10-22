@@ -84,7 +84,8 @@ Use this when a session has lost its context:
    not merged yet. The status is set to **Done** in the phase's own pull request, so a phase marked **Done** on a
    branch that is not merged is still the current one. If its branch or pull request already exists, continue there
    instead of starting over.
-4. Do not skip phases and do not start the next one before the current one is merged.
+4. Do not skip phases and do not start the next one before the current one is merged. If a phase is split into
+   parts and the branch of the next part does not exist yet, create it from `main` and continue with the next open part.
 5. Set the phase to **Done** in the table below and in the README roadmap status as part of the phase's own pull
    request, not after the merge. Record every deviation from this plan under "Deviations from the plan".
 
@@ -140,7 +141,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 1 | `feature/data-provider` | Provider interface, yfinance provider, Parquet cache | F-04, F-05 | M | Done |
 | 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Done |
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Done |
-| 4 | `feature/core-engine` | Vectorized engine with execution delay, proven by hand-calculated tests | F-09, F-11 | L | Planned |
+| 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | In progress (part 1 of 2 merged) |
 | 5 | `feature/costs-slippage` | Commission, spread and slippage models | F-10 | S | Planned |
 | 6 | `feature/metrics-benchmark` | Performance metrics and buy-and-hold comparison | F-12, F-13 | M | Planned |
 | 7 | `feature/report` | Markdown and HTML report with charts and caveats | F-14 | M | Planned |
@@ -182,6 +183,18 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   contract test checks that the declaration is honest) and a runtime check of every signal output
   (`Signal.generate`, `validate_signal_output`). Phases 4 and 9 got a task for loading history from `period.start`
   minus the warm-up. ADR 0006 (signal contract, where signals live) and ADR 0007 (strict, explicit spec) were added.
+- Phase 4: the phase is split into two pull requests because it exceeds the size of one reviewable PR. Part 1
+  (`feature/core-engine`): pure simulation (sizing, rebalance schedule, delay shift, cost hook, portfolio core), the
+  hand-calculated fixtures, `docs/engine.md` and ADR 0008. Part 2 (`feature/engine-runner`): see "Part 2" in the
+  Phase 4 section. Phase 4 is **Done** only when part 2 is merged.
+- Phase 4: the core is a **loop over bars with vector operations across symbols**, not a vectorized cumulative
+  calculation, because cash, deferred orders and the cash constraint are path dependent and the loop is the form in
+  which each rule can be read and checked (ADR 0008).
+- Phase 4: beyond the roadmap text, the engine always takes an **initial decision** for the bar that executes on the
+  first bar of the period (otherwise `weekly`, `monthly` and `on_signal` would sit in cash), carries orders of symbols
+  without a price as **share quantities** to the next bar with a price, scales buys down when a deferred sale leaves
+  too little cash, and reports `deferred_orders` and `unfilled_orders`. `equal_weight` splits capital among the
+  selected symbols only (`signal / n`).
 
 ---
 
@@ -268,7 +281,8 @@ Done when:
 
 ## Phase 4: Core engine
 
-**Branch:** `feature/core-engine` · **Goal:** an engine whose arithmetic is proven correct by hand-calculated tests.
+**Branches:** `feature/core-engine` (part 1) and `feature/engine-runner` (part 2) · **Goal:** an engine whose
+arithmetic is proven correct by hand-calculated tests. Semantics: [engine.md](engine.md), [ADR 0008](adr/0008-engine-semantics.md).
 
 Tasks:
 
@@ -281,6 +295,27 @@ Tasks:
 - Warm-up: the engine loads history from `period.start` minus the warm-up of the signal (`StrategySpec.warmup_rows`,
   see [ADR 0006](adr/0006-signal-contract.md)), runs the signals on it and trims signals, positions and results to
   the period, so the strategy and the benchmark are compared over the same period.
+
+Part 1 (`feature/core-engine`): `sizing`, `schedule`, `core`, `simulation` and `costs` modules in `engine/`, fixtures
+H1 to H13 and the invariant tests on literal frames and seeded random worlds, `docs/engine.md`, ADR 0008.
+
+**Part 2** (`feature/engine-runner`, created from `main` after part 1 is merged):
+
+- `BacktestResult` (frozen): equity at the close of each bar, `initial_equity`, cash, positions, weights, trades,
+  turnover, signals, target weights, spec, data hash, validation result, risk flags, warm-up information, the field
+  that states that costs were not applied yet, deferred and unfilled order counts.
+- `run_backtest(spec, provider)`: loads history from `period.start` minus the warm-up (`StrategySpec.warmup_rows` plus
+  `delay_bars` rows, converted into a generous calendar-day buffer and counted in actual rows), validates it
+  (`raise_for_errors`), computes the data hash, calls the registered signal through `Signal.generate`, runs
+  `simulate_signals` and trims the results to the period. A provider with too little history is reported in the
+  result (`WarmupInfo`, a risk flag and a warning; `allow_short_warmup=False` raises).
+- Runner tests for the warm-up (results start at `period.start`, signals are warmed up on that day, too little
+  history is reported), invariants with the built-in signals and `FakeProvider` (buy and hold equals the asset
+  return, cash never negative, weights at most 100 percent, nothing before `period.start`, identical repeat runs,
+  permuted universe, doubled capital, a causality test of the engine), the three example strategies end to end.
+- The live `network` test: `buy_and_hold` on real SPY, TLT and GLD for a short fixed period through the cached
+  yfinance provider, final equity checked against an independent calculation from the same prices.
+- README and this file: Phase 4 set to **Done**; architecture and CHANGELOG updated.
 
 Done when:
 
@@ -481,6 +516,8 @@ Done when:
 
 - Further data providers and historical index constituents to remove survivorship bias properly.
 - Short selling, leverage and intraday bars.
+- Slot-based equal weight (empty slots stay in cash) as an alternative to `equal_weight`, which splits capital among
+  the selected symbols only.
 - Portfolio optimization and risk-based position sizing.
 - A standalone Claude Agent SDK version of the workflow that runs without Claude Code.
 - Connection to a multi-agent investment committee project.
