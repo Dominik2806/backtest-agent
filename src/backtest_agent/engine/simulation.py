@@ -25,7 +25,8 @@ def simulate_signals(
 
     ``opens``, ``closes`` and ``signals`` cover the same bars (warm-up bars before ``first_bar`` included) and the
     same symbols. Decisions on warm-up bars may execute on or after the first bar; nothing is traded or valued
-    before it (see docs/engine.md).
+    before it (see docs/engine.md). ``cost_model`` defaults to free trading; ``BpsCosts.from_spec`` applies the costs of
+    a spec.
     """
     for name, frame in (("opens", opens), ("signals", signals)):
         if not frame.index.equals(closes.index) or not frame.columns.equals(closes.columns):

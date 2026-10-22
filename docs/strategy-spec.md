@@ -59,13 +59,15 @@ because a default would be an assumption nobody approved.
 | `sizing.fraction` | number, above 0 up to 1 | none | Required for `fixed_fraction`, not allowed for `equal_weight`. |
 | `rebalance` | `daily`, `weekly`, `monthly` or `on_signal` | **required** | When the portfolio is brought to its target weights. |
 | `costs.commission_bps` | number, 0 or more | **required** | Commission in basis points of the traded value. |
-| `costs.spread_bps` | number, 0 or more | **required** | Half-spread in basis points. |
+| `costs.spread_bps` | number, 0 or more | **required** | Half-spread in basis points, applied as written (the engine does not halve it again). |
 | `costs.slippage_bps` | number, 0 or more | **required** | Slippage in basis points. |
+| `costs.min_commission` | number, 0 or more | `0` | Minimum commission per trade in account currency; it applies to the commission only. `0` means no minimum. |
 | `benchmark` | symbol | **required** | Buy-and-hold comparison; may or may not be in the universe. |
 | `initial_capital` | number, above 0 | **required** | Starting cash. |
 
-Sizing, rebalancing and the execution fields are applied by the engine ([engine.md](engine.md), Phase 4); costs follow
-in Phase 5 (until then `run_backtest` does not deduct them and flags it). The meaning of the sizing methods is:
+Sizing, rebalancing and the execution fields are applied by the engine ([engine.md](engine.md), Phase 4). The portfolio
+core applies the costs (Phase 5, formulas in "Costs" of engine.md and [ADR 0010](adr/0010-cost-model.md)); `run_backtest`
+is wired to them in the second part of Phase 5. The meaning of the sizing methods is:
 
 - `equal_weight`: capital is split equally among the **selected symbols only**, those with a signal above 0, and each
   weight is scaled by its signal value: `weight = signal / n` with `n` the number of selected symbols. Empty slots are
@@ -89,7 +91,8 @@ in Phase 5 (until then `run_backtest` does not deduct them and flags it). The me
   `price: close`.
 - `allow_same_bar_execution: true` together with `delay_bars: 1` or more is rejected as contradictory.
 - **The `costs` block is required**, and so is each of its three numbers. Zeros are allowed when written out, and
-  then the report shows a risk flag. There are no silent zero costs.
+  then the report shows a risk flag. There are no silent zero costs. `min_commission` is the one optional number: its
+  default 0 means "no minimum", which is not a cost assumption.
 - `period.end` before `period.start` is rejected.
 - `signal.params` are validated against the params model of the registered signal (`signal.params.fast: ...`).
 
@@ -101,7 +104,7 @@ objects (`to_dict()` gives plain dicts). Phase 7 puts them in every report.
 | Code | When |
 |---|---|
 | `same_bar_execution` | `delay_bars` is 0 (explicitly allowed): the result may contain look-ahead bias |
-| `zero_costs` | commission, spread and slippage are all 0: the result overstates what trading would return |
+| `zero_costs` | commission, spread, slippage and minimum commission are all 0: the result overstates what trading would return |
 
 ## Complete example
 
@@ -137,6 +140,7 @@ costs:
   commission_bps: 1.0
   spread_bps: 2.0
   slippage_bps: 2.0
+  min_commission: 0.0  # optional, per trade in account currency; 0 = no minimum
 
 benchmark: SPY
 initial_capital: 100000

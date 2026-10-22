@@ -156,16 +156,44 @@ def test_a_symbol_that_never_had_a_price_cannot_get_an_order() -> None:
         run(prices, prices, {"A": [1, 1, 1], "B": [1, 1, 1]})
 
 
-class _TenPercent:
+class _FixedCost:
+    """A custom model that is not to be trusted: it returns whatever it was given."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+
     def cost(self, symbol: str, notional: float) -> float:
-        return 0.1 * notional
+        return self.value
+
+
+# The test below relies on the funding rule calling the model once for planning (the fee of the buy at the cap) before
+# the fill is booked: the first call is free, every later call is expensive.
+class _ChangesItsMind:
+    """Says trading is free while the core plans the fill and charges a fortune when the fill is booked."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def cost(self, symbol: str, notional: float) -> float:
+        self.calls += 1
+        return 0.0 if self.calls == 1 else 10 * notional
+
+
+def _run_with(model) -> None:
+    opens, closes, signals = world(0)
+    sizing, execution = SizingSpec(method="equal_weight"), ExecutionSpec()
+    simulate_signals(opens, closes, signals, sizing, execution, "daily", 1000.0, closes.index[0], model)
+
+
+@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf"), float("-inf")])
+def test_a_cost_model_that_returns_an_invalid_cost_is_an_invariant_error(value: float) -> None:
+    with pytest.raises(EngineInvariantError, match="cost model returned"):
+        _run_with(_FixedCost(value))
 
 
 def test_a_cost_model_that_makes_cash_negative_is_an_invariant_error() -> None:
-    opens, closes, signals = world(0)
-    sizing, execution = SizingSpec(method="equal_weight"), ExecutionSpec()
     with pytest.raises(EngineInvariantError, match="cash became negative"):
-        simulate_signals(opens, closes, signals, sizing, execution, "daily", 1000.0, closes.index[0], _TenPercent())
+        _run_with(_ChangesItsMind())
 
 
 def _inputs():

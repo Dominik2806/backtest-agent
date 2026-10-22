@@ -227,6 +227,13 @@ def test_every_cost_component_is_required() -> None:
     assert problems_of(data) == {"costs.spread_bps": "missing required field"}
 
 
+@pytest.mark.parametrize("bad", [-1, "1", True, float("nan"), float("inf")])
+def test_min_commission_must_be_a_finite_number_not_negative(bad: Any) -> None:
+    data = valid()
+    data["costs"]["min_commission"] = bad
+    assert list(problems_of(data)) == ["costs.min_commission"]
+
+
 def test_costs_must_be_finite_and_not_negative() -> None:
     for bad in (-1, "1", True):
         data = valid()

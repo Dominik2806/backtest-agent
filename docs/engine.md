@@ -6,7 +6,7 @@ and its arithmetic is proven by hand-calculated fixtures at the end of this docu
 `src/backtest_agent/engine/`; the decisions behind it are in [ADR 0008](adr/0008-engine-semantics.md). This project is
 educational and not investment advice.
 
-The pure simulation (sizing, rebalance schedule, delay shift, cost hook and the portfolio core, driven by
+The pure simulation (sizing, rebalance schedule, delay shift, costs and the portfolio core, driven by
 `simulate_signals` on price and signal frames) is described by the semantics below. On top of it,
 `run_backtest(spec, provider)` loads the data with a warm-up, validates and hashes it, calls the signal and returns a
 `BacktestResult` (see "Running a spec").
@@ -17,7 +17,7 @@ The pure simulation (sizing, rebalance schedule, delay shift, cost hook and the 
 | `schedule.py` | `decision_bars`, `execution_orders`: on which bars the portfolio is rebalanced, and the shift by `delay_bars` |
 | `core.py` | `simulate(...)`: the bar loop that executes orders and returns a `Portfolio` |
 | `simulation.py` | `simulate_signals(...)`: sizing, schedule, shift and core in one call |
-| `costs.py` | `CostModel` hook, `NoCosts` (the only model in Phase 4) |
+| `costs.py` | `CostModel` hook, `NoCosts` and `BpsCosts`, the cost model of the spec (Phase 5) |
 | `result.py` | `BacktestResult` and `WarmupInfo`: the frozen result of a run |
 | `runner.py` | `run_backtest(spec, provider)`: data with warm-up, validation, hash, signal, simulation, trimming |
 
@@ -48,7 +48,8 @@ This section is the specification of the engine. Everything below it (code, test
 - Prices are the adjusted prices of the standard frame, which are total return prices (dividends are already
   inside). The engine never adds dividends. Adjusted prices are not the prices that were quoted on the day
   ([data.md](data.md)); an absolute price level means nothing, only ratios do.
-- Costs are **not** applied in Phase 4 (see "Cost hook"). The result of a run says so.
+- Costs are cash fees on the bar of the fill (see "Costs"). The portfolio core applies them when it is given a cost
+  model; `run_backtest` does **not** pass the costs of the spec yet (second part of Phase 5), and its result says so.
 - A symbol without a price on a bar is valued at its **last close** (carried forward) and cannot be traded on that bar.
   The last close may come from a bar before the first bar: those bars are not traded or valued, but their closes are
   known (H15).
@@ -101,17 +102,19 @@ On every bar `e` from the first bar on, in this order:
    `w_s = 0` exactly `-shares_s`). The quantity is fixed now. An order with `|q_s * m_s| <= 1e-9 * V` is dropped
    (dust). A new decision replaces all orders that are still open.
 3. **Fill.** An open order whose symbol has a price on e is filled at `p_s`. Sells are filled in full and bring in
-   cash. Buys are filled in full if the cash after the sells covers all of them. Otherwise **all buys are scaled
-   down by the same factor** `cash_available / total_buy_cost`, so cash never becomes negative.
+   cash **net of their costs**. Buys are filled in full if the cash after the sells covers all of them **including
+   their costs**. Otherwise **all buys are scaled down by the same factor** `f`, so cash never becomes negative.
+   The exact rule for `f` and for the costs is in "Costs".
 4. **Carry.** An order whose symbol has no price on e stays open ("deferred") and is filled on the next bar on which
-   the symbol has a price, with the **same quantity** at that bar's price. The unfilled remainder of a scaled-down
-   buy stays open the same way (unless it is dust), also when the scale factor was 0 and nothing of it was filled.
-   Both kinds of order (no price, or not enough cash) count in `deferred_orders` once, when they are first carried
-   past their execution bar. Orders still open after the last bar count in `unfilled_orders`.
+   the symbol has a price, with the **same quantity** at that bar's price. The part of a scaled-down buy that cash
+   could not cover **even if trading were free** stays open the same way (unless it is dust), also when nothing of it
+   was filled. The part that only the costs kept from being bought is dropped (see "Costs"). Both kinds of open
+   order (no price, or not enough cash) count in `deferred_orders` once, when they are first carried past their
+   execution bar. Orders still open after the last bar count in `unfilled_orders`.
 5. **Close.** Last closes are updated from the close of e. Equity is cash plus shares times last close. Weights
    are `shares * last close / equity`.
 
-Sells before buys on a bar means proceeds fund purchases of the same bar. If a sale is deferred (no price) the
+Sells before buys on a bar means (net) proceeds fund purchases of the same bar. If a sale is deferred (no price) the
 buys that depended on it are limited by the cash on hand and wait in the same way until the sale has happened.
 
 **Documented simplification.** A deferred order keeps its original **share quantity**, fixed on its execution bar
@@ -128,19 +131,75 @@ portfolio value `V` at the execution mark** of that bar (step 1). Buying the who
 complete switch from one asset to another gives 2.0. It is 0.0 on bars without trades. Phase 6 must label turnover
 metrics accordingly (a one-sided figure is half of this).
 
-### Cost hook
+### Costs
 
-`CostModel.cost(symbol, notional)` returns the cost in currency of one trade (`notional` is the absolute traded
-value, the result is 0 or more). The core deducts the costs of all trades of a bar from cash. The default
-`NoCosts` returns 0.0. **The costs of the spec are not applied in Phase 4**; Phase 5 plugs a model in and has to extend
-the funding rule of step 3 (a purchase must also cover its costs). Until then a model that makes cash negative
-raises `EngineInvariantError`.
+`CostModel.cost(symbol, notional)` returns the cost in currency of one trade (`notional` is the absolute traded value,
+the result must be finite and 0 or more). A **trade** is one fill: one row of the `trades` table, one symbol on one
+bar. The core deducts the costs of all trades of a bar from cash on that bar. `NoCosts` returns 0.0. The model of the
+spec is `BpsCosts`, built from the `costs` block with `BpsCosts.from_spec`.
+
+**Cost of one fill** with absolute notional `N > 0` (shares filled times the execution price of the bar on which
+the fill happens):
+
+```text
+commission = max(commission_bps / 10000 * N, min_commission)
+spread     = spread_bps   / 10000 * N      # spread_bps is the half-spread, it is not halved again
+slippage   = slippage_bps / 10000 * N
+cost       = commission + spread + slippage
+```
+
+- Buys and sells alike. A deferred order is charged on the price of the bar on which it fills; a scaled-down buy is
+  charged on the part that was filled. `min_commission` (account currency, default 0 = none) is charged per trade and
+  applies to the commission only; with `commission_bps` 0 it is a flat fee per trade.
+- The costs are **cash fees**. `price` in the `trades` table stays the execution price (open or close) and the fee
+  goes into the column `cost`; `Portfolio.costs` holds the fees per bar and `Portfolio.total_costs` their sum. Turnover
+  is not changed by costs. Why a fee and not an adverse fill price: [ADR 0010](adr/0010-cost-model.md).
+- **A sale pays its fee out of its proceeds**, so the fee of a sale is capped at the notional of the sale (a sale
+  that is smaller than the minimum commission brings in nothing, never a negative amount).
+- The core does not trust a model: a negative, NaN or infinite cost, or a cash balance that would end up negative,
+  raises `EngineInvariantError`. Fees can use up a whole portfolio; with equity 0 the weights and the turnover are 0.
+
+**Funding rule (step 3).** On a bar, let `cash` be the cash before the fills, `S` the notional of the sells that can
+be filled, `fee_sells` their fees (each capped as above) and `B` the total notional of the buys that can be filled.
+
+1. `f0 = 1` if `B <= cash + S`, else `f0 = max(cash + S, 0) / B`. This is the share of the buys that cash can pay for
+   if trading were free.
+2. The budget for the buys is `cash + S - fee_sells`. The affordable share `f` is the largest `f <= f0` with
+   `sum_i (f * N_i + fee(f * N_i)) <= budget`, where `N_i` are the notionals of the buys and `fee` is the cost of the
+   model. If no fee is charged at all (free trading), `f = f0` exactly. If `f0` itself is affordable, `f = f0`. Otherwise
+   `f` is found by bisection on `[0, f0]` (64 halvings) with the cost function of the model, and the affordable end is
+   taken, so cash cannot become negative. `f = 0` if not even the smallest fill can pay its fee: nothing is bought.
+   All buys use the same `f`. The bisection leaves a residual of the order of the floating point resolution (cash
+   of about 1e-13 instead of exactly 0), which is why the cost fixtures are compared with a relative and absolute
+   tolerance of **1e-9**, while the zero-cost behaviour of Phase 4 is compared exactly.
+3. The buys are filled for `f` of their quantity. **Remainder rule.** Of each buy the part `f0` is settled (the
+   part `f` is filled, the part `f0 - f` is dropped because only the fees kept it from being bought) and only the part
+   `1 - f0` stays open. That part exists without fees: cash that is still to come (a sale that is deferred for lack of a
+   price, or a deferred quantity that became more expensive). Without costs `f = f0`, so the behaviour is exactly
+   that of Phase 4.
+
+*Zero costs.* With a model that charges nothing (`NoCosts`, or `BpsCosts` with all four numbers 0) every frame and
+the trades are bit-identical to the behaviour of Phase 4; the tests compare them exactly, without tolerance.
+
+*Consequences.* A rebalance to a fully invested target can never be reached exactly with fees (the buys need their
+notional plus their fees): it ends with `f < 1` and cash of about 0, and the remainder is dropped, so it does not
+inflate `deferred_orders` and `unfilled_orders`. These two counters count only orders that wait for a price or for
+cash that exists without fees (H20, H21). Orders are sized on the portfolio value `V` before costs, so after a
+rebalance the portfolio is slightly under its target weights by the amount of the fees. A minimum fee can make the engine sell for a buy that then cannot be paid (H19b, Jan 4): the fee of the sale is lost and the portfolio ends slightly off target. This follows the rules and is not an error.
+
+**Gross and net.** The *net* result is the run with costs. The *gross* result is a twin run of the same simulation with
+all costs at zero (same data, same signals, same orders). Costs compound (a fee paid today is not invested tomorrow), so
+adding the total costs back to the net equity would not give the gross path. How `run_backtest` reports gross final
+equity, the cost drag and the share of the gross return that the costs ate is specified with the result object in the
+second part of Phase 5 (cost drag = gross return minus net return; share = cost drag divided by the gross return, none
+if the gross return is not positive).
 
 ### Output of the core
 
 `Portfolio` (frozen) has, per bar: `equity`, `cash`, `positions` (shares per symbol), `weights` (end of bar),
-`turnover`; the `trades` table (`date`, `symbol`, `shares` signed, `price`, `notional` signed, ordered by bar then by
-symbol order); `initial_equity` (the initial capital); the counters `deferred_orders` and `unfilled_orders`.
+`turnover`, `costs` (fees paid on the bar); the `trades` table (`date`, `symbol`, `shares` signed, `price`, `notional`
+signed, `cost`, ordered by bar then by symbol order); `initial_equity` (the initial capital); the counters
+`deferred_orders` and `unfilled_orders`; and the property `total_costs`.
 `returns` is `equity / equity.shift(1, fill_value=initial_equity) - 1`, so the **return of the first bar is
 well defined**: it is measured against the initial capital. `BacktestResult` (see "Running a spec") wraps the same
 series and frames.
@@ -156,8 +215,8 @@ rule above can be read and checked line by line. A few thousand bars run in mill
 ## Running a spec
 
 `run_backtest(spec, provider, *, allow_short_warmup=True)` in `runner.py` turns a validated `StrategySpec` into a
-`BacktestResult`. The costs of the spec are **not applied** (Phase 5) and the benchmark is **not loaded** (Phases 6
-and 9).
+`BacktestResult`. The costs of the spec are **not applied yet** (`run_backtest` is wired to the cost model in the second
+part of Phase 5) and the benchmark is **not loaded** (Phases 6 and 9).
 
 1. **Window.** Let `N = spec.warmup_rows + delay_bars`. History is fetched from `period.start` minus `2 * N + 14`
    calendar days up to `period.end` for the symbols of the universe (`provider.get_prices`). The buffer is generous
@@ -214,8 +273,11 @@ costs, and `insufficient_warmup` when applicable.
 ## Hand-calculated fixtures
 
 Each fixture is a tiny world with round numbers. The arithmetic is written out here, and the tests in
-`tests/test_engine_hand_calculated.py` contain the **expected values as literals taken from this document**; they never
-compute an expected value with engine code or with a helper that mirrors it. Every fixture uses capital 1000. "Day"
+`tests/test_engine_hand_calculated.py` (H1 to H13) and `tests/test_engine_costs_hand_calculated.py` (H16 to H22 and H19c) contain
+the **expected values as literals taken from this document**; they never compute an expected value with engine code or
+with a helper that mirrors it. H1 to H15 run without costs and are compared with a relative tolerance of 1e-12; the
+cost fixtures H16 to H22 are compared with a relative and absolute tolerance of 1e-9 (the bisection of the funding rule
+leaves a residual at the floating point resolution). Every fixture uses capital 1000. "Day"
 dates are consecutive business days from 2024-01-02 (Tue) unless stated: Jan 2, 3, 4, 5, 8 (Mon). `open`/`close` are
 given per symbol; "signal" is the signal frame, the unlisted symbols have signal 0. Unless stated the sizing is
 `equal_weight`, the delay is 1 and fills are at the `open`.
@@ -583,6 +645,193 @@ NaN, 70 (B did not trade on Jan 4). Signals A = B = 1 on every bar. Rebalance `o
 
 Trades: Jan 4 A +5 @ 100 (+500); Jan 5 B +10 @ 50 (+500). `deferred_orders` = 1, `unfilled_orders` = 0. Without the
 closes of the warm-up bars B would have no mark on Jan 4 and the order could not be sized.
+
+### H16 Commission only
+
+Input: bars Jan 2, 3, 4, 5. A: open = close = 100, 100, 120, 120. Signal A = 1, 1, 0, 0. `fixed_fraction` 0.5, `on_signal`,
+delay 1, open fills. Costs: commission 100 bps (1 percent), nothing else.
+
+- Initial decision bar 0 (target 0.5), executed on Jan 3 at 100: V = 1000, q = 500 / 100 = +5. Cost of the fill:
+  0.01 * 500 = 5. The cash covers it (500 + 5 <= 1000), so `f = 1`. Cash 1000 - 500 - 5 = 495. Close: 5 * 100 = 500,
+  equity 995.
+- Jan 4: no execution. Close 120: 5 * 120 + 495 = 1095.
+- The signal turns 0 on bar 2 (Jan 4), executed on Jan 5 at 120: V = 495 + 600 = 1095, q = -5, notional 600, cost
+  0.01 * 600 = 6, cash 495 + 600 - 6 = 1089. Turnover 600 / 1095 = 40/73.
+
+| | Jan 2 | Jan 3 | Jan 4 | Jan 5 |
+|---|---|---|---|---|
+| equity | 1000 | 995 | 1095 | 1089 |
+| cash | 1000 | 495 | 495 | 1089 |
+| shares A | 0 | 5 | 5 | 0 |
+| turnover | 0 | 0.5 | 0 | 40/73 |
+| costs | 0 | 5 | 0 | 6 |
+
+Trades: Jan 3 A +5 @ 100 (+500, cost 5); Jan 5 A -5 @ 120 (-600, cost 6). Total costs 11.
+
+### H17 Spread and slippage
+
+Input: the world of H16. Costs: commission 0, spread 20 bps, slippage 30 bps. The spread is the half-spread and is
+charged as written.
+
+- Jan 3: notional 500, spread 0.002 * 500 = 1.0, slippage 0.003 * 500 = 1.5, cost 2.5. Cash 1000 - 500 - 2.5 = 497.5,
+  equity 997.5.
+- Jan 4: 600 + 497.5 = 1097.5.
+- Jan 5: V = 1097.5, sale of 600: spread 1.2, slippage 1.8, cost 3.0. Cash 497.5 + 600 - 3 = 1094.5. Turnover
+  600 / 1097.5 = 240/439.
+
+| | Jan 2 | Jan 3 | Jan 4 | Jan 5 |
+|---|---|---|---|---|
+| equity | 1000 | 997.5 | 1097.5 | 1094.5 |
+| cash | 1000 | 497.5 | 497.5 | 1094.5 |
+| costs | 0 | 2.5 | 0 | 3.0 |
+
+Trades: Jan 3 A +5 @ 100 (cost 2.5); Jan 5 A -5 @ 120 (cost 3.0).
+
+### H18 Minimum commission
+
+Input: the world of H16. Costs: commission 50 bps, spread 20 bps, `min_commission` 2.8.
+
+- Jan 3, notional 500: commission max(0.005 * 500, 2.8) = max(2.5, 2.8) = 2.8 (the minimum binds), spread 1.0, cost
+  3.8. Cash 1000 - 500 - 3.8 = 496.2, equity 996.2.
+- Jan 4: 600 + 496.2 = 1096.2.
+- Jan 5, notional 600: commission max(3.0, 2.8) = 3.0 (the minimum does not bind), spread 1.2, cost 4.2. Cash
+  496.2 + 600 - 4.2 = 1092.0. Turnover 600 / 1096.2.
+
+| | Jan 2 | Jan 3 | Jan 4 | Jan 5 |
+|---|---|---|---|---|
+| equity | 1000 | 996.2 | 1096.2 | 1092.0 |
+| cash | 1000 | 496.2 | 496.2 | 1092.0 |
+| costs | 0 | 3.8 | 0 | 4.2 |
+
+### H19 A fee never exceeds the trade, and a buy that cannot pay its fee
+
+*(a) The fee of a sale is capped at its proceeds.* Input: bars Jan 2, 3, 4. A: open = close = 100, 100, 101. Signal A = 1.
+`fixed_fraction` 0.5, `daily`, delay 1, open fills. Costs: `min_commission` 10, everything else 0.
+
+- Jan 3: V = 1000, q = +5, notional 500, cost max(0, 10) = 10, cash 490. Close 500 + 490 = 990.
+- Jan 4 (open 101): V = 490 + 5 * 101 = 995, target 497.5, held 505, q = -7.5 / 101, notional 7.5. The minimum is 10,
+  but the fee of a sale is capped at the proceeds: cost min(10, 7.5) = 7.5. Cash 490 + 7.5 - 7.5 = 490. Turnover
+  7.5 / 995 = 3/398. Close: (5 - 7.5/101) * 101 = 497.5, equity 987.5.
+
+Equity 1000, 990, 987.5. Cash 1000, 490, 490. Costs 0, 10, 7.5. Trades: Jan 3 A +5 @ 100 (cost 10); Jan 4 A -7.5/101
+@ 101 (-7.5, cost 7.5).
+
+*(b) A buy that cannot pay its minimum fee.* Input: bars Jan 2, 3, 4. A: open = close = 100, 100, 105; B: open = close = 50.
+Signals A = B = 1. `equal_weight`, `daily`, delay 1, open fills. Costs: `min_commission` 10, everything else 0.
+
+- Jan 3: V = 1000, A q = +5 (500), B q = +10 (500). `f0 = 1`. The two fees are 10 each whatever the size, so the
+  outlay `f * 1000 + 20` equals the cash 1000 at `f = 0.98`. A +4.9 (490), B +9.8 (490), each with cost 10, cash 0.
+  The remainder is dropped (`f0 = 1`): nothing is pending. Close: A 490, B 490, equity 980. Turnover 980 / 1000 = 0.98.
+- Jan 4 (A open 105): V = 4.9 * 105 + 9.8 * 50 = 514.5 + 490 = 1004.5, targets 502.25 each. A: q = -12.25 / 105 = -7/60
+  (notional 12.25); B: q = +12.25 / 50 = +0.245 (notional 12.25). The sale costs min(10, 12.25) = 10, so its net
+  proceeds are 2.25. `f0 = 1` (gross cash 12.25 covers the buy), but the budget is 2.25 and even the smallest buy
+  pays a fee of 10: `f = 0`. Nothing is bought and, since `f0 = 1`, nothing stays open. Cash = 12.25 - 10 = 2.25.
+  Close: A (4.9 - 7/60) * 105 = 502.25, B 490, cash 2.25: equity 994.5. Turnover 12.25 / 1004.5.
+
+Equity 1000, 980, 994.5. Cash 1000, 0, 2.25. Costs 0, 20, 10. Trades: Jan 3 A +4.9 @ 100 (cost 10), B +9.8 @ 50 (cost
+10); Jan 4 A -7/60 @ 105 (-12.25, cost 10). `deferred_orders` = 0, `unfilled_orders` = 0.
+
+### H19c Fees use up the whole portfolio
+
+Input: bars Jan 2, 3, 4, 5. A: open = close = 100. Signal A = 1, 0, 0, 0. `fixed_fraction` 0.5, `on_signal`, delay 1, open
+fills. Costs: `min_commission` 500, everything else 0.
+
+- Jan 3 (initial decision, target 0.5): V = 1000, q = +5, notional 500, fee 500. The outlay 500 + 500 equals the cash,
+  so `f = 1` and cash = 0. Close 5 * 100 = 500, equity 500. Turnover 500 / 1000 = 0.5.
+- Jan 4 (the target changed to 0 on bar 1): V = 500, q = -5, notional 500, fee min(500, 500) = 500, proceeds 0, cash 0,
+  equity 0. Turnover 500 / 500 = 1.0. The weights are 0.
+- Jan 5: no order, V = 0, equity 0, turnover 0. A portfolio worth nothing has weights and turnover 0, never NaN.
+
+Equity 1000, 500, 0, 0. Cash 1000, 0, 0, 0. Costs 0, 500, 500, 0. Shares A 0, 5, 0, 0. Turnover 0, 0.5, 1.0, 0. Weights
+of A 0, 1, 0, 0. Trades: Jan 3 A +5 @ 100 (+500, cost 500); Jan 4 A -5 @ 100 (-500, cost 500). `deferred_orders` = 0,
+`unfilled_orders` = 0.
+
+### H20 A full rebalance with a 25 percent cost rate (the fee scale-down and the dropped remainder)
+
+The rate is absurd on purpose: with a total rate `r = 0.25` (commission 1000, spread 1000, slippage 500 bps) the shares
+are round. Input: bars Jan 2, 3, 4, 5. A: open = close = 100; B: open = close = 50. Signals A = 1, 0, 0, 0 and
+B = 0, 1, 1, 1. `equal_weight`, `on_signal`, delay 1, open fills.
+
+- Jan 3 (initial decision, target A 1): V = 1000, q = +10, notional 1000. `f0 = 1`, the outlay would be 1000 * 1.25 =
+  1250 > 1000, so `f = 1000 / 1250 = 0.8`: A +8, notional 800, cost 0.25 * 800 = 200 (commission 80, spread 80,
+  slippage 40). Cash 1000 - 800 - 200 = 0. The remaining 2 shares are dropped (`f0 = 1`), nothing is pending. Close
+  8 * 100 = 800. Turnover 800 / 1000 = 0.8.
+- Jan 4 (the target changes to B 1): V = 800, A q = -8, B q = 800 / 50 = +16. Sale: notional 800, cost 200, net 600.
+  `f0 = 1` (gross cash 800 covers the buy of 800), budget 600, outlay at `f`: `f * 800 * 1.25 = 600` gives
+  `f = 0.6`: B +9.6, notional 480, cost 120. Cash 0 + 800 - 200 - 480 - 120 = 0. The remaining 6.4 shares are dropped.
+  Close 9.6 * 50 = 480. Turnover (800 + 480) / 800 = 1.6.
+- Jan 5: no decision, equity 480.
+
+| | Jan 2 | Jan 3 | Jan 4 | Jan 5 |
+|---|---|---|---|---|
+| equity | 1000 | 800 | 480 | 480 |
+| cash | 1000 | 0 | 0 | 0 |
+| shares A | 0 | 8 | 0 | 0 |
+| shares B | 0 | 0 | 9.6 | 9.6 |
+| turnover | 0 | 0.8 | 1.6 | 0 |
+| costs | 0 | 200 | 320 | 0 |
+
+Trades: Jan 3 A +8 @ 100 (+800, cost 200); Jan 4 A -8 @ 100 (-800, cost 200), B +9.6 @ 50 (+480, cost 120).
+`deferred_orders` = 0, `unfilled_orders` = 0. (With the remainder rule of Phase 4 the 2 and the 6.4 shares would stay
+pending and be counted.)
+
+### H21 A deferred sale together with costs (the situation of H12)
+
+Rate 25 percent as in H20. Input: bars Jan 2, 3, 4, 5, 8. A: open = close = 100, 100, NaN, 100, 100 (A did not trade on
+Jan 4). B: open 50 on every bar; close 50, 50, 50, 50, 60. Signals A = 1, 0, 0, 0, 0 and B = 1 on every bar.
+`equal_weight`, `on_signal`, delay 1, open fills.
+
+- Jan 3 (initial decision, targets 0.5 and 0.5): V = 1000, A +5 (500), B +10 (500). `f0 = 1`, outlay 1250, `f = 0.8`:
+  A +4 (notional 400, cost 100), B +8 (400, cost 100), cash 0, remainders dropped. Close 400 + 400 = 800. Turnover 0.8.
+- The targets change on bar 1 (A 0, B 1), executed on Jan 4. A has no price. Marks: A's last close 100, B's open 50,
+  V = 4 * 100 + 8 * 50 = 800. Orders: A q = -4, B q = (800 - 400) / 50 = +8. A cannot be sold (deferred), B can be
+  bought but the cash is 0: `f0 = 0`, so `f = 0` and nothing is bought. Because `f0 = 0` the whole order of B stays open
+  (cash can still come in): `deferred_orders` = 2. Close: 400 + 400 = 800, no trade, turnover 0.
+- Jan 5: A has the open 100. Sell 4: notional 400, cost 100, net 300. B +8: notional 400. Gross cash 400 covers it,
+  `f0 = 1`; the budget is 300 and the outlay at `f` is `f * 400 * 1.25`, so `f = 0.6`: B +4.8, notional 240, cost 60. Cash
+  0 + 400 - 100 - 240 - 60 = 0. The 3.2 shares that only the fees kept from being bought are dropped:
+  `unfilled_orders` = 0. Mark V = 800 (4 * 100 + 8 * 50), turnover (400 + 240) / 800 = 0.8. Close: B 12.8 * 50 = 640.
+- Jan 8: B closes at 60: 12.8 * 60 = 768.
+
+| | Jan 2 | Jan 3 | Jan 4 | Jan 5 | Jan 8 |
+|---|---|---|---|---|---|
+| equity | 1000 | 800 | 800 | 640 | 768 |
+| cash | 1000 | 0 | 0 | 0 | 0 |
+| shares A | 0 | 4 | 4 | 0 | 0 |
+| shares B | 0 | 8 | 8 | 12.8 | 12.8 |
+| turnover | 0 | 0.8 | 0 | 0.8 | 0 |
+| costs | 0 | 200 | 0 | 160 | 0 |
+
+Trades: Jan 3 A +4 @ 100 (cost 100), B +8 @ 50 (cost 100); Jan 5 A -4 @ 100 (-400, cost 100), B +4.8 @ 50 (+240, cost
+60). `deferred_orders` = 2, `unfilled_orders` = 0.
+
+### H22 Two assets with daily rebalancing and costs
+
+Rate 25 percent. Input: the prices of H5 (bars Jan 2, 3, 4, 5; A open 100, 100, 125, 150, close 100, 120, 150, 150; B 50
+throughout). Signals A = B = 1, `equal_weight`, `daily`, delay 1, open fills.
+
+- Jan 3: V = 1000, A +5, B +10 (500 each). `f = 0.8`: A +4 (400, cost 100), B +8 (400, cost 100), cash 0. Close
+  A 4 * 120 = 480, B 8 * 50 = 400: equity 880. Turnover 0.8.
+- Jan 4 (A open 125): V = 4 * 125 + 8 * 50 = 900, targets 450 each. A: held 500, q = -50 / 125 = -0.4 (notional 50, cost
+  12.5, net 37.5). B: held 400, q = +50 / 50 = +1. `f0 = 1`, outlay at `f` is `f * 50 * 1.25`, budget 37.5, so `f = 0.6`:
+  B +0.6 (notional 30, cost 7.5). Cash 0 + 50 - 12.5 - 30 - 7.5 = 0. Shares A 3.6, B 8.6. Close: A 3.6 * 150 = 540, B
+  8.6 * 50 = 430: equity 970. Turnover 80 / 900 = 4/45. Costs 12.5 + 7.5 = 20.
+- Jan 5 (A open 150): V = 540 + 430 = 970, targets 485. A: held 540, q = -55 / 150 = -11/30 (notional 55, cost 13.75,
+  net 41.25). B: held 430, q = +55 / 50 = +1.1. `f = 41.25 / 68.75 = 0.6`: B +0.66 (notional 33, cost 8.25). Cash 0.
+  Shares A 3.6 - 11/30 = 97/30, B 9.26. Close: A (97/30) * 150 = 485, B 9.26 * 50 = 463: equity 948. Turnover
+  88 / 970 = 44/485. Costs 13.75 + 8.25 = 22.
+
+| | Jan 2 | Jan 3 | Jan 4 | Jan 5 |
+|---|---|---|---|---|
+| equity | 1000 | 880 | 970 | 948 |
+| cash | 1000 | 0 | 0 | 0 |
+| shares A | 0 | 4 | 3.6 | 97/30 |
+| shares B | 0 | 8 | 8.6 | 9.26 |
+| turnover | 0 | 0.8 | 4/45 | 44/485 |
+| costs | 0 | 200 | 20 | 22 |
+
+Trades: Jan 3 A +4 @ 100 (cost 100), B +8 @ 50 (cost 100); Jan 4 A -0.4 @ 125 (-50, cost 12.5), B +0.6 @ 50 (+30, cost
+7.5); Jan 5 A -11/30 @ 150 (-55, cost 13.75), B +0.66 @ 50 (+33, cost 8.25). Total costs 242.
 
 ### Sizing examples (used in `tests/test_engine_sizing.py`)
 

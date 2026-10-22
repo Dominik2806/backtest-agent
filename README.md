@@ -136,7 +136,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 2 | Data checks and a reproducibility hash | Done |
 | 3 | YAML strategy spec, signal interface, example strategies | Done |
 | 4 | Engine with execution delay, proven by hand-calculated tests | Done |
-| 5 | Commission, spread and slippage models | Planned |
+| 5 | Commission, spread and slippage models | In progress (part 1 of 2 merged) |
 | 6 | Performance metrics and buy-and-hold comparison | Planned |
 | 7 | Markdown and HTML report with charts and caveats | Planned |
 | 8 | Run log with trial counter | Planned |

@@ -65,6 +65,7 @@ def _symbol(value: str) -> str:
 IsoDate = Annotated[date, BeforeValidator(_as_date)]
 Symbol = Annotated[str, AfterValidator(_symbol)]
 Bps = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
 @dataclass(frozen=True)
@@ -182,6 +183,7 @@ class CostsSpec(_Model):
     commission_bps: Bps
     spread_bps: Bps
     slippage_bps: Bps
+    min_commission: Money = 0.0  # per trade, account currency, commission only; 0 = no minimum
 
 
 class StrategySpec(_Model):
@@ -247,11 +249,12 @@ class StrategySpec(_Model):
                 )
             )
         costs = self.costs
-        if math.fsum((costs.commission_bps, costs.spread_bps, costs.slippage_bps)) == 0:
+        if math.fsum((costs.commission_bps, costs.spread_bps, costs.slippage_bps, costs.min_commission)) == 0:
             flags.append(
                 RiskFlag(
                     "zero_costs",
-                    "Commission, spread and slippage are all zero; the result overstates what trading would return.",
+                    "Commission, spread, slippage and minimum commission are all zero; "
+                    "the result overstates what trading would return.",
                 )
             )
         return tuple(flags)
