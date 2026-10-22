@@ -156,3 +156,23 @@ def test_equal_specs_are_equal() -> None:
     other = valid()
     other["name"] = "other"
     assert spec_of(other) != spec_of(valid())
+
+
+# --- min_commission ---
+
+
+def test_min_commission_defaults_to_zero_and_accepts_a_value() -> None:
+    assert spec_of(valid()).costs.min_commission == 0.0
+    data = valid()
+    data["costs"]["min_commission"] = 1
+    assert spec_of(data).costs.min_commission == 1.0
+    assert spec_of(data).to_dict()["costs"]["min_commission"] == 1.0
+    assert parse_spec(yaml.safe_dump(spec_of(data).to_dict())) == spec_of(data)
+
+
+def test_min_commission_is_a_cost_for_the_zero_costs_flag() -> None:
+    data = valid()
+    data["costs"] = {"commission_bps": 0, "spread_bps": 0, "slippage_bps": 0, "min_commission": 1}
+    assert spec_of(data).risk_flags() == ()
+    data["costs"]["min_commission"] = 0
+    assert [f.code for f in spec_of(data).risk_flags()] == ["zero_costs"]
