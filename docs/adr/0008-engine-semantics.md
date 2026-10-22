@@ -50,5 +50,7 @@ buy-and-hold benchmark); a fully vectorized core.
 - A bar on which a symbol cannot trade can delay its orders; the counts are part of the result.
 - Phase 5 plugs costs into the hook and has to extend the funding rule (a purchase must also cover its costs).
 - Phase 6 must treat turnover as two-sided when it labels turnover metrics.
-- The runner (part 2 of Phase 4) adds data loading, warm-up, validation, the data hash and the result object on top of
-  the pure simulation described here.
+- The runner adds data loading, warm-up, validation, the data hash and the result object on top of the pure
+  simulation described here ([ADR 0009](0009-run-pipeline-and-warmup.md)).
+- The last close of a symbol, used to value it on a bar without a price, includes closes of bars before the first
+  bar; they are not traded or valued but known.

@@ -54,7 +54,7 @@ it from the start, because without warm-up history the first part of every perio
 - The engine and the command line must load history from `period.start` minus the warm-up of the signal, run the
   signals on it and trim the results to the period, so the strategy and the benchmark are compared over the same
   period. Converting rows into a calendar start date and handling a provider with too little history is their job
-  (tasks in Phases 4 and 9 of the roadmap).
+  (tasks in Phases 4 and 9 of the roadmap; Phase 4 is done, see [ADR 0009](0009-run-pipeline-and-warmup.md)).
 - Phase 10 will execute Python written by an LLM when it loads `strategies/*.py`. Discovery must therefore only import
   files that the approved spec names, and only after the approval gate; this is a requirement for that phase.
 - A signal that needs data of other symbols at the same date is possible (the contract allows any symbol's rows up to

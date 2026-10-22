@@ -65,7 +65,7 @@ because a default would be an assumption nobody approved.
 | `initial_capital` | number, above 0 | **required** | Starting cash. |
 
 Sizing, rebalancing and the execution fields are applied by the engine ([engine.md](engine.md), Phase 4); costs follow
-in Phase 5. The meaning of the sizing methods is:
+in Phase 5 (until then `run_backtest` does not deduct them and flags it). The meaning of the sizing methods is:
 
 - `equal_weight`: capital is split equally among the **selected symbols only**, those with a signal above 0, and each
   weight is scaled by its signal value: `weight = signal / n` with `n` the number of selected symbols. Empty slots are
@@ -189,7 +189,8 @@ own trading row:
 
 For `sma_crossover` this is `slow - 1`, for `momentum_12_1` it is `lookback_days`, for `buy_and_hold` it is 0.
 `spec.warmup_rows` exposes the value for the spec's signal. The engine and the command line load history from
-`period.start` minus the warm-up, run the signals on it and trim the results to the period (Phases 4 and 9), so the
+`period.start` minus the warm-up, run the signals on it and trim the results to the period (`run_backtest`, Phase 4;
+the command line, Phase 9), so the
 strategy and the benchmark are compared over the same period. This is **not** the Phase 15 look-ahead test; it only
 checks that the declared warm-up is honest.
 

@@ -172,8 +172,8 @@ result.raise_for_errors()  # raises DataValidationError if there is any error
 - `ValidationConfig` is a frozen dataclass with the defaults of the table; change a threshold per run with a new
   instance or `dataclasses.replace`. Invalid values raise `ValueError`.
 - `raise_for_errors()` raises `DataValidationError` (a `DataError`, with the full result in `.result`) if there is at
-  least one error, and never for warnings or infos. This phase delivers the mechanism; the runner of the engine
-  (part 2 of Phase 4) and the command line (Phase 9) call it before every run.
+  least one error, and never for warnings or infos. `run_backtest` (Phase 4, see [engine.md](engine.md)) calls
+  it before every run and so will the command line (Phase 9); warnings and infos go into the result.
 
 ## Data hash
 

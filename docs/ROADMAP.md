@@ -141,7 +141,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 1 | `feature/data-provider` | Provider interface, yfinance provider, Parquet cache | F-04, F-05 | M | Done |
 | 2 | `feature/data-validation` | Data checks and a reproducibility hash | F-06 | S | Done |
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Done |
-| 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | In progress (part 1 of 2 merged) |
+| 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | Done |
 | 5 | `feature/costs-slippage` | Commission, spread and slippage models | F-10 | S | Planned |
 | 6 | `feature/metrics-benchmark` | Performance metrics and buy-and-hold comparison | F-12, F-13 | M | Planned |
 | 7 | `feature/report` | Markdown and HTML report with charts and caveats | F-14 | M | Planned |
@@ -185,8 +185,8 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   minus the warm-up. ADR 0006 (signal contract, where signals live) and ADR 0007 (strict, explicit spec) were added.
 - Phase 4: the phase is split into two pull requests because it exceeds the size of one reviewable PR. Part 1
   (`feature/core-engine`): pure simulation (sizing, rebalance schedule, delay shift, cost hook, portfolio core), the
-  hand-calculated fixtures, `docs/engine.md` and ADR 0008. Part 2 (`feature/engine-runner`): see "Part 2" in the
-  Phase 4 section. Phase 4 is **Done** only when part 2 is merged.
+  hand-calculated fixtures, `docs/engine.md` and ADR 0008. Part 2 (`feature/engine-runner`): the runner and the
+  result object, see "Part 2" in the Phase 4 section. Phase 4 is **Done** with part 2.
 - Phase 4: the core is a **loop over bars with vector operations across symbols**, not a vectorized cumulative
   calculation, because cash, deferred orders and the cash constraint are path dependent and the loop is the form in
   which each rule can be read and checked (ADR 0008).
@@ -195,6 +195,22 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   without a price as **share quantities** to the next bar with a price, scales buys down when a deferred sale leaves
   too little cash, and reports `deferred_orders` and `unfilled_orders`. `equal_weight` splits capital among the
   selected symbols only (`signal / n`).
+- Phase 4 part 2: `WarmupInfo` has more fields than the roadmap text: `first_decision_date` and
+  `initial_target_weights` (what the first trade was based on, because the trimmed signals start on the first bar),
+  `rows_before`, `first_data`, `short_symbols`, `buffer_days` and `fetch_start`. "Sufficient" means that every symbol
+  has at least `warmup_rows` of its own trading rows strictly before the first decision bar. The signal runs before
+  the `allow_short_warmup=False` check (the initial target weights need it), the raise happens before the simulation.
+  `run_backtest` also raises `DataUnavailableError` for missing symbols or no bar on or after `period.start`, and
+  `ValueError` for rows after `period.end`. `BacktestResult` compares by field (`eq=False`) and has no `to_dict` yet.
+- Phase 4 part 2: found by the invariant tests through the runner: a symbol without a price on the **first bar** (a
+  holiday of one symbol) made the core raise, because it did not know the closes of the warm-up bars. `simulate` got
+  the optional argument `initial_last_close`, `simulate_signals` passes the last warm-up closes; the semantics only
+  say now that "last close" includes bars before the first bar (fixture H15, ADR 0009). Part 1 tests are unchanged.
+- Phase 4 part 2: the test signal of fixture H14 is registered per test with `monkeypatch` on the registry, because
+  `test_builtin_signals.py` and `test_signal_contract.py` pin the registry to the three built-in signals.
+- Phase 4 part 2: the invariant tests show that the core can fill float dust (a buy scaled down to the float residue
+  of cash can fill about 1e-14 shares); the permutation test ignores trades below 1e-6 in notional. Documented
+  deferred orders keep their share quantity (`docs/engine.md`).
 
 ---
 
@@ -299,7 +315,7 @@ Tasks:
 Part 1 (`feature/core-engine`): `sizing`, `schedule`, `core`, `simulation` and `costs` modules in `engine/`, fixtures
 H1 to H13 and the invariant tests on literal frames and seeded random worlds, `docs/engine.md`, ADR 0008.
 
-**Part 2** (`feature/engine-runner`, created from `main` after part 1 is merged):
+**Part 2 (delivered)** (`feature/engine-runner`, created from `main` after part 1 was merged):
 
 - `BacktestResult` (frozen): equity at the close of each bar, `initial_equity`, cash, positions, weights, trades,
   turnover, signals, target weights, spec, data hash, validation result, risk flags, warm-up information, the field
@@ -316,6 +332,9 @@ H1 to H13 and the invariant tests on literal frames and seeded random worlds, `d
 - The live `network` test: `buy_and_hold` on real SPY, TLT and GLD for a short fixed period through the cached
   yfinance provider, final equity checked against an independent calculation from the same prices.
 - README and this file: Phase 4 set to **Done**; architecture and CHANGELOG updated.
+
+Part 2 is delivered (`run_backtest`, `BacktestResult`, `WarmupInfo`, the runner, invariant, example and network tests,
+fixtures H14 and H15).
 
 Done when:
 
@@ -348,7 +367,9 @@ Tasks:
 - F-12 CAGR, annualized volatility, Sharpe, Sortino, maximum drawdown and its duration, Calmar, hit rate, turnover,
   exposure, best and worst month.
 - F-13 Buy-and-hold benchmark over the same period and with the same costs, excess return, tracking error and
-  information ratio.
+  information ratio. The benchmark must run through the **same engine with the same execution rules** (delay, price
+  rule, costs) as the strategy, so that the first bar is measured identically; it is not computed separately from
+  close to close.
 - `docs/metrics.md` with the formula of every metric and the assumptions (risk-free rate, trading days per year).
 
 Done when:

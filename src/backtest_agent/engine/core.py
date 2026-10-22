@@ -47,15 +47,19 @@ def simulate(
     initial_capital: float,
     price_rule: str,
     cost_model: CostModel | None = None,
+    initial_last_close: pd.Series | None = None,
 ) -> Portfolio:
     """Run the portfolio over the bars of ``closes`` (all of them are valued, the first one starts in cash).
+
+    ``initial_last_close`` is the last close of each symbol before the first bar (NaN if it never traded), used to
+    value a symbol that has no price on the first bar. Nothing is traded or valued before the first bar.
 
     ``opens`` and ``closes`` have one row per bar and one column per symbol, NaN where a symbol has no price.
     ``target_weights`` and ``rebalance_bars`` are per **execution** bar: where ``rebalance_bars`` is True, the whole
     portfolio is brought to the weights of that row at the ``price_rule`` price (``open`` or ``close``) of that bar.
     """
     cost_model = NoCosts() if cost_model is None else cost_model
-    _check_inputs(opens, closes, target_weights, rebalance_bars, initial_capital, price_rule)
+    _check_inputs(opens, closes, target_weights, rebalance_bars, initial_capital, price_rule, initial_last_close)
 
     index, symbols = closes.index, list(closes.columns)
     n_bars, n_symbols = closes.shape
@@ -67,6 +71,8 @@ def simulate(
     shares = np.zeros(n_symbols)
     cash = float(initial_capital)
     last_close = np.full(n_symbols, np.nan)
+    if initial_last_close is not None:
+        last_close = initial_last_close.to_numpy(dtype="float64", copy=True)
     open_orders = np.zeros(n_symbols)  # signed share quantity per symbol, 0 = no order
     carried = np.zeros(n_symbols, dtype=bool)  # order already counted as deferred
     deferred_orders = 0
@@ -185,6 +191,7 @@ def _check_inputs(
     rebalance_bars: pd.Series,
     initial_capital: float,
     price_rule: str,
+    initial_last_close: pd.Series | None = None,
 ) -> None:
     if price_rule not in _PRICE_RULES:
         raise EngineError(f"price_rule must be one of {_PRICE_RULES}, got {price_rule!r}")
@@ -209,6 +216,13 @@ def _check_inputs(
         priced = values[~np.isnan(values)]
         if not np.isfinite(priced).all() or (priced <= 0).any():
             raise EngineError(f"{name} must be positive and finite where a symbol has a price")
+    if initial_last_close is not None:
+        if not initial_last_close.index.equals(closes.columns):
+            raise EngineError("initial_last_close must have one entry per symbol of closes")
+        known = initial_last_close.to_numpy(dtype="float64")
+        known = known[~np.isnan(known)]
+        if not np.isfinite(known).all() or (known <= 0).any():
+            raise EngineError("initial_last_close must be positive and finite where a symbol had a price")
     weights = target_weights.to_numpy(dtype="float64")
     if not np.isfinite(weights).all() or (weights < 0).any() or (weights > 1).any():
         raise EngineError("target weights must be finite and between 0 and 1")

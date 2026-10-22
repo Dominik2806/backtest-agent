@@ -37,6 +37,9 @@ def simulate_signals(
     targets = target_weights(signals, sizing)
     decisions = decision_bars(closes.index, rebalance, targets)
     execution_targets, executes = execution_orders(targets, decisions, execution.delay_bars, first_pos)
+    # The closes of the warm-up bars are known although nothing is traded or valued there: they value a symbol that
+    # has no price on the first bar.
+    last_close = closes.iloc[:first_pos].ffill().iloc[-1] if first_pos > 0 else None
     return simulate(
         opens.iloc[first_pos:],
         closes.iloc[first_pos:],
@@ -45,4 +48,5 @@ def simulate_signals(
         initial_capital,
         execution.price,
         cost_model,
+        last_close,
     )

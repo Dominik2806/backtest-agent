@@ -33,8 +33,8 @@ warnings could not exist); treating NaN volume as an error (it would reject vali
 
 - One missing day inside a symbol's history looks like a holiday and is **not** detected; only runs of missing days
   longer than the limit are. A missing week is found, and so are wrong prices, splits and stale data.
-- The mechanism for "data errors stop a run" exists after Phase 2, but the engine and the command line that call
-  `raise_for_errors()` arrive in Phases 4 and 9; until then it is a convention enforced by tests of the mechanism only.
+- The mechanism for "data errors stop a run" exists after Phase 2. Since Phase 4 `run_backtest` calls
+  `raise_for_errors()` before every run (tested); the command line will in Phase 9.
 - A jump to 1/2 or 2 times the price fires both `split_artifact` and `extreme_move`, by design.
 - The codes are a stable interface for the report, the journal and the auditor; renaming one is a breaking change.
 - See [data.md](../data.md) for the table of all checks and their default thresholds.

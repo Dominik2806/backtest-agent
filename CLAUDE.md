@@ -33,6 +33,11 @@ Tests never touch the network: use `FakeProvider` or mock `yfinance`. A test tha
 `@pytest.mark.network`. Data caches go under `data/cache/` (git-ignored); never commit them. The golden hash in
 `tests/test_data_hash.py` is a literal: a change of the hash layout needs a `HASH_VERSION` bump and an ADR first.
 
+Engine: `run_backtest(spec, provider)` in `backtest_agent.engine` is the one entry point that loads data with warm-up,
+validates, hashes, runs the signal and returns a `BacktestResult` (costs are not applied until Phase 5). A test that
+expects the short-history `InsufficientWarmupWarning` must catch it (`pytest.warns`); the test summary shows no warnings.
+A test signal is registered per test with `monkeypatch` (see `tests/runner_helpers.py`), never permanently.
+
 Signal contract (details in `docs/strategy-spec.md`, ADR 0006): a signal `fn(prices, params) -> DataFrame` returns
 float64 in [0, 1] without NaN on the input index with one column per symbol, computed per symbol on its own trading
 rows, using only data up to the date, without modifying its input. Its params model declares `warmup_rows`, and every

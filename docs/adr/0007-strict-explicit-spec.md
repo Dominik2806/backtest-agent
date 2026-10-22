@@ -38,7 +38,7 @@ agent or a person would need one round trip per problem); validating signal para
 - Specs are a little longer, and an example or an agent-written spec cannot forget costs, sizing or timing.
 - The schema carries a version, so later changes can be told apart; adding an optional field stays compatible, adding a
   required field or changing a meaning needs a new `schema_version`.
-- The spec says what sizing, rebalancing and costs mean, but the engine applies them in Phases 4 and 5; until then the
-  fields are validated, not executed.
+- The spec says what sizing, rebalancing and costs mean, but the engine applies sizing, rebalancing and execution since Phase 4 and
+  the costs follow in Phase 5; until then the costs are validated, not executed, and the result says so.
 - Every file in `strategies/` is loaded by a test, so a broken spec fails CI.
 - See [strategy-spec.md](../strategy-spec.md) for every field with type, default and meaning.

@@ -47,9 +47,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   return of the first bar. Costs are not applied yet. Hand-calculated fixtures (H1 to H13) and seeded invariant tests
   (cash never negative, weights at most 100 percent, determinism, permuted universe, doubled capital, causality)
 - `docs/engine.md` (semantics, assumptions and the fixtures with their arithmetic) and ADR 0008 (engine semantics)
+- Engine, part 2 of Phase 4 (F-09, F-11): `run_backtest(spec, provider, allow_short_warmup=True)` loads history from
+  `period.start` minus a warm-up buffer, validates it (errors stop the run), hashes the frame as loaded, runs the
+  registered signal through its contract check and returns a frozen `BacktestResult` (equity, cash, positions,
+  weights, trades, turnover, trimmed signals and target weights, deferred and unfilled orders, data hash, validation,
+  risk flags, `costs_applied`). `WarmupInfo` reports how much history stood behind the first decision, including
+  `first_decision_date` and `initial_target_weights`; too little history gives the flag `insufficient_warmup`, an
+  `InsufficientWarmupWarning`, or `InsufficientHistoryError` with `allow_short_warmup=False`. The risk flag
+  `costs_not_applied` is set while the costs of the spec are not deducted. Hand-calculated fixtures H14 and H15,
+  invariant tests through the runner (including a causality test that perturbs all prices after a date), the three
+  example specs end to end and a live `network` test of buy and hold on SPY, TLT and GLD
+- ADR 0009 (run pipeline, warm-up and result object)
 
 ### Changed
 
+- A symbol without a price on the first bar is valued at its last close from the warm-up bars (before, the core
+  raised `EngineError` when such a symbol got an order on the first bar); `simulate` takes the optional
+  `initial_last_close`
 - Template placeholders filled in `README.md`, `CLAUDE.md` (F-03), `CONTRIBUTING.md`, `LICENSE`, `docs/RELEASING.md`
   and the issue template; line endings are forced to LF in `.gitattributes`
 
