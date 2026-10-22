@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Benchmark comparison (F-13, Phase 6 part 2): `evaluate(spec, provider)` runs the strategy and its buy-and-hold benchmark
+  (`benchmark_spec`: the benchmark symbol, `buy_and_hold`, `equal_weight`, same period, capital, execution and costs) through
+  the same `run_backtest` and provider, and returns an `Evaluation` with both results, both `PerformanceMetrics`, and the
+  relative metrics (excess return, tracking error, information ratio). The two runs are aligned on the equity levels of their
+  common dates; dropped dates are counted and flagged and nothing raises for different calendars. `evaluate_result` rejects
+  a benchmark result of another spec or another `costs_applied`. `Evaluation.to_dict()` is JSON serializable. Hand-calculated
+  fixtures R1 to R3 in `docs/metrics.md`, with tests and property tests, ADR 0013. `run_backtest` is unchanged.
 - Performance metrics (F-12, Phase 6 part 1): `compute_metrics(result, MetricAssumptions(periods_per_year, risk_free_rate))`
   returns `PerformanceMetrics` (total return from `net_return`, CAGR, annualized volatility, Sharpe, Sortino, maximum and
   current drawdown, longest drawdown in bars and days, Calmar, hit rate, two-sided and one-sided annualized turnover,

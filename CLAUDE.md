@@ -87,5 +87,10 @@ PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` wh
   `docs/metrics.md`, compared with 1e-9 (relative and absolute); never compute one with project code. A metric that is
   not defined is `None`, never NaN or inf; a per-bar deviation below 1e-12 counts as zero (`docs/metrics.md`). Turnover
   is reported two-sided (the engine's) and one-sided (half). `BacktestResult.returns` is 0.0 after a ruin.
+- **Benchmark tests:** `evaluate(spec, provider)` in `backtest_agent.metrics` runs the strategy and its buy-and-hold benchmark
+  (`benchmark_spec`) through `run_backtest` with the same provider, costs and execution; `run_backtest` loads no benchmark.
+  The expected values of R1 to R3 (`tests/test_metrics_relative_hand_calculated.py`, `tests/test_metrics_evaluation.py`)
+  are literals written out in `docs/metrics.md`; never compute one with project code. The alignment is on equity levels
+  of the common dates (rule in `docs/metrics.md`), never silent; relative metrics with fewer than 2 observations are `None`.
 - **Never commit** secrets, `.env`, market data, run outputs or reports (`data/`, `runs/`, `reports/`, `*.parquet`).
 - Update this file when new commands or conventions are introduced.

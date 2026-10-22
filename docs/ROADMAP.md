@@ -143,7 +143,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 3 | `feature/strategy-spec` | YAML strategy spec, signal interface, example strategies | F-07, F-08 | M | Done |
 | 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | Done |
 | 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | Done |
-| 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | In progress (part 1 of 2 merged) |
+| 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
 | 7 | `feature/report` | Markdown and HTML report with charts and caveats | F-14 | M | Planned |
 | 8 | `feature/experiment-journal` | Run log with trial counter | F-15 | S | Planned |
 | 9 | `feature/cli` | `bt` command; release `v0.1.0` | F-16 | M | Planned |
@@ -254,6 +254,17 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   years, and the labels of the best and worst month; "zero" for a deviation is a documented tolerance of 1e-12, not an
   exact zero; an undefined metric is `None`. The benchmark is already the required spec field `benchmark`, so no schema
   change is planned for part 2.
+- Phase 6 part 2: "a run always reports its metrics next to the benchmark" is delivered by `evaluate` (new
+  `metrics/evaluation.py`), not by `run_backtest`, which stays unchanged and loads no benchmark. The benchmark is derived
+  by `benchmark_spec` and runs through the same `run_backtest` and provider (also when its symbol is in the universe).
+- Phase 6 part 2: the alignment compares the equity levels on the common dates, not per-bar returns, because a return
+  across a date that exists in one series only covers a different holding period (rule in `docs/metrics.md`). If the first
+  common date is not the first bar of both runs, the base is the equity at that date and the first-bar return of each run
+  (against its initial equity) is not part of the compared window, so the excess return can differ from the difference of
+  the two `net_return`s. Dropped dates are counted and flagged; with fewer than 2 observations excess return, tracking
+  error and information ratio are all `None`. `Evaluation.to_dict()` also carries the risk flag codes of both runs.
+  `make_spec` in `tests/runner_helpers.py` got an optional `benchmark` argument. No expected value of H1 to H23c or M1 to
+  M14 changed.
 
 ---
 
@@ -432,6 +443,10 @@ Done when:
 ## Phase 6: Metrics and benchmark
 
 **Branch:** `feature/metrics-benchmark` · **Goal:** every run is judged against the same yardstick, including a simple benchmark.
+
+**Status:** Done. Part 1 (`feature/metrics-benchmark`, delivered): F-12, `docs/metrics.md`, ADR 0012. Part 2
+(`feature/benchmark-comparison`, delivered): F-13 (`benchmark_spec`, equity-level alignment, relative metrics, `evaluate`),
+fixtures R1 to R3, [ADR 0013](adr/0013-benchmark-comparison.md).
 
 Tasks:
 
