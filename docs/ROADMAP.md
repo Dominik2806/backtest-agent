@@ -241,6 +241,10 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   `tests/test_engine_core_invariants.py`. It tested the documented temporary behaviour (a 10 percent model makes cash
   negative until the funding rule is extended), which no longer exists; the new tests keep the guard with
   pathological models. No expected value of H1 to H15 changed.
+- Phase 6: `Portfolio.returns` and `BacktestResult.returns` return 0.0 for every bar after a portfolio was ruined by
+  fees (equity 0), instead of 0/0 = NaN, through the shared helper `bar_returns` in `engine/core.py` (the bar that
+  ruined it keeps -1). The metrics must never see NaN. A test pins the H23c returns `[0, 0, -0.5, -1, 0]`; no
+  expected value of H1 to H23c changed.
 
 ---
 

@@ -20,6 +20,16 @@ WEIGHT_SUM_TOLERANCE = 1e-9
 _PRICE_RULES = ("open", "close")
 
 
+def bar_returns(equity: pd.Series, initial_equity: float) -> pd.Series:
+    """Return per bar; the first bar is measured against ``initial_equity``.
+
+    A bar that starts with equity 0 (a portfolio ruined by fees) has the return 0.0, not 0/0 = NaN: nothing is left to
+    gain or lose, and the return of the bar that ruined it is -1.
+    """
+    previous = equity.shift(1, fill_value=initial_equity)
+    return (equity / previous.where(previous != 0.0) - 1.0).where(previous != 0.0, 0.0)
+
+
 @dataclass(frozen=True)
 class Portfolio:
     """The path of a simulation. Every row is the end of a bar (after the close). Treat the frames as read-only."""
@@ -42,8 +52,8 @@ class Portfolio:
 
     @property
     def returns(self) -> pd.Series:
-        """Return per bar; the first bar is measured against ``initial_equity``."""
-        return self.equity / self.equity.shift(1, fill_value=self.initial_equity) - 1.0
+        """Return per bar; the first bar is measured against ``initial_equity``, 0.0 after a ruin (``bar_returns``)."""
+        return bar_returns(self.equity, self.initial_equity)
 
 
 def simulate(

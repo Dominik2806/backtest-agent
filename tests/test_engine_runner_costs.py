@@ -223,3 +223,4 @@ def test_h23c_a_portfolio_ruined_by_fees_has_a_net_return_of_minus_one(fixture_s
     assert result.net_return == -1.0 and result.gross_return == 0.0
     assert result.cost_drag == 1.0
     assert result.cost_share is None  # the gross return is not positive
+    assert list(result.returns) == approx([0, 0, -0.5, -1, 0])  # 0.0 after the ruin, not 0/0 = NaN
