@@ -10,6 +10,7 @@ import pytest
 
 from backtest_agent.reporting import write_report
 from backtest_agent.reporting.writer import check_run_id, render_report
+from html_helpers import parse
 from report_helpers import equal_start, late_benchmark
 
 WHEN = datetime(2026, 1, 15, 10, 30, 5, tzinfo=UTC)
@@ -23,13 +24,16 @@ def tree(path: Path) -> list[str]:
 # --- what is written ---------------
 
 
-def test_the_report_and_the_two_charts_are_written_to_the_run_folder(tmp_path: Path) -> None:
+def test_the_reports_and_the_two_charts_are_written_to_the_run_folder(tmp_path: Path) -> None:
     paths = write_report(equal_start(), tmp_path / "reports", generated_at=WHEN)
     assert paths.run_id == GOLDEN_ID
     assert paths.directory == tmp_path / "reports" / GOLDEN_ID
-    assert tree(paths.directory) == ["drawdown.svg", "equity.svg", "report.md"]
+    assert tree(paths.directory) == ["drawdown.svg", "equity.svg", "report.html", "report.md"]
     assert paths.markdown == paths.directory / "report.md"
-    assert set(paths.files) == {paths.directory / name for name in ("report.md", "equity.svg", "drawdown.svg")}
+    assert paths.html == paths.directory / "report.html"
+    assert set(paths.files) == {
+        paths.directory / name for name in ("report.md", "equity.svg", "drawdown.svg", "report.html")
+    }
     for path in paths.files:
         assert path.stat().st_size > 0
 
@@ -54,9 +58,33 @@ def test_the_files_have_unix_line_ends_whatever_the_platform(tmp_path: Path) -> 
 def test_the_written_markdown_is_the_rendered_markdown(tmp_path: Path) -> None:
     rendered = render_report(equal_start(), run_id=GOLDEN_ID, generated_at=WHEN)
     paths = write_report(equal_start(), tmp_path, generated_at=WHEN)
-    assert list(rendered) == ["report.md", "equity.svg", "drawdown.svg"]
+    assert list(rendered) == ["report.md", "equity.svg", "drawdown.svg", "report.html"]  # the order of writing
     for name, text in rendered.items():
         assert (paths.directory / name).read_bytes() == text.encode("utf-8")
+
+
+def test_the_written_html_is_the_rendered_html_and_needs_no_other_file(tmp_path: Path) -> None:
+    paths = write_report(equal_start(), tmp_path, generated_at=WHEN)
+    html = paths.html.read_text(encoding="utf-8")
+    assert html == render_report(equal_start(), run_id=GOLDEN_ID, generated_at=WHEN)["report.html"]
+    assert html.startswith("<!DOCTYPE html>\n") and "\r" not in html
+    assert paths.html.name not in paths.markdown.read_text(encoding="utf-8")  # the Markdown does not link the HTML
+    assert "equity.svg" not in html and "drawdown.svg" not in html  # the charts are inline, no link to a file
+    assert html.count("<svg") == 2
+
+
+def test_nul_in_a_name_gives_four_files_that_all_parse(tmp_path: Path) -> None:
+    evaluation = equal_start()
+    spec = evaluation.result.spec.model_copy(update={"name": "Nul\x00 name"})
+    paths = write_report(
+        replace(evaluation, result=replace(evaluation.result, spec=spec)),
+        tmp_path,
+        generated_at=WHEN,
+        run_id="control-char",
+    )
+    for path in (paths.html, paths.directory / "equity.svg", paths.directory / "drawdown.svg"):
+        parse(path.read_text(encoding="utf-8"))
+    assert b"\x00" not in paths.markdown.read_bytes()
 
 
 def test_the_standalone_charts_carry_the_namespace(tmp_path: Path) -> None:
@@ -128,6 +156,49 @@ def test_a_failure_while_writing_removes_the_folder_it_created(tmp_path: Path, m
         write_report(equal_start(), tmp_path / "reports", generated_at=WHEN)
     assert calls == ["report.md", "equity.svg"]
     assert tree(tmp_path / "reports") == []  # the run folder is gone again
+
+
+def test_a_failure_on_the_html_write_removes_the_folder_it_created(tmp_path: Path, monkeypatch) -> None:
+    real = Path.write_bytes
+    calls = []
+
+    def failing(self: Path, data: bytes) -> int:
+        calls.append(self.name)
+        if self.name == "report.html":
+            raise OSError("disk full")
+        return real(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", failing)
+    with pytest.raises(OSError, match="disk full"):
+        write_report(equal_start(), tmp_path / "reports", generated_at=WHEN)
+    assert calls == ["report.md", "equity.svg", "drawdown.svg", "report.html"]  # the html is the last write
+    assert tree(tmp_path / "reports") == []  # the run folder is gone again
+
+
+def test_a_failure_while_rendering_the_html_leaves_nothing_on_disk(tmp_path: Path, monkeypatch) -> None:
+    def broken(model):
+        raise ValueError("cannot render")
+
+    monkeypatch.setattr("backtest_agent.reporting.writer.render_html", broken)
+    target = tmp_path / "reports"
+    with pytest.raises(ValueError, match="cannot render"):
+        write_report(equal_start(), target, generated_at=WHEN)
+    assert not target.exists()  # not even the reports folder
+
+
+def test_a_failure_on_the_html_write_keeps_an_existing_folder_when_overwriting(tmp_path: Path, monkeypatch) -> None:
+    first = write_report(equal_start(), tmp_path, generated_at=WHEN)
+    real = Path.write_bytes
+
+    def failing(self: Path, data: bytes) -> int:
+        if self.name == "report.html":
+            raise OSError("disk full")
+        return real(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", failing)
+    with pytest.raises(OSError, match="disk full"):
+        write_report(equal_start(), tmp_path, generated_at=WHEN, overwrite=True)
+    assert tree(first.directory) == ["drawdown.svg", "equity.svg", "report.html", "report.md"]  # kept, not removed
 
 
 def test_a_failure_while_overwriting_keeps_the_existing_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

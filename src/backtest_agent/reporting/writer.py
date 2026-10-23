@@ -19,11 +19,13 @@ from pathlib import Path
 
 from backtest_agent.metrics.evaluation import Evaluation
 from backtest_agent.reporting.charts import line_chart_svg
+from backtest_agent.reporting.html_renderer import render_html
 from backtest_agent.reporting.markdown_renderer import render_markdown
 from backtest_agent.reporting.model import build_report_model
 from backtest_agent.run_id import make_run_id
 
 REPORT_MD = "report.md"
+REPORT_HTML = "report.html"
 _SAFE_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}")
 _WINDOWS_DEVICE = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", re.IGNORECASE)
 
@@ -39,6 +41,10 @@ class ReportPaths:
     @property
     def markdown(self) -> Path:
         return self.directory / REPORT_MD
+
+    @property
+    def html(self) -> Path:
+        return self.directory / REPORT_HTML
 
 
 def check_run_id(run_id: str) -> str:
@@ -57,13 +63,17 @@ def check_run_id(run_id: str) -> str:
 
 
 def render_report(evaluation: Evaluation, *, run_id: str, generated_at: datetime) -> dict[str, str]:
-    """All files of a report as text, by file name, rendered in memory. Nothing is written."""
+    """All files of a report as text, by file name, rendered in memory. Nothing is written.
+
+    The order is the order of writing: the HTML report, which embeds the charts and is the file a reader opens, is last.
+    """
     model = build_report_model(evaluation, run_id=run_id, generated_at=generated_at)
     charts = model.charts
     return {
         REPORT_MD: render_markdown(model),
         charts.equity_file: line_chart_svg(charts.equity, standalone=True),
         charts.drawdown_file: line_chart_svg(charts.drawdown, standalone=True),
+        REPORT_HTML: render_html(model),
     }
 
 
