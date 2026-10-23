@@ -261,7 +261,14 @@ def _header(evaluation: Evaluation, run_id: str, generated_at: datetime) -> Head
 
 def _data_run(label: str, result: BacktestResult) -> DataRun:
     validation: ValidationResult = result.validation
-    counts = f"{len(validation.errors)} errors, {len(validation.warnings)} warnings, {len(validation.infos)} infos"
+    counts = ", ".join(
+        f"{n} {word if n == 1 else word + 's'}"
+        for n, word in (
+            (len(validation.errors), "error"),
+            (len(validation.warnings), "warning"),
+            (len(validation.infos), "info"),
+        )
+    )
     issues = tuple(
         IssueRow(
             severity=issue.severity.value,
