@@ -21,7 +21,7 @@ from backtest_agent.reporting.html_renderer import (
 )
 from backtest_agent.reporting.markdown_renderer import render_markdown
 from backtest_agent.reporting.model import HeatmapCell, HeatmapSection, build_report_model
-from html_helpers import FORBIDDEN_TAGS, parse, structure, table_body, table_headers, tables, text_of
+from html_helpers import FORBIDDEN_TAGS, markdown_tables, parse, structure, table_body, table_headers, tables, text_of
 from report_helpers import all_kinds, equal_start
 
 WHEN = datetime(2026, 1, 15, 10, 30, 5, tzinfo=UTC)
@@ -140,28 +140,6 @@ def test_every_kind_of_run_is_well_formed_xml(kinds) -> None:
 
 def markdown_headings(markdown: str) -> list[str]:
     return [line for line in markdown.splitlines() if re.match(r"#{1,6} ", line)]
-
-
-def markdown_tables(markdown: str) -> list[list[list[str]]]:
-    """Each table as a list of rows of unescaped cells; the separator line is dropped."""
-    blocks: list[list[str]] = []
-    current: list[str] = []
-    for line in markdown.splitlines():
-        if line.startswith("|"):
-            current.append(line)
-        elif current:
-            blocks.append(current)
-            current = []
-    if current:
-        blocks.append(current)
-    return [
-        [
-            [re.sub(r"\\(.)", r"\1", cell.strip()) for cell in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
-            for index, line in enumerate(rows)
-            if index != 1
-        ]
-        for rows in blocks
-    ]
 
 
 def test_the_headings_are_those_of_the_markdown_report_in_the_same_order(kinds) -> None:

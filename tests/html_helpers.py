@@ -100,3 +100,25 @@ def structure(html: str) -> Structure:
     parser.feed(html)
     parser.close()
     return parser
+
+
+def markdown_tables(markdown: str) -> list[list[list[str]]]:
+    """Each table as a list of rows of unescaped cells; the separator line is dropped."""
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in markdown.splitlines():
+        if line.startswith("|"):
+            current.append(line)
+        elif current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
+    return [
+        [
+            [re.sub(r"\\(.)", r"\1", cell.strip()) for cell in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+            for index, line in enumerate(rows)
+            if index != 1
+        ]
+        for rows in blocks
+    ]
