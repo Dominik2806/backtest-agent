@@ -137,6 +137,10 @@ def test_data_hashes_warm_up_and_issues() -> None:
             (Severity.ERROR,) * 2 + (Severity.WARNING,) * 2 + (Severity.INFO,) * 2,
             "2 errors, 2 warnings, 2 infos",
         ),
+        (
+            (Severity.ERROR,) * 1 + (Severity.WARNING,) * 2 + (Severity.INFO,) * 3,
+            "1 error, 2 warnings, 3 infos",
+        ),
     ],
 )
 def test_the_validation_line_uses_the_singular_for_one(severities, summary) -> None:

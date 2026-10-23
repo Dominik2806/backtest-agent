@@ -1,4 +1,4 @@
-"""Run ids (F-14; the exact hash input is written out in docs/adr/0014-report.md).
+"""Run ids (F-14, F-15; the exact hash input is written out in docs/adr/0014-report.md).
 
 A run id is ``<YYYYMMDDTHHMMSSZ>-<slug of the strategy name>-<8 hex characters>``. It is built outside any renderer from
 an explicit ``generated_at``, so the same inputs at the same time give the same id. The 8 hex characters identify the
@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from backtest_agent.metrics.evaluation import Evaluation
 
 SLUG_LIMIT = 40
+_SAFE_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}")
+_WINDOWS_DEVICE = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", re.IGNORECASE)
 _NOT_SLUG = re.compile(r"[^a-z0-9]+")
 
 
@@ -55,3 +57,18 @@ def make_run_id(evaluation: Evaluation, generated_at: datetime) -> str:
         raise ValueError("generated_at must be timezone-aware; pass a datetime in UTC, e.g. datetime.now(timezone.utc)")
     stamp = generated_at.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
     return f"{stamp}-{slugify(evaluation.result.spec.name)}-{inputs_digest(evaluation)}"
+
+
+def check_run_id(run_id: str) -> str:
+    """The run id as a folder name: one path component made of letters, digits, ``.``, ``_`` and ``-``.
+
+    Raises ``ValueError`` for anything that could leave the reports folder or is not a valid Windows name: path
+    separators, ``..``, a drive colon, a leading dot, a trailing dot or space, a Windows device name such as ``CON``,
+    an empty or a very long name.
+    """
+    reserved = _WINDOWS_DEVICE.fullmatch(run_id.split(".")[0])
+    if not _SAFE_RUN_ID.fullmatch(run_id) or run_id.endswith(".") or ".." in run_id or reserved:
+        raise ValueError(
+            f"{run_id!r} is not a safe run id: use letters, digits, '.', '_' and '-' in one path component"
+        )
+    return run_id

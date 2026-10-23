@@ -145,7 +145,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | Done |
 | 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
 | 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
-| 8 | `feature/experiment-journal` | Run log with trial counter | F-15 | S | Planned |
+| 8 | `feature/experiment-journal` | Run log with trial counter (two parts) | F-15 | S | In progress (part 1 of 2 merged) |
 | 9 | `feature/cli` | `bt` command; release `v0.1.0` | F-16 | M | Planned |
 | 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
 | 11 | `feature/agents-auditor-interpreter` | Bias auditor and report interpreter subagents | F-19, F-20 | M | Planned |
@@ -294,6 +294,19 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   order of the rendered files get `report.html`; a test was renamed to "reports"), `tests/test_report_model.py` (the
   validation summary `1 infos` is now `1 info`) and the snapshot `tests/snapshots/report.md` (the same two lines). No
   dependency was added.
+- Phase 8: the phase is split into two pull requests. Part 1 (`feature/experiment-journal`): the journal core (run folders,
+  SQLite index, family and trial counters, read API, `rebuild_index`), `docs/journal.md` and ADR 0015. Part 2: the
+  `run_experiment` entry point, the trial line of the report, the example and the remaining docs. Phase 8 is **Done**
+  with part 2.
+- Phase 8: the counter has two numbers, `run_count` (every logged run) and `trial_count` (distinct variants: the spec
+  without name and description). The roadmap text "counting every run including parameter variants" is read that way.
+- Phase 8: `check_run_id` moved from `reporting/writer.py` to `run_id.py` (the writer re-exports it), so the journal does not
+  import the reporting package.
+- Phase 8: beyond the roadmap text, `record_run` refuses a stale index (a run folder without a row, a row without a folder,
+  or a missing index next to run folders) instead of starting a new counter, and readers wait for a running writer
+  before they report that.
+- Phase 8 part 1: `run.json` and `index.sqlite` are written only through `record_run`; nothing calls it yet. The rule that
+  every standard run is logged is delivered with `run_experiment` in part 2.
 
 ---
 
@@ -518,6 +531,8 @@ Done when:
 ## Phase 8: Experiment journal
 
 **Branch:** `feature/experiment-journal` · **Goal:** nothing that was tried is forgotten, so overfitting becomes visible.
+
+**Status:** part 1 of 2 (the journal core, see [journal.md](journal.md)) is done; part 2 (entry point, report line) is open.
 
 Tasks:
 
