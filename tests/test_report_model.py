@@ -119,13 +119,31 @@ def test_data_hashes_warm_up_and_issues() -> None:
     assert data.runs[0].data_hash == evaluation.result.data_hash
     assert data.runs[1].data_hash == evaluation.benchmark_result.data_hash
     assert data.runs[0].data_hash != data.runs[1].data_hash
-    assert data.runs[0].summary == "0 errors, 0 warnings, 1 infos"
+    assert data.runs[0].summary == "0 errors, 0 warnings, 1 info"
     assert rows(data.warmup)["Warm-up sufficient"] == ("yes",)
     assert rows(data.warmup)["Warm-up rows required by the signal"] == ("0",)
     assert data.warmup_symbols.rows[0][0] == "A"
     assert (
         "Benchmark B: 0 warm-up rows required, warm-up sufficient: yes, first bar 2024-01-02." == data.benchmark_warmup
     )
+
+
+@pytest.mark.parametrize(
+    "severities, summary",
+    [
+        ((), "0 errors, 0 warnings, 0 infos"),
+        ((Severity.ERROR, Severity.WARNING, Severity.INFO), "1 error, 1 warning, 1 info"),
+        (
+            (Severity.ERROR,) * 2 + (Severity.WARNING,) * 2 + (Severity.INFO,) * 2,
+            "2 errors, 2 warnings, 2 infos",
+        ),
+    ],
+)
+def test_the_validation_line_uses_the_singular_for_one(severities, summary) -> None:
+    evaluation = equal_start()
+    issues = tuple(ValidationIssue(severity, "code", None, None, 1, (), "message") for severity in severities)
+    result = replace(evaluation.result, validation=ValidationResult(issues))
+    assert model_of(replace(evaluation, result=result)).data.runs[0].summary == summary
 
 
 def test_validation_warnings_of_both_runs_are_listed() -> None:

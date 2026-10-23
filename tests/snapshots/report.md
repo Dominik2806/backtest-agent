@@ -37,7 +37,7 @@
 
 - **Symbols:** A
 - **Data hash:** `61669f6e7476623e1289ff7dad8c8b767f36be44961c05ec4def3f45c15dd090`
-- **Validation:** 0 errors, 0 warnings, 1 infos
+- **Validation:** 0 errors, 0 warnings, 1 info
 
 | Severity | Code | Symbol | Field | Rows | First dates | Message |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -47,7 +47,7 @@
 
 - **Symbols:** B
 - **Data hash:** `ff487f9000d166df03fa5e84640c7524f7414b58173ed654e33fab7f1df0b094`
-- **Validation:** 0 errors, 0 warnings, 1 infos
+- **Validation:** 0 errors, 0 warnings, 1 info
 
 | Severity | Code | Symbol | Field | Rows | First dates | Message |
 | --- | --- | --- | --- | --- | --- | --- |

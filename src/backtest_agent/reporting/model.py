@@ -33,10 +33,19 @@ OUTSIDE_RUN = "·"  # a month before the first or after the last bar of the run
 STRATEGY, BENCHMARK = "Strategy", "Benchmark"
 
 
+_XML_ILLEGAL = re.compile(
+    r"[\x00-\x08\x0e-\x1b\ud800-\udfff\ufffe\uffff]"
+)  # what XML 1.0 forbids and \s does not match
+
+
 def text(value: Any) -> str:
-    """Spec or data text for display: whitespace collapsed to single spaces, ``(none)`` if nothing is left."""
-    collapsed = re.sub(r"\s+", " ", str(value)).strip()
-    return collapsed or "(none)"
+    """Spec or data text for display: characters that XML 1.0 forbids (such as NUL) become U+FFFD, whitespace is
+    collapsed to single spaces, ``(none)`` if nothing is left.
+
+    The replacement is here, once, so that the Markdown, the HTML and the standalone SVG files are all well-formed.
+    """
+    collapsed = re.sub(r"\s+", " ", str(value)).strip()  # also turns \x0b, \x0c and \x1c-\x1f into spaces
+    return _XML_ILLEGAL.sub("\ufffd", collapsed) or "(none)"
 
 
 @dataclass(frozen=True)
@@ -261,7 +270,14 @@ def _header(evaluation: Evaluation, run_id: str, generated_at: datetime) -> Head
 
 def _data_run(label: str, result: BacktestResult) -> DataRun:
     validation: ValidationResult = result.validation
-    counts = f"{len(validation.errors)} errors, {len(validation.warnings)} warnings, {len(validation.infos)} infos"
+    counts = ", ".join(
+        f"{n} {word if n == 1 else word + 's'}"
+        for n, word in (
+            (len(validation.errors), "error"),
+            (len(validation.warnings), "warning"),
+            (len(validation.infos), "info"),
+        )
+    )
     issues = tuple(
         IssueRow(
             severity=issue.severity.value,

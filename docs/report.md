@@ -5,15 +5,16 @@ benchmark, and what the number does not mean. The code is in `src/backtest_agent
 decisions are in [ADR 0014](adr/0014-report.md). The report only formats numbers that already exist in an `Evaluation`
 ([metrics.md](metrics.md)); the one family that did not exist, the trade statistics, was added to the metrics layer first.
 
-**Status.** Phase 7 part 1 delivers the model, the Markdown report, the SVG charts, the run id and the writer. Part 2
-adds the self-contained HTML report (section "HTML (part 2)") and the reports of the three example strategies.
+**Status.** Phase 7 is done. Part 1 delivered the model, the Markdown report, the SVG charts, the run id and the writer.
+Part 2 delivers the self-contained HTML report (section "HTML"), `report.html` in the writer, and the reports of the three
+example strategies (offline and, marked `network`, with real data).
 
 ## Pipeline
 
 ```
 Evaluation ──► build_report_model ──► ReportModel ──► render_markdown ──► report.md
  (metrics)     (pure: all display       (frozen         line_chart_svg  ──► equity.svg, drawdown.svg
-                decisions, formats)      display data)  (HTML: part 2)  ──► report.html
+                decisions, formats)      display data)  render_html     ──► report.html
                                                               │
                                               write_report (the only file I/O)
 ```
@@ -26,6 +27,7 @@ Evaluation ──► build_report_model ──► ReportModel ──► render_m
 | Facts | `reporting/facts.py` | First and last bar of strategy and benchmark | compute a metric |
 | Charts | `reporting/charts.py` | SVG text of a line chart from the model's series | read the `Evaluation` |
 | Markdown | `reporting/markdown_renderer.py` | Lays the model out, escapes text for Markdown | decide a format or add content |
+| HTML | `reporting/html_renderer.py` | Lays the model out as one self-contained HTML file, escapes every text, shades the monthly returns | decide a format, add content or reference anything external |
 | Writer | `reporting/writer.py` | Renders everything in memory, then writes the files | render |
 | Run id | `run_id.py` | `<UTC timestamp>-<slug>-<8 hex>` | run inside a renderer |
 
@@ -52,7 +54,11 @@ Files of one report:
 |---|---|
 | `report.md` | The report as Markdown; links `equity.svg` and `drawdown.svg` by relative path |
 | `equity.svg`, `drawdown.svg` | The charts as standalone SVG files (with the XML namespace) |
-| `report.html` | Part 2: the same report as one self-contained HTML file with the SVG inline |
+| `report.html` | The same report as one self-contained HTML file with the SVG inline; needs no other file |
+
+The files are written in this order: `report.md`, `equity.svg`, `drawdown.svg`, `report.html`. The HTML report, the file a
+reader opens first, is written last, so it exists only if everything else was written. `ReportPaths` has the properties
+`markdown` and `html`.
 
 ## Sections, in this order
 
@@ -144,6 +150,10 @@ format; `*` marks the first and last month of the run, `·` a month outside the 
   `FileExistsError` unless `overwrite=True`. A run id that could leave the reports folder is rejected.
 - **Atomic:** everything is rendered in memory before the folder is created; if rendering raises, nothing is left on
   disk. If a write fails, a folder this call created is removed.
+- **Not atomic with `overwrite=True`:** the existing folder is kept, so a write that fails part-way can leave a mix of new
+  and old files. Files that the call does not write are left alone. Delete the folder and write again if that matters. A
+  temporary folder with a directory swap was considered and left out: it needs two renames with a rollback, behaves
+  differently on Windows (a folder open in a viewer blocks a rename) and would need its own failure tests.
 
 ## Charts
 
@@ -172,19 +182,98 @@ year or less, a benchmark that starts later or ends earlier, insufficient overla
 
 ## Escaping
 
-The model keeps text from the spec or the data (names, symbols, validation messages) raw, with whitespace collapsed and
-`(none)` for an empty value. The Markdown renderer escapes `\ | ` * < > [ ] &` with a backslash and turns line breaks into
-spaces, so a name cannot break a table or inject markup. The HTML renderer (part 2) escapes `& < > " '`.
+The model keeps text from the spec or the data (names, symbols, validation messages) with whitespace collapsed, `(none)` for
+an empty value, and characters that XML 1.0 forbids (NUL and the other control characters except tab, line feed and
+carriage return) replaced by U+FFFD. That replacement is in `text()` of `reporting/model.py`, once, so the Markdown, the HTML
+and the standalone SVG files are all well-formed. The Markdown renderer escapes `\ | ` * < > [ ] &` with a backslash and
+turns line breaks into spaces, so a name cannot break a table or inject markup. The HTML renderer escapes `& < > " '`
+(see "HTML").
 
-## HTML (part 2)
+## HTML
 
-One self-contained file: inline CSS, inline SVG, no external font, script, stylesheet, image or link. The checks of
-part 2: the HTML is well-formed (written XML-compatible and parsed with `xml.etree`); a hostile strategy name such as
-`<script>alert(1)</script>` appears escaped and not as an element; there is no external reference (no `http` text at all in
-the default fixture, and a structural check with `html.parser`: no `<script>`, `<link>`, `<img>`, `<iframe>`, no `src`, no
-`href` other than a `#fragment`, no `url(` or `@import` in CSS). The inline SVG has no XML namespace, because the namespace
-is an `http://` string. The monthly returns table gets a diverging colour shade per cell; the numbers stay in the cells.
-The caveats section and the equity caption are rendered from the same model as in Markdown.
+`reporting/html_renderer.py`, `render_html(model) -> str`: a pure function of the `ReportModel`. It adds no content and no
+number format. The sections and headings are those of the Markdown report in the same order, the fixed caveats come from
+`model.fixed_caveats`, and the equity caption is `model.charts.equity_caption`. There is no table of contents (it would be
+new content) and no theme switch.
+
+**One self-contained file.** Inline CSS, inline SVG (`line_chart_svg(chart, standalone=False)`, which has no XML
+namespace, because the namespace is an `http://` string), no script, no external font, stylesheet, image or link. The
+Markdown report links `equity.svg` and `drawdown.svg`; the HTML embeds the same charts in a `<figure>` with the caption as
+`<figcaption>`, so the file needs no other file.
+
+**Escaping cannot be forgotten.** The markup is built with two helpers only, `tag(element, *children, **attrs)` (one line)
+and `block(...)` (children on their own lines):
+
+- A plain `str` child or attribute value is always escaped (`& < > " '` become `&amp; &lt; &gt; &quot; &#39;`, so only the
+  five predefined and numeric entities occur). Only a `Markup` (made by the helpers, or wrapped by the renderer for the two
+  trusted constants, the CSS and the SVG text) passes through. Joining a `Markup` with a `str` gives a plain `str` again.
+- Element and attribute names must match `[a-z][a-z0-9-]*` (`class_` becomes `class`, `aria_labelledby` becomes
+  `aria-labelledby`); an attribute value that is not a string raises; a void element (`meta`) takes no children.
+- No attribute value comes from the spec or the data: attributes are constants or ids made from fixed heading texts.
+
+**XML-compatible.** Closed tags, quoted attributes, no named HTML entities. `<!DOCTYPE html>` has no internal subset, so
+`xml.etree` parses the file as it is (checked, no stripping of the first line is needed); the rest of the document is
+checked strictly. `html.parser` is a second, independent reading for the structural checks.
+
+**Structure and accessibility.** `<html lang="en">`, a `<title>`, a viewport meta tag, one `h1` and `h2`/`h3` headings in
+order without skipped levels, each `h2` section a `<section aria-labelledby>`. Every table sits in a scroll container
+(`<div class="bt-table-wrap" role="region" tabindex="0" aria-labelledby=...>`), so a wide table scrolls inside its own box and
+never makes the page scroll sideways. Header cells are `<th scope="col">`; the first column of the label tables (Item,
+Metric, Assumption, Symbol, Year) is `<th scope="row">`; the validation-issue table and the risk-flag table have no row
+header. Hashes and the run id are in `<code>`. The charts keep their `<title>` and `<desc>`.
+
+**Monthly returns shading.** The numbers are always printed in the cell, so the table reads without colour and in
+greyscale. A cell is shaded by class (`bt-pos-1` to `bt-pos-4`, `bt-neg-1` to `bt-neg-4`), symmetric around 0, in four steps
+of 2.5 percent up to a cap of 10 percent; beyond the cap the darkest step is used:
+
+| \|monthly return\| | Class (positive / negative) |
+|---|---|
+| below 1.25 % (including 0) | none, neutral |
+| 1.25 % up to below 3.75 % | `bt-pos-1` / `bt-neg-1` |
+| 3.75 % up to below 6.25 % | `bt-pos-2` / `bt-neg-2` |
+| 6.25 % up to below 8.75 % | `bt-pos-3` / `bt-neg-3` |
+| 8.75 % and more (10 % and beyond is clipped) | `bt-pos-4` / `bt-neg-4` |
+
+A boundary belongs to the darker step (`SHADE_BREAKS = (0.0125, 0.0375, 0.0625, 0.0875)`). **The shading uses the unrounded
+monthly return**, so a cell that prints `1.25%` can still be neutral (0.012499 prints as 1.25% and has no shade; 0.0125
+is the first step). A month outside the run (`·`) has the class `bt-out` and no shade; the first and last month of the run
+keep the `*` of the Markdown report and are shaded by their value.
+
+**The heatmap colours (blue for positive, orange for negative) have no relation to the colours of the chart series** (blue
+strategy and orange benchmark in the charts). In the table blue only means a positive month and orange a negative one,
+and the sign is always printed in the cell.
+
+Colours and contrast, as shipped in the CSS (text colour `#0b0b0b` in the light theme and `#f0efec` in the dark theme;
+the contrast is computed with the WCAG formula by `tests/test_report_html.py`, minimum 4.5):
+
+| Theme and sign | Step 1 | Step 2 | Step 3 | Step 4 |
+|---|---|---|---|---|
+| light, blue (positive) | `#e6effa` 16.96 | `#c5dcf6` 14.00 | `#9cc3ef` 10.75 | `#6aa6e6` 7.69 |
+| light, orange (negative) | `#fdece4` 17.15 | `#fad3c0` 14.19 | `#f6b394` 11.05 | `#f08d5e` 8.13 |
+| dark, blue (positive) | `#1c2a3d` 12.61 | `#1f3f66` 9.31 | `#245890` 6.36 | `#2a68a8` 5.01 |
+| dark, orange (negative) | `#3a2418` 12.63 | `#5c3320` 9.37 | `#8a4524` 6.18 | `#a8501f` 4.77 |
+
+The other pairs: text on the page background 19.17 (light) and 15.15 (dark), muted text on the background 7.73 and 9.72,
+text on the table header background 17.26 and 13.18.
+
+**CSS (`CSS` in `html_renderer.py`).** One plain constant string, written out with its colours, no f-string and no template
+placeholder (no source file contains the two-character sequence of two opening braces; the tests build such strings from
+constants). Light colour tokens on `:root`, dark tokens in `@media (prefers-color-scheme: dark)`, which sets every token,
+so no light colour is left over in dark mode. The rules:
+
+- `box-sizing: border-box`; `body` with the system font stack, 16px, 1.5 line height, `background` and `color` from the
+  tokens; `main` with `max-width: 64rem` and a 16px side padding (no fixed width, no horizontal page scroll at phone width).
+- Headings with fixed sizes and `overflow-wrap: anywhere`; `li` and `p` with `overflow-wrap: anywhere`; `code` in a
+  monospace stack with `overflow-wrap: anywhere` and `word-break: break-all`, so a 64-character hash wraps.
+- `.bt-table-wrap` with `overflow-x: auto`, `max-width: 100%` and a visible focus outline (`:focus-visible`); tables with
+  `font-variant-numeric: tabular-nums`; `thead th` with the `--head` background; `.bt-heat td` right-aligned and not wrapped.
+- `.bt-pos-N` and `.bt-neg-N` set `background` from their own token (a test checks every mapping); `.bt-out` text uses
+  the muted colour.
+- `figure svg` with `display: block; max-width: 100%; height: auto`, `figcaption` muted.
+- No `@import`, no `url(`, no `http`, no `//`, no `&`, no `<`, no `@font-face`, no double brace. A test checks the constant
+  and also parses the shade colours out of it for the contrast test.
+- All class names of the page start with `bt-` and differ from the class names inside the inline SVGs (their `<style>`
+  rules are global to the page).
 
 ## What is deliberately not in the report
 
@@ -209,14 +298,26 @@ The caveats section and the equity caption are rendered from the same model as i
 | `tests/test_report_markdown.py` | Headings and table headers in order, links, escaping of hostile text, caveats for every kind of run |
 | `tests/test_report_markdown_snapshot.py`, `tests/snapshots/report.md` | The reviewed structure of the whole Markdown report |
 | `tests/test_report_none_values.py` | `None` never prints as `nan`, `None` or an empty cell; NaN and infinity raise with the field name |
-| `tests/test_report_writer.py` | Files, links, line ends, atomicity, `FileExistsError`, path traversal, cleanup after a failed write |
+| `tests/test_report_writer.py` | Four files in write order, links, line ends, atomicity (a render failure, a failure on any write including the HTML write, which is the last one), `FileExistsError`, path traversal, cleanup after a failed write |
 | `tests/report_helpers.py` | Synthetic evaluations (equal start, late and early benchmark, insufficient overlap, costs off, benchmark in the universe, flags, insufficient warm-up) |
+| `tests/test_report_html.py` | The helpers (`esc`, `tag`, `block`, `Markup`), well-formed XML for every kind of run, headings, tables and cells equal to the Markdown report, `scope`, scroll containers, caveats, hostile text, no external reference, the shade table with every boundary and its mirror, the contrast of every colour pair in both themes |
+| `tests/test_report_html_outline.py`, `tests/snapshots/report_html_outline.txt` | The outline of the HTML (headings and ids, table headers, row headers, scroll containers, figures); not the numbers |
+| `tests/test_report_xml_safe.py` | `text()` replaces characters that XML forbids; a NUL in a name or message leaves the Markdown clean and the HTML and both SVG files parsable |
+| `tests/test_report_examples.py`, `tests/report_example_checks.py` | A written report for each of the three example strategies on `FakeProvider`, offline (a `monkeypatch` guard blocks sockets); the shared checks |
+| `tests/test_report_network.py` | The same with real data through `CachedProvider`; marked `network`, run manually with `-m network` |
+| `tests/html_helpers.py` | Strict XML parsing, table cells, the outline, an `html.parser` reading; computes no expected value |
 
-Part 2 adds `tests/test_report_html.py`, `tests/test_report_examples.py` (a report for each of the three example
-strategies on `FakeProvider`) and `tests/test_report_network.py` (the same with real data, marked `network`). The snapshot
-was generated once and read through by hand; regenerate it with `uv run python tests/test_report_markdown_snapshot.py`
-after a deliberate change and review the diff line by line. The numbers in it are those of the hand-calculated fixtures
-(R3b, H23); formats are tested with literals, never with project code.
+The Markdown snapshot was generated once and read through by hand; regenerate it with
+`uv run python tests/test_report_markdown_snapshot.py` after a deliberate change and review the diff line by line. The HTML
+outline is regenerated with `uv run python tests/test_report_html_outline.py`, reviewed the same way. The numbers in the
+Markdown snapshot are those of the hand-calculated fixtures (R3b, H23); formats are tested with literals, never with project
+code. `uv run python tests/test_report_html.py` prints the contrast table of the shipped colours.
+
+The example reports (period 2018-01-01 to 2019-12-31 on the fake history, benchmark SPY, which is in the universe of all
+three) have 522 bars each and 34 (SMA crossover), 83 (12-1 momentum) and 72 (buy and hold) trades. With real data (period
+2022-01-03 to 2023-12-29, `uv run pytest -m network tests/test_report_network.py -s`) they have 501 bars each and 42, 81
+and 72 trades, and no validation warnings (on the day of the check). The tests assert more than 0 trades and consistent
+dates and cash, not these counts.
 
 ## The plan items that were cut off in the discussion, restated
 
@@ -224,12 +325,47 @@ These were restated in full at the maintainer's request.
 
 - **`TradeStatistics` fields:** `n_trades`, `n_buys`, `n_sells`, `per_symbol` (a dict of traded symbols, sorted, to
   `SymbolTrades(trades, buys, sells)`), `total_cost`, `average_cost_per_trade` (`float | None`).
-- **Test files:** the table above (part 1) and `test_report_html.py`, `test_report_examples.py`, `test_report_network.py`
-  (part 2).
 - **Slug rules (D3):** see "Run id and the output folder".
 - **Determinism (D2), complete:** the model and renderers are pure; `generated_at` is an explicit, timezone-aware
-  argument printed in UTC; files are UTF-8 with `\n` on every OS; the snapshot test normalises `\r\n` on read.
-- **Self-contained HTML (D5), complete:** see "HTML (part 2)" and [ADR 0014](adr/0014-report.md).
+  argument printed in UTC; files are UTF-8 with `\n` on every OS; the snapshot tests normalise `\r\n` on read.
+- **Self-contained HTML (D5), complete:** see "HTML" and [ADR 0014](adr/0014-report.md).
 - **Tests of part 2:** HTML parses and is well-formed, a hostile name is escaped, no external reference, a report for
   each example strategy offline and (marked `network`) with real data read through the cache, the files exist and are
   non-empty, the HTML parses and the Markdown links resolve to existing files.
+
+The parts of the plan for part 2 that were cut off, restated:
+
+1. **The six commits of part 2**, in this order, Conventional Commits, no attribution lines:
+   1. `docs(report): fix review items of part 1` (README list, writer docstring headings, ADR package count, the
+      `overwrite=True` note).
+   2. `fix(reporting): use the singular in the validation line` (`1 info`, `1 warning`, `1 error`; `2 infos`; the Markdown
+      snapshot changes in two lines).
+   3. `feat(reporting): add the self-contained HTML renderer (F-14)` (with the `text()` replacement of XML-illegal characters).
+   4. `feat(reporting): write report.html with the other report files (F-14)`.
+   5. `test(reporting): reports for the example strategies, offline and with real data (F-14)`.
+   6. `docs: finish Phase 7 (report, ADR 0014, README, CLAUDE.md, CHANGELOG, ROADMAP)`.
+2. **The light-blue row of the colour table** is in "HTML": `#e6effa` 16.96, `#c5dcf6` 14.00, `#9cc3ef` 10.75, `#6aa6e6` 7.69
+   against `#0b0b0b`; all four rows of the table pass 4.5, the tightest is dark orange step 4 with 4.77.
+3. **The rest of the CSS rule list (H4)** is in "HTML", under "CSS": table container, tables, heatmap cells, shade classes,
+   figures, and what the constant must not contain.
+4. **The outline snapshot (the rest of that paragraph).** `tests/snapshots/report_html_outline.txt` lists the headings with
+   level and id, each table with its headers, whether it has a scroll container and whether its first body cell is a row
+   header, and each figure with `<title>` and `<desc>`. It covers ids and `scope`, which the Markdown snapshot cannot. It
+   contains no numbers. **The writer test for a failed HTML write:** `test_a_failure_on_the_html_write_removes_the_folder_it_created`
+   makes `Path.write_bytes` fail on `report.html`, asserts that the four writes happened in the order `report.md`,
+   `equity.svg`, `drawdown.svg`, `report.html` and that the run folder is gone again;
+   `test_a_failure_on_the_html_write_keeps_an_existing_folder_when_overwriting` shows that an existing folder is kept with
+   `overwrite=True`; `test_a_failure_while_rendering_the_html_leaves_nothing_on_disk` shows that a render failure leaves not
+   even the reports folder.
+5. **The guard table (which test fails without which guard).** `esc` handles each of `& < > " '` (one literal per
+   character); `tag` escapes `str` children and trusts only `Markup`; the tag and attribute name check (bad names raise);
+   the replacement of XML-illegal characters in `text()` (a NUL in a name makes the HTML and the SVG files unparsable
+   without it); the shade thresholds and the cap (the literal class table, every boundary and its mirror); `bt-out` has no
+   shade (the outside-run cell test); the row-header `scope` rules; **`standalone=False` for the inline SVG** (the HTML must
+   have no `xmlns` and no `http` text; a standalone SVG would add `http://www.w3.org/2000/svg`); the HTML last in the writer
+   (the failure test and the order literal); the singular in the validation line (0/1/2 literals); the socket guard (a test
+   proves that `socket.socket.connect` and `connect_ex` are blocked, and another that `monkeypatch` removes the guard).
+6. **The end of the docs list:** this file, [ADR 0014](adr/0014-report.md) (status, what changed), the README (feature
+   row, Phase 7 Done, the list sentence), `CLAUDE.md` (rules for the HTML renderer and its tests), the `CHANGELOG`, and
+   `docs/ROADMAP.md` (the Phase 7 status block, the phase table row and the deviations). All relative links in the README
+   and `docs/` resolve, and no file outside `.github/` contains the two-character sequence of two opening braces.
