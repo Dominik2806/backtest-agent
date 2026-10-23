@@ -39,6 +39,11 @@ states the count. The layout, the schema, the definitions and the failure behavi
   difference (an orphan folder after a crash, a deleted folder, a missing index with folders present) raises
   `JournalIndexStale`; the user calls `rebuild_index`. Alternatives rejected: starting a fresh index (resets the counters
   silently), rebuilding automatically (hides a deletion that changes the count).
+- **Readers wait for a writer before they report a mismatch.** A writer is briefly between its rename and its commit, when
+  a run folder exists without its row. A reader that sees a difference takes the write lock (up to 5 seconds), looks
+  again, and only then raises `JournalIndexStale`; if the writer is still busy it raises `JournalBusyError`. Alternative
+  rejected: no check on reads (a stale index would silently give a low trial count). The temporary folder of a write
+  starts with a dot, so it never counts as a run folder.
 - **Rebuild never renumbers.** `run_number` and `trial_number` come from `run.json`. The rebuild then checks per family that
   the run numbers are 1 to n without gaps and that the trial numbers follow the order of first appearance, and raises
   `JournalFormatError` otherwise. Alternative rejected: renumbering by `generated_at`, which can differ from the order of

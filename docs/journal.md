@@ -121,7 +121,7 @@ uses this digest, copied from here.
 ### Counter table
 
 All strategies below have the universe `["A"]`, the benchmark `B`, the period 2024-01-02 to 2024-01-08, the costs
-1000, 1000 and 500 bps, an initial capital of 1000, the rebalance rule `on_signal` and the default execution rules, unless
+commission 1000, spread 1000 and slippage 500 bps (`commission_bps`, `spread_bps`, `slippage_bps`), an initial capital of 1000, the rebalance rule `on_signal` and the default execution rules, unless
 the row says otherwise. The family of the rows S1 to S4 and S6 to S9 is `sma_crossover` (called F1); S5 is a
 `buy_and_hold` strategy (F2). The runs are logged in this order, each one second later than the one before. Parameters are
 `fast` and `slow` of `sma_crossover`.
@@ -132,13 +132,13 @@ the row says otherwise. The family of the rows S1 to S4 and S6 to S9 is `sma_cro
 | S2 | as S1, name "Renamed run", description "Changed text" | F1 | S1 | 2 | 1 | 1 | no | 2 | 1 | 0 | 0 |
 | S3 | fast 2, slow 4 (one parameter changed) | F1 | (new) | 3 | 2 | 2 | yes | 3 | 2 | 0 | 0 |
 | S4 | as S1 with period start 2024-01-03 | F1 | (new) | 4 | 3 | 3 | yes | 4 | 3 | 0 | 0 |
-| S5 | `buy_and_hold` | F2 | (new) | 1 | 1 | 1 | yes | 4 | 3 | 1 | 1 |
+| S5 | `buy_and_hold` with no params, otherwise as S1 | F2 | (new) | 1 | 1 | 1 | yes | 4 | 3 | 1 | 1 |
 | S6 | as S1 again | F1 | S1 | 5 | 1 | 3 | no | 5 | 3 | 1 | 1 |
 | S7 | as S1 on different price data (other data hash) | F1 | S1 | 6 | 1 | 3 | no | 6 | 3 | 1 | 1 |
 | S8 | as S1 with `apply_costs=False` | F1 | S1 | 7 | 1 | 3 | no | 7 | 3 | 1 | 1 |
 | S9 | as S1 with `commission_bps` 900 | F1 | (new) | 8 | 4 | 4 | yes | 8 | 4 | 1 | 1 |
 
-The same table is in `tests/test_journal_counter.py` as literals.
+Every row is a logged run, also S8 (its `costs_applied` is false). The same table is in `tests/test_journal_counter.py` as literals.
 
 ## The index
 
@@ -170,8 +170,9 @@ evidence, the folders are.
 6. Write both files into `runs/.tmp-<run-id>-<random>/`, then rename the folder to `runs/<run-id>/`.
 7. Insert the row and `COMMIT`.
 
-If step 6 or 7 fails, the transaction is rolled back and the folder this call created is removed; an index file or a
-`runs/` folder that this call created is removed as well. Every SQLite connection is closed explicitly in a `finally`
+If step 5, 6 or 7 fails, the transaction is rolled back and the folders this call created are removed. A failed first
+call can leave an empty `index.sqlite` (and an empty `runs/`); that is a valid empty journal, and it is never deleted
+because another process may have started using it. Every SQLite connection is closed explicitly in a `finally`
 (Windows keeps files locked otherwise). The only state a crash can leave behind is a `.tmp-*` folder, which is ignored, or
 a complete run folder without a row, which step 3 reports as stale.
 
@@ -199,7 +200,7 @@ read-only. A missing `runs/` folder is an empty journal, not an error.
 | Situation | Result |
 |---|---|
 | `runs_dir` does not exist or has no runs | empty results, counters 0 |
-| run folders exist but the index is missing, or folders and rows differ | `JournalIndexStale` from `record_run` and from `list_runs`, `trial_count`, `run_count` |
+| run folders exist but the index is missing, or folders and rows differ | `JournalIndexStale` from `record_run` and from `list_runs`, `trial_count`, `run_count`. A reader that sees a difference first waits (up to 5 seconds) for a running writer and looks again, because a writer is briefly between its rename and its commit; if the writer does not finish in time the reader raises `JournalBusyError`, not `JournalIndexStale` |
 | `get_run` of an id that is not a safe name | `ValueError` from `check_run_id` |
 | `get_run` of an id without a folder | `RunNotFoundError` |
 | `run.json` is not valid JSON, is not an object, lacks a key, has a wrong type, or has a `schema_version` other than 1 | `JournalFormatError` naming the file and the reason; nothing is migrated or guessed |

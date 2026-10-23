@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experiment journal, part 1 of 2 (F-15, Phase 8): `record_run(evaluation, runs_dir, generated_at=..., code_version=...)`
+  stores a run under `runs/<run-id>/` (`run.json` as the source of truth, `spec.yaml` as a readable copy) and in a SQLite
+  index (`runs/index.sqlite`, standard library only), all or nothing, under a write lock. Runs are counted per strategy family
+  (the signal id): `run_count` counts every logged run, `trial_count` the distinct variants (the spec without name and
+  description, identified by a SHA-256 variant hash). Read API for the later CLI: `list_runs`, `get_run`, `trial_count`,
+  `run_count`, and `rebuild_index`, which rebuilds the index from the folders without renumbering. A stale index (an
+  orphan folder, a deleted folder, a missing index) raises `JournalIndexStale` instead of restarting the counter. The code
+  version (git commit and dirty flag) is detected without a dependency and is injectable. `check_run_id` moved to
+  `run_id.py`. `docs/journal.md`, ADR 0015. The report does not show the trial count yet (part 2).
 - Report, part 2 of 2 (F-14, Phase 7): `render_html(model)` renders the report as one self-contained HTML file (inline CSS and
   inline SVG, no script, font, stylesheet, image or link; light and dark theme; every table scrolls inside its own container
   at phone width; monthly returns shaded by class from the unrounded return, with a contrast of at least 4.5 checked in the
