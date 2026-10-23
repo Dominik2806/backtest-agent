@@ -21,3 +21,4 @@ To add one, copy [0000-template.md](0000-template.md) to the next free number an
 | [0011](0011-gross-net-result.md) | Gross versus net result and the `apply_costs` opt-out | Accepted |
 | [0012](0012-metric-conventions.md) | Metric conventions: assumptions, None instead of NaN, tolerance, drawdown, turnover | Accepted |
 | [0013](0013-benchmark-comparison.md) | Benchmark comparison: same engine and costs, derived spec, alignment on equity levels, `evaluate` | Accepted |
+| [0014](0014-report.md) | Report: model, renderers and writer, own SVG charts, run id, fixed caveats, atomic write | Accepted |

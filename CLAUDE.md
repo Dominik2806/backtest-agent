@@ -92,5 +92,16 @@ PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` wh
   The expected values of R1 to R3 (`tests/test_metrics_relative_hand_calculated.py`, `tests/test_metrics_evaluation.py`)
   are literals written out in `docs/metrics.md`; never compute one with project code. The alignment is on equity levels
   of the common dates (rule in `docs/metrics.md`), never silent; relative metrics with fewer than 2 observations are `None`.
+- **Report tests:** `write_report(evaluation, reports_dir, generated_at=...)` in `backtest_agent.reporting` writes
+  `reports/<run-id>/report.md` and the two chart SVGs (HTML in Phase 7 part 2); `docs/report.md` and ADR 0014 are the
+  reference. The model (`reporting/model.py`) is a pure function of an `Evaluation`, a run id and an explicit timezone-aware
+  `generated_at`: no clock, locale or file access in the model or the renderers, and the report recomputes no metric (a
+  new number goes into `backtest_agent.metrics` first, with hand-calculated fixtures such as T1 to T6 in
+  `docs/metrics.md`). The "Assumptions and caveats" section is `fixed_caveats()`, a function without parameters, and
+  `ReportModel` raises if it differs in any way; a new `RiskFlag` code needs an explanation in `reporting/caveats.py`.
+  `None` prints as `n/a`, NaN and infinity raise a `ValueError` that names the field; text from the spec or the data is
+  escaped by the renderer. `write_report` renders in memory first and never overwrites a folder silently. The snapshot
+  `tests/snapshots/report.md` is reviewed by hand (regenerate with `uv run python tests/test_report_markdown_snapshot.py`);
+  chart and heatmap tests use hand-calculated literals; the report adds no dependency.
 - **Never commit** secrets, `.env`, market data, run outputs or reports (`data/`, `runs/`, `reports/`, `*.parquet`).
 - Update this file when new commands or conventions are introduced.

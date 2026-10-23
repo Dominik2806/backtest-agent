@@ -55,7 +55,7 @@ The same steps run without any agent through the `bt` command (Phase 9).
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals, example specs (Phase 3; see [strategy-spec.md](strategy-spec.md)) | `src/backtest_agent/spec/`, `strategies/` |
 | Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; costs and gross versus net (Phases 4 and 5, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
 | Metrics | Performance and risk metrics and benchmark comparison with `evaluate` (Phase 6, see [metrics.md](metrics.md)) | `src/backtest_agent/metrics/` |
-| Reporting | Markdown and HTML reports with charts and caveats | `src/backtest_agent/reporting/` |
+| Reporting | Markdown report (HTML in Phase 7 part 2) with SVG charts and caveats, see [report.md](report.md) | `src/backtest_agent/reporting/` |
 | Journal | Run log with trial counter per strategy family | `src/backtest_agent/journal/` |
 | CLI | The `bt` command (planned, Phase 9) | `src/backtest_agent/cli.py` |
 | Agents | Strategy architect, signal coder, bias auditor, report interpreter, `/backtest` command (planned, Phases 10 to 12) | `.claude/` |

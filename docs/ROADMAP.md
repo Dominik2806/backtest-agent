@@ -144,7 +144,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | Done |
 | 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | Done |
 | 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
-| 7 | `feature/report` | Markdown and HTML report with charts and caveats | F-14 | M | Planned |
+| 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | In progress (part 1 of 2 merged) |
 | 8 | `feature/experiment-journal` | Run log with trial counter | F-15 | S | Planned |
 | 9 | `feature/cli` | `bt` command; release `v0.1.0` | F-16 | M | Planned |
 | 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
@@ -265,6 +265,21 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   error and information ratio are all `None`. `Evaluation.to_dict()` also carries the risk flag codes of both runs.
   `make_spec` in `tests/runner_helpers.py` got an optional `benchmark` argument. No expected value of H1 to H23c or M1 to
   M14 changed.
+- Phase 7: the phase is split into two pull requests because it exceeds one reviewable PR. Part 1 (`feature/report`):
+  `metrics/trades.py` with fixtures T1 to T6, `run_id.py`, `reporting/` (format, caveats, facts, model, charts, Markdown
+  renderer, writer), `docs/report.md`, ADR 0014. Part 2 (`feature/report-html`): HTML renderer, examples, network test.
+  The writer for Markdown and SVG is in part 1 (not part 2), so that part 1 can be run end to end.
+- Phase 7: beyond the roadmap text, the trade statistics (number of trades, buys and sells per symbol, average cost per
+  trade; a trade is one fill) were added to the metrics layer as a pure function, not computed in the rendering code; they
+  are not part of `Evaluation`. `deferred_orders` and `unfilled_orders` are existing fields of `BacktestResult`.
+- Phase 7: the monthly returns "heatmap" is a table in both formats (HTML shades the cells, the numbers are always
+  printed), not an SVG, so it reads without colour; there is no year-total column. The equity chart has a caption that says
+  whether the curves are comparable (benchmark starting later or earlier), taken from the alignment info.
+- Phase 7: the report is written by `write_report(evaluation, reports_dir, *, generated_at, run_id=None, overwrite=False)`
+  (a plain function; the CLI comes in Phase 9). It renders everything in memory before it creates the folder, so a
+  failure leaves nothing on disk, and it never overwrites a folder silently. `ReportModel` refuses to exist unless its fixed
+  caveats equal `fixed_caveats()`. A NaN or infinity reaching the formatter raises a `ValueError` naming the field.
+  No existing test was changed and no dependency was added.
 
 ---
 
@@ -465,7 +480,13 @@ Done when:
 
 ## Phase 7: Report
 
-**Branch:** `feature/report` · **Goal:** one readable file that tells the whole story of a run.
+**Branch:** `feature/report` (part 1), `feature/report-html` (part 2) · **Goal:** one readable file that tells the whole story of a run.
+
+**Status:** In progress (part 1 of 2 merged). Part 1 (`feature/report`): trade statistics in the metrics layer (fixtures
+T1 to T6), the report model, formats, caveats, SVG charts, the Markdown renderer with its snapshot test, run ids, the writer
+for `report.md` and the two SVG files, `docs/report.md`, [ADR 0014](adr/0014-report.md). Part 2 (`feature/report-html`,
+created from `main` after part 1 is merged): the self-contained HTML renderer and its tests, `report.html` in the writer,
+a report for each example strategy (offline and, marked `network`, with real data), status **Done**.
 
 Tasks:
 
