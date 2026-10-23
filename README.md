@@ -23,7 +23,8 @@ strategy family, and the auditor's findings. The trial counter makes overfitting
 the same as one.
 
 The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton, the data
-layer, the strategy spec and the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage) and the performance metrics of a run next to its buy-and-hold benchmark (Phase 6) exist; the other features described above arrive in the phases named in the
+layer, the strategy spec and the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage) the performance metrics of a run next to its buy-and-hold benchmark (Phase 6) and the Markdown report with charts and
+caveats (Phase 7, part 1; the HTML version follows in part 2) exist; the other features described above arrive in the phases named in the
 [roadmap](docs/ROADMAP.md).
 
 ## Requirements
@@ -94,7 +95,7 @@ One live test against yfinance exists and is excluded by default; run it manuall
 | Example specs | SMA crossover, 12-1 momentum and buy and hold on liquid ETFs | [`strategies/`](strategies) |
 | Engine | Portfolio simulation with execution delay, rebalancing and costs (commission, half-spread, slippage), long-only, multi-asset, and `run_backtest` (data with warm-up, validation, hash, net and gross result). See [docs/engine.md](docs/engine.md) | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
 | Metrics | CAGR, volatility, Sharpe, Sortino, drawdown, Calmar, hit rate, turnover, exposure and monthly returns of a run, and `evaluate`, which runs the buy-and-hold benchmark through the same engine and reports excess return, tracking error and information ratio. See [docs/metrics.md](docs/metrics.md) | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
-| Reporting (planned) | Markdown and HTML reports with charts and caveats | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
+| Reporting | `write_report(evaluation, reports_dir, generated_at=...)` writes `reports/<run-id>/report.md` with the equity and drawdown charts as SVG: spec, data hashes and validation, risk flags with explanations, metrics next to the benchmark, costs, monthly returns, trade statistics and a fixed section of caveats. The self-contained HTML version follows in Phase 7 part 2. See [docs/report.md](docs/report.md) | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
 | Journal (planned) | Run log with trial counter per strategy family | [`src/backtest_agent/journal/`](src/backtest_agent/journal) |
 | Robustness (planned) | Out-of-sample, walk-forward, sensitivity, regimes, deflated Sharpe | [`src/backtest_agent/robustness/`](src/backtest_agent/robustness) |
 | CLI and agents (planned) | The `bt` command and the Claude Code subagents | see [roadmap](docs/ROADMAP.md) |
@@ -138,7 +139,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 4 | Engine with execution delay, proven by hand-calculated tests | Done |
 | 5 | Commission, spread and slippage models | Done |
 | 6 | Performance metrics and buy-and-hold comparison | Done |
-| 7 | Markdown and HTML report with charts and caveats | Planned |
+| 7 | Markdown and HTML report with charts and caveats | In progress (part 1 of 2 merged) |
 | 8 | Run log with trial counter | Planned |
 | 9 | `bt` command; release `v0.1.0` | Planned |
 | 10 | Strategy architect and signal coder subagents | Planned |

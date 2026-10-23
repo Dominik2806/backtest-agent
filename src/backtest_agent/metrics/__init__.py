@@ -30,6 +30,7 @@ from backtest_agent.metrics.relative import (
     compare_equity,
     relative_from_returns,
 )
+from backtest_agent.metrics.trades import SymbolTrades, TradeStatistics, trade_statistics
 
 __all__ = [
     "DEFAULT_ASSUMPTIONS",
@@ -39,6 +40,8 @@ __all__ = [
     "MetricAssumptions",
     "PerformanceMetrics",
     "RelativeMetrics",
+    "SymbolTrades",
+    "TradeStatistics",
     "align_equity",
     "benchmark_spec",
     "cagr",
@@ -58,6 +61,7 @@ __all__ = [
     "sharpe",
     "sortino",
     "total_return",
+    "trade_statistics",
     "turnover_annual",
     "volatility",
 ]

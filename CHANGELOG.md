@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Report, part 1 of 2 (F-14, Phase 7): `write_report(evaluation, reports_dir, generated_at=...)` writes
+  `reports/<run-id>/report.md` and the equity and drawdown charts as SVG files (the self-contained HTML version follows in
+  part 2). The report shows the spec, the data hash and validation findings of the strategy and the benchmark run, the
+  warm-up, the risk flags with a plain-language explanation each, the metrics next to the benchmark and the relative
+  metrics with the assumptions, the benchmark alignment (with a caption under the equity chart that says when the curves
+  are not comparable), costs gross versus net, a monthly returns table, trade statistics, and a fixed section "Assumptions
+  and caveats" that cannot be switched off. It is built by a pure model (`build_report_model`) from an `Evaluation`, a run id
+  and an explicit `generated_at`, rendered by `render_markdown` and the hand-written SVG charts (no new dependency), and
+  written in memory first, so a failure leaves nothing on disk. Run ids are `<UTC timestamp>-<slug>-<8 hex>`
+  (`backtest_agent.run_id`). Trade statistics (`trade_statistics`: fills, buys and sells per symbol, average cost per
+  trade) joined the metrics layer with hand-calculated fixtures T1 to T6. `docs/report.md`, ADR 0014, a snapshot test for
+  the Markdown structure.
 - Benchmark comparison (F-13, Phase 6 part 2): `evaluate(spec, provider)` runs the strategy and its buy-and-hold benchmark
   (`benchmark_spec`: the benchmark symbol, `buy_and_hold`, `equal_weight`, same period, capital, execution and costs) through
   the same `run_backtest` and provider, and returns an `Evaluation` with both results, both `PerformanceMetrics`, and the
