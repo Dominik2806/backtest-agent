@@ -75,6 +75,12 @@ def late_benchmark() -> Evaluation:
     return make_evaluation(provider=TrimmedProvider(LiteralProvider(frame)))
 
 
+def early_benchmark() -> Evaluation:
+    """A has rows only from Jan 4: the strategy starts after its benchmark B."""
+    frame = nan_rows(world(), "A", before="2024-01-04")
+    return make_evaluation(provider=TrimmedProvider(LiteralProvider(frame)))
+
+
 def insufficient_overlap() -> Evaluation:
     """B has a row only on Jan 8: one common date, so no relative metric."""
     frame = nan_rows(world(), "B", before="2024-01-08")
@@ -106,6 +112,7 @@ def all_kinds() -> dict[str, Evaluation]:
     return {
         "equal_start": equal_start(),
         "late_benchmark": late_benchmark(),
+        "early_benchmark": early_benchmark(),
         "insufficient_overlap": insufficient_overlap(),
         "costs_off": costs_off(),
         "benchmark_in_universe": benchmark_in_universe(),
@@ -115,3 +122,27 @@ def all_kinds() -> dict[str, Evaluation]:
 
 
 FIXED_DAY = date(2026, 1, 15)
+
+
+def all_cells(model) -> list[str]:
+    """Every display string of a ReportModel: table cells, issue rows, flag rows, heatmap cells and notes."""
+    from backtest_agent.reporting.model import Table
+
+    cells: list[str] = []
+
+    def walk(obj) -> None:
+        if isinstance(obj, Table):
+            cells.extend(obj.headers)
+            for row in obj.rows:
+                cells.extend(row)
+        elif isinstance(obj, str):
+            cells.append(obj)
+        elif isinstance(obj, tuple | list):
+            for item in obj:
+                walk(item)
+        elif hasattr(obj, "__dataclass_fields__"):
+            for name in obj.__dataclass_fields__:
+                walk(getattr(obj, name))
+
+    walk(model)
+    return cells

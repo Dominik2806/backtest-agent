@@ -1,1 +1,1 @@
-"""Reporting: Markdown and HTML reports with charts and caveats (planned)."""
+"""Reporting: Markdown and HTML reports with charts and caveats (F-14; see docs/report.md)."""
