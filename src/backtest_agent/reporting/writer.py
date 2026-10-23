@@ -11,7 +11,6 @@ With ``overwrite=True`` the write is not atomic: if a write fails part-way, the 
 and old files. Files that this call does not write are left alone. Delete the folder and write again if that matters.
 """
 
-import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,12 +21,10 @@ from backtest_agent.reporting.charts import line_chart_svg
 from backtest_agent.reporting.html_renderer import render_html
 from backtest_agent.reporting.markdown_renderer import render_markdown
 from backtest_agent.reporting.model import build_report_model
-from backtest_agent.run_id import make_run_id
+from backtest_agent.run_id import check_run_id, make_run_id
 
 REPORT_MD = "report.md"
 REPORT_HTML = "report.html"
-_SAFE_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}")
-_WINDOWS_DEVICE = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -45,21 +42,6 @@ class ReportPaths:
     @property
     def html(self) -> Path:
         return self.directory / REPORT_HTML
-
-
-def check_run_id(run_id: str) -> str:
-    """The run id as a folder name: one path component made of letters, digits, ``.``, ``_`` and ``-``.
-
-    Raises ``ValueError`` for anything that could leave the reports folder or is not a valid Windows name: path
-    separators, ``..``, a drive colon, a leading dot, a trailing dot or space, a Windows device name such as ``CON``,
-    an empty or a very long name.
-    """
-    reserved = _WINDOWS_DEVICE.fullmatch(run_id.split(".")[0])
-    if not _SAFE_RUN_ID.fullmatch(run_id) or run_id.endswith(".") or ".." in run_id or reserved:
-        raise ValueError(
-            f"{run_id!r} is not a safe run id: use letters, digits, '.', '_' and '-' in one path component"
-        )
-    return run_id
 
 
 def render_report(evaluation: Evaluation, *, run_id: str, generated_at: datetime) -> dict[str, str]:
