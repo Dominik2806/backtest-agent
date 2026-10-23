@@ -502,3 +502,65 @@ No output is NaN or inf, also for seeded random series and degenerate inputs (a 
 base, no common date, empty series). `to_dict` is JSON serializable (`json.dumps`) and contains both data hashes, both
 names, the risk flag codes and the alignment. `apply_costs=False` reaches both runs. A benchmark that starts late or ends
 early aligns without an error, and a benchmark with no data raises the provider's error unchanged.
+
+## Trade statistics
+
+Counts and costs of the fills of a run (F-14, Phase 7). The code is in `src/backtest_agent/metrics/trades.py`; the report
+(see [report.md](report.md)) prints them and recomputes nothing. They are a function of `BacktestResult.trades` only and are
+not part of `Evaluation`.
+
+**Definition.** A **trade** is one fill: one row of `BacktestResult.trades` (one symbol on one bar; a rebalance of three
+symbols on one bar is three trades). A **buy** has `shares > 0`, a **sell** `shares < 0`.
+
+- `n_trades` = number of rows; `n_buys`, `n_sells` = rows with positive, negative `shares`; `n_trades = n_buys + n_sells`.
+- `per_symbol[s]` = `trades`, `buys`, `sells` of the rows of symbol `s`. Only symbols that were traded are listed, sorted by
+  symbol; a symbol of the universe that was never traded is absent (the report shows it as 0).
+- `total_cost` = sum of the `cost` column (the fees of the fills). It equals `BacktestResult.total_costs`.
+- `average_cost_per_trade` = `total_cost / n_trades`; **None with 0 trades**, 0.0 with trades that cost nothing.
+- Invalid input raises `ValueError`: a missing column (`symbol`, `shares`, `cost`), `shares` of 0, NaN or infinity, `cost`
+  negative, NaN or infinity.
+
+Exposure and annualized turnover are not repeated here: they are `exposure_mean`, `exposure_invested_share` and
+`turnover_two_sided_annual`, `turnover_one_sided_annual` of `PerformanceMetrics` (M11). `deferred_orders` and
+`unfilled_orders` are existing fields of `BacktestResult` (engine.md); they are not trade statistics.
+
+All expected values are literals written out here; tolerance 1e-9 (relative and absolute) for the floats, the counts are exact.
+Tests: `tests/test_metrics_trades.py`.
+
+### T1 No trades
+
+An empty table (also the `trades` of a run that never trades, such as the Jan 5 first-bar example of "Initial decision" in [engine.md](engine.md)): `n_trades = 0`, `n_buys = 0`, `n_sells = 0`,
+`per_symbol = {}`, `total_cost = 0.0`, **`average_cost_per_trade = None`**.
+
+### T2 One trade (the fill of H23)
+
+H23 in [engine.md](engine.md): Jan 3 A +8 @ 100, notional +800, cost 200. `n_trades = 1`, `n_buys = 1`, `n_sells = 0`,
+`per_symbol = {A: (1, 1, 0)}`, `total_cost = 200`, `average_cost_per_trade = 200 / 1 = 200`.
+
+### T3 Several symbols (the six fills of H22)
+
+H22 in [engine.md](engine.md), listed as (date, symbol, shares, price, notional, cost): (Jan 3, A, +4, 100, +400, 100),
+(Jan 3, B, +8, 50, +400, 100), (Jan 4, A, -0.4, 125, -50, 12.5), (Jan 4, B, +0.6, 50, +30, 7.5), (Jan 5, A, -11/30, 150, -55,
+13.75), (Jan 5, B, +0.66, 50, +33, 8.25).
+
+- `n_trades = 6`; buys: A +4, B +8, B +0.6, B +0.66 = `n_buys = 4`; sells: A -0.4, A -11/30 = `n_sells = 2`.
+- `per_symbol`: A `(3, 1, 2)`, B `(3, 3, 0)`.
+- `total_cost = 100 + 100 + 12.5 + 7.5 + 13.75 + 8.25 = 242`; `average_cost_per_trade = 242 / 6 = 40.333333333333`.
+- The order of the rows does not matter: the same rows in reverse order give the same result, with the symbols sorted A, B.
+
+### T4 Trades that cost nothing
+
+Two fills: (Jan 3, A, +10, 100, +1000, 0) and (Jan 5, A, -10, 110, -1100, 0). `n_trades = 2`, `n_buys = 1`, `n_sells = 1`,
+`per_symbol = {A: (2, 1, 1)}`, `total_cost = 0.0`, **`average_cost_per_trade = 0.0`** (not None: there are trades).
+
+### T5 Through `run_backtest`: H23 and H23c
+
+The trades table of the run H23 (buy and hold with 25 percent costs) is the single fill of T2, so the statistics are those of
+T2 and `total_cost` equals `total_costs = 200`. H23c (a flat fee of 500 per trade, ruined portfolio): buy 5 shares and sell 5
+shares of A, so `n_trades = 2`, `n_buys = 1`, `n_sells = 1`, `per_symbol = {A: (2, 1, 1)}`, `total_cost = 500 + 500 = 1000`
+(`total_costs` of H23c), `average_cost_per_trade = 500`.
+
+### T6 Invalid input
+
+A table without the column `shares`, a fill with `shares` 0, NaN or infinity, and a fill with `cost` -1, NaN or infinity raise
+`ValueError`.
