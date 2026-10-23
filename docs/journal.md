@@ -21,7 +21,9 @@ runs/
   .tmp-<run-id>-<random>/           only while a run is being written; ignored by everything, safe to delete
 ```
 
-`runs/` is git-ignored. The run id is `run_id.make_run_id(evaluation, generated_at)`, the same function and the same
+`runs/` is git-ignored. **Every directory in `runs/` whose name does not start with a dot counts as a run folder.** A stray
+directory (or a copied folder) therefore makes the journal stale: `JournalIndexStale` from `record_run` and from the
+reads, `JournalFormatError` from `rebuild_index` (it has no valid `run.json`). Plain files are ignored. The run id is `run_id.make_run_id(evaluation, generated_at)`, the same function and the same
 `generated_at` as the report uses, so the journal folder and the report folder (`reports/<run-id>/`) carry the same name.
 The id is `<UTC timestamp>-<slug of the strategy name>-<8 hex>`; see [ADR 0014](adr/0014-report.md) for the exact hash
 input. `check_run_id` (in `run_id.py`) guards every id against path traversal, drive letters, Windows device names,
@@ -142,7 +144,7 @@ Every row is a logged run, also S8 (its `costs_applied` is false). The same tabl
 
 ## The index
 
-`runs/index.sqlite`, rollback-journal mode (no `-wal` files), `PRAGMA user_version = 1`. One table, `runs`, one row per
+`runs/index.sqlite`, rollback-journal mode (no `-wal` or `-shm` files; a short-lived `index.sqlite-journal` file exists while a write is running), `PRAGMA user_version = 1`. One table, `runs`, one row per
 run: `run_id` (primary key), `generated_at`, `family`, `variant_hash`, `run_number`, `trial_number`, `trial_count`,
 `new_variant`, `strategy_name`, `strategy_data_hash`, `benchmark_data_hash`, `code_commit`, `code_dirty`, with a unique
 constraint on `(family, run_number)`. The counters are queries: `run_count` is `COUNT(*)` of a family and `trial_count` is
@@ -170,7 +172,8 @@ evidence, the folders are.
 6. Write both files into `runs/.tmp-<run-id>-<random>/`, then rename the folder to `runs/<run-id>/`.
 7. Insert the row and `COMMIT`.
 
-If step 5, 6 or 7 fails, the transaction is rolled back and the folders this call created are removed. A failed first
+If step 5, 6 or 7 fails, the folders this call created are removed first and the transaction is rolled back afterwards,
+so a reader that gets the lock never sees the orphan of a failed run. A failed first
 call can leave an empty `index.sqlite` (and an empty `runs/`); that is a valid empty journal, and it is never deleted
 because another process may have started using it. Every SQLite connection is closed explicitly in a `finally`
 (Windows keeps files locked otherwise). The only state a crash can leave behind is a `.tmp-*` folder, which is ignored, or

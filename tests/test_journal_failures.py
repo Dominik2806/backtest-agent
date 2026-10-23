@@ -2,6 +2,8 @@
 
 import shutil
 import sqlite3
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -383,7 +385,7 @@ def test_rebuild_closes_its_connection_also_when_it_fails(tmp_path, connections,
     assert (tmp_path / "index.sqlite").read_bytes() == before  # the old index survives a failed rebuild
 
 
-# --- readers and a running writer -------------------------------------------------------------------------------------
+# --- readers and a running writer ------------------------------------------------------------------
 
 
 def test_a_reader_during_a_write_waits_instead_of_reporting_a_stale_index(tmp_path, monkeypatch) -> None:
@@ -419,3 +421,120 @@ def test_a_reader_during_a_write_ignores_the_temporary_folder(tmp_path, monkeypa
     monkeypatch.setattr(Path, "rename", reader_before_the_rename)
     log(tmp_path, sma_spec(), 2)
     assert seen == [1]
+
+
+# --- cleanup happens while the write lock is held --------------------------------------------------
+
+
+@pytest.fixture
+def watch_rollback(monkeypatch):
+    """``watch(runs)`` records, each time the rollback runs, the temporary and the run folders that still exist."""
+    seen: list[tuple[list[str], list[str]]] = []
+    real = journal_index.rollback
+    watched: list[Path] = []
+
+    def rollback(conn):
+        runs = watched[0]
+        seen.append(
+            (
+                sorted(p.name for p in runs.glob(".tmp-*")),
+                sorted(p.name for p in runs.iterdir() if p.is_dir() and not p.name.startswith(".")),
+            )
+        )
+        real(conn)
+
+    monkeypatch.setattr(journal_index, "rollback", rollback)
+
+    def watch(runs: Path) -> list[tuple[list[str], list[str]]]:
+        watched.append(runs)
+        return seen
+
+    return watch
+
+
+def test_a_failure_before_the_rename_removes_the_temporary_folder_before_the_rollback(
+    tmp_path, monkeypatch, watch_rollback
+) -> None:
+    seen = watch_rollback(tmp_path)
+
+    def boom(self, target):
+        assert list(tmp_path.glob(".tmp-*"))  # the temporary folder exists when the rename fails
+        raise OSError("rename failed")
+
+    monkeypatch.setattr(Path, "rename", boom)
+    with pytest.raises(OSError, match="rename failed"):
+        log(tmp_path, hold_spec(), 1)
+    assert seen == [([], [])]  # no temporary folder and no run folder when the rollback ran
+
+
+def test_a_failure_after_the_rename_removes_both_folders_before_the_rollback(
+    tmp_path, monkeypatch, watch_rollback
+) -> None:
+    first = log(tmp_path, hold_spec(), 1)
+    seen = watch_rollback(tmp_path)
+
+    def boom(conn, summary):
+        # at this point the new run folder has been renamed into place next to the first one
+        assert len([p for p in tmp_path.iterdir() if p.is_dir() and not p.name.startswith(".")]) == 2
+        raise RuntimeError("index insert failed")
+
+    monkeypatch.setattr(journal_index, "insert_row", boom)
+    with pytest.raises(RuntimeError, match="index insert failed"):
+        log(tmp_path, sma_spec(), 2)
+    assert seen == [([], [first.run_id])]  # only the earlier run is left when the rollback ran
+
+
+def test_a_failing_commit_removes_both_folders_before_the_rollback(tmp_path, monkeypatch, watch_rollback) -> None:
+    seen = watch_rollback(tmp_path)
+
+    def boom(conn):
+        raise sqlite3.OperationalError("disk full")
+
+    monkeypatch.setattr(journal_index, "commit", boom)
+    with pytest.raises(sqlite3.OperationalError):
+        log(tmp_path, hold_spec(), 1)
+    assert seen == [([], [])]
+
+
+# --- a reader that waits for the writer, then succeeds ---------------------------------------------
+
+
+def test_a_reader_that_waits_for_the_writer_returns_both_runs(tmp_path, monkeypatch) -> None:
+    log(tmp_path, hold_spec(), 1)
+    monkeypatch.setattr(journal_index, "READ_BUSY_TIMEOUT", 30.0)
+    saw_stale = threading.Event()
+    real_check = journal_index.check_in_sync
+
+    def check(conn, runs_dir):
+        try:
+            real_check(conn, runs_dir)
+        except JournalIndexStale:
+            if threading.current_thread().name == "reader":
+                saw_stale.set()
+            raise
+
+    monkeypatch.setattr(journal_index, "check_in_sync", check)
+    outcome: dict[str, object] = {}
+
+    def read() -> None:
+        try:
+            outcome["runs"] = list_runs(tmp_path)
+        except BaseException as error:  # noqa: BLE001 - reported by the assertions below
+            outcome["error"] = error
+
+    reader = threading.Thread(target=read, name="reader")
+    real_insert = journal_index.insert_row
+
+    def writer_inside_its_critical_section(conn, summary):
+        # the run folder exists, its row does not, and this writer holds the lock
+        reader.start()
+        assert saw_stale.wait(20), "the reader never saw the folder without a row"
+        time.sleep(0.3)  # let the reader block on the lock; the assertions below do not depend on this
+        real_insert(conn, summary)
+
+    monkeypatch.setattr(journal_index, "insert_row", writer_inside_its_critical_section)
+    log(tmp_path, sma_spec(), 2)
+    reader.join(30)
+    assert not reader.is_alive()
+    assert "error" not in outcome, outcome.get("error")
+    assert len(outcome["runs"]) == 2

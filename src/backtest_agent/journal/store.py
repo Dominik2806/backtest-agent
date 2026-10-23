@@ -86,11 +86,13 @@ def record_run(
         index.insert_row(conn, record.summary())
         index.commit(conn)
     except BaseException:
-        index.rollback(conn)
-        conn.close()
+        # Remove the folders while the write lock is still held, so no reader can see an orphan folder after the
+        # lock is released.
         shutil.rmtree(temporary, ignore_errors=True)
         if moved:
             shutil.rmtree(directory, ignore_errors=True)
+        index.rollback(conn)
+        conn.close()
         raise
     conn.close()
     return record

@@ -207,6 +207,15 @@ def test_a_missing_index_with_run_folders_is_stale_and_does_not_restart_the_coun
     assert len(names) == 4  # no new run folder
 
 
+@pytest.mark.parametrize("call", ["record_run", "list_runs", "run_count", "trial_count"])
+def test_a_stray_directory_makes_the_index_stale(tmp_path, call) -> None:
+    log_four(tmp_path)
+    (tmp_path / "stranger").mkdir()
+    with pytest.raises(JournalIndexStale, match=r"without a row in the index: stranger"):
+        calls(tmp_path)[call]()
+    assert (tmp_path / "stranger").is_dir() and not any((tmp_path / "stranger").iterdir())  # left alone
+
+
 def test_a_stale_record_run_writes_no_folder(tmp_path) -> None:
     records = log_four(tmp_path)
     drop_row(tmp_path, records[3].run_id)

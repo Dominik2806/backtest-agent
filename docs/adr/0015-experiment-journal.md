@@ -16,7 +16,7 @@ states the count. The layout, the schema, the definitions and the failure behavi
   as the only store (one corrupt file would lose every run, and a run could not be inspected or copied as a folder);
   JSON only without an index (listing and counting would read every file).
 - **Standard library only.** `sqlite3` for the index, `subprocess` for git, `json` for the files, `yaml` (already a
-  dependency) for `spec.yaml`. Rollback-journal mode, not WAL, so there are no side files on Windows.
+  dependency) for `spec.yaml`. Rollback-journal mode, not WAL, so there are no `-wal` or `-shm` files (a short-lived `index.sqlite-journal` file exists while a write is running).
 - **Canonical JSON, explicit scalars.** `run.json` is written with sorted keys, fixed separators and a final newline, so the
   same record is the same bytes. The cost scalars of `BacktestResult` are properties, not fields, and are written out one by
   one; `None` stays `null`. NaN and infinity raise before anything is written.
@@ -35,9 +35,12 @@ states the count. The layout, the schema, the definitions and the failure behavi
   lock, then writes into a temporary folder, renames it, inserts the row and commits. Any failure rolls back and removes
   what the call created. Alternative rejected: write the folder first and number it afterwards (two processes could get the
   same number).
+- **Failed runs are removed while the lock is held.** The error path deletes the temporary folder and the run folder first
+  and rolls back afterwards, so a reader that gets the lock never sees the orphan of a failed run.
 - **A stale index is an error, not a repair.** Under the lock `record_run` compares the folders on disk with the rows. A
   difference (an orphan folder after a crash, a deleted folder, a missing index with folders present) raises
-  `JournalIndexStale`; the user calls `rebuild_index`. Alternatives rejected: starting a fresh index (resets the counters
+  `JournalIndexStale`; the user calls `rebuild_index`. Every directory of `runs/` whose name does not start with a dot
+  counts as a run folder, so a stray directory makes the journal stale too. Alternatives rejected: starting a fresh index (resets the counters
   silently), rebuilding automatically (hides a deletion that changes the count).
 - **Readers wait for a writer before they report a mismatch.** A writer is briefly between its rename and its commit, when
   a run folder exists without its row. A reader that sees a difference takes the write lock (up to 5 seconds), looks
