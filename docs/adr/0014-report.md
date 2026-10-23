@@ -1,7 +1,8 @@
 # 0014: Report
 
-- **Status:** Accepted (Phase 7, part 1 delivers everything except the HTML renderer; the HTML decisions are recorded
-  here so that part 2 only implements them)
+- **Status:** Accepted. Phase 7 is complete: part 1 delivered the model, the Markdown renderer, the charts, the run id and
+  the writer; part 2 delivered the HTML renderer, `report.html` in the writer and the example reports. What part 2 decided
+  beyond the text below is listed at the end of "Decision".
 
 ## Context
 
@@ -15,7 +16,7 @@ as "n/a" and never as `nan`, and must carry its caveats in every case. Layout, f
 
 - **Three layers.** `reporting/model.py` is a pure function of an `Evaluation`, a `run_id` and a `generated_at` and makes
   every display decision (what is shown, `n/a`, formats, flag explanations, the sentences about the benchmark comparison).
-  The renderers (`markdown_renderer.py`; `html_renderer.py` in part 2) only read the model and escape text for their
+  The renderers (`markdown_renderer.py`, `html_renderer.py`) only read the model and escape text for their
   format. `writer.py` is the only module with file I/O. Alternative rejected: renderers that read the `Evaluation`
   themselves, which would spread formatting decisions over two places.
 - **No recomputation.** The report reads `PerformanceMetrics`, `RelativeMetrics`, `Alignment`, `BacktestResult` properties
@@ -99,14 +100,33 @@ as "n/a" and never as `nan`, and must carry its caveats in every case. Layout, f
   a fixed fallback sentence next to the engine's own message.
 - **Escaping.** Every text from the spec or the data (names, symbols, validation messages) is kept raw in the model and
   escaped by the renderer: Markdown escapes `\ | ` * < > [ ] &` and turns line breaks into spaces; the HTML renderer
-  (part 2) escapes `& < > " '`. A table cell is never empty (`Table` rejects it), so a blank value prints as `(none)`.
-- **Self-contained HTML (D5), implemented in part 2.** One file with inline CSS and inline SVG, no external font, script,
-  stylesheet, image or link. The tests will parse the HTML (well-formed, written to be XML-compatible so that
+  escapes `& < > " '`. A table cell is never empty (`Table` rejects it), so a blank value prints as `(none)`.
+- **Self-contained HTML (D5).** One file with inline CSS and inline SVG, no external font, script,
+  stylesheet, image or link. The tests parse the HTML (well-formed, written to be XML-compatible so that
   `xml.etree` is a strict check), assert that a hostile strategy name such as `<script>alert(1)</script>` appears
   escaped and not as an element, and assert that there is no external reference: no `http` substring at all in the
   default fixture (the fixed caveats and the inline SVG contain none), and a structural check with `html.parser` that
   forbids `<script>`, `<link>`, `<img>`, `<iframe>`, any `src`, any `href` other than a `#fragment`, and `url(` or
   `@import` in CSS. The CSS is a plain constant string, so no template placeholder appears in the repository.
+- **What part 2 decided beyond that text.**
+  - *Escaping helpers.* The HTML is built with `tag` and `block`, which escape every plain `str` child and attribute value;
+    only a `Markup` passes through, and element and attribute names are checked, so escaping cannot be forgotten in one
+    place. Alternative rejected: f-strings with inline values.
+  - *XML-illegal characters* (a NUL in a strategy name) are replaced by U+FFFD once, in `text()` of the model, so the
+    Markdown, the HTML and the standalone SVG files are all covered; there is no HTML-only pass.
+  - *`<!DOCTYPE html>`* needs no special handling: `xml.etree` accepts it unchanged.
+  - *Heatmap shading* is by CSS class (four steps per sign, steps of 2.5 percent, cap 10 percent), computed from the
+    unrounded monthly return, blue for positive and orange for negative, with light and dark colours in the CSS. These
+    colours have no relation to the series colours of the charts. A test computes the WCAG contrast of every text and
+    background pair in both themes (at least 4.5).
+  - *Scrolling.* Every table sits in its own scroll container; the page never scrolls sideways at phone width.
+  - *Writer order.* `report.html` is written last, so it exists only if everything else was written. A failure on any write
+    removes the folder this call created; with `overwrite=True` the write is not atomic (a mix of new and old files is
+    possible and the folder is kept). A temporary folder with a directory swap was considered and left out.
+  - *Plural.* The validation line says `1 info`, `1 warning`, `1 error` and `2 infos`.
+  - *Tests.* A structural snapshot of the HTML (headings with ids, table headers, row headers, figures) instead of a
+    snapshot of the whole file; the example reports run offline with a `monkeypatch` socket guard and, marked `network`,
+    with real data through `CachedProvider`.
 - **Entry point (D7).** A plain function, `write_report(evaluation, reports_dir, *, generated_at, run_id=None,
   overwrite=False)`, with `reports_dir` the parent (`reports/`). Left out on purpose: the command line (Phase 9), the
   journal, the trial counter and the code version (Phase 8), the auditor and interpreter sections (Phase 11), the
@@ -116,8 +136,8 @@ as "n/a" and never as `nan`, and must carry its caveats in every case. Layout, f
 
 ## Consequences
 
-- A change of what the report shows or how it looks is a change of the model and of the snapshot
-  `tests/snapshots/report.md`, which is reviewed by hand; a change of the hash input changes every run id suffix and needs
+- A change of what the report shows or how it looks is a change of the model and of the snapshots
+  `tests/snapshots/report.md` and `tests/snapshots/report_html_outline.txt`, which are reviewed by hand; a change of the hash input changes every run id suffix and needs
   an update of this ADR and of the golden id in `tests/test_run_id.py`.
 - The report adds no runtime dependency and no `uv.lock` change.
 - The model is a plain frozen dataclass tree, so a later phase (journal, auditor, interpreter) can add sections or read

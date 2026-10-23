@@ -144,7 +144,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 4 | `feature/core-engine`, `feature/engine-runner` | Engine with execution delay, proven by hand-calculated tests (two parts) | F-09, F-11 | L | Done |
 | 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | Done |
 | 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
-| 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | In progress (part 1 of 2 merged) |
+| 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
 | 8 | `feature/experiment-journal` | Run log with trial counter | F-15 | S | Planned |
 | 9 | `feature/cli` | `bt` command; release `v0.1.0` | F-16 | M | Planned |
 | 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
@@ -279,7 +279,21 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   (a plain function; the CLI comes in Phase 9). It renders everything in memory before it creates the folder, so a
   failure leaves nothing on disk, and it never overwrites a folder silently. `ReportModel` refuses to exist unless its fixed
   caveats equal `fixed_caveats()`. A NaN or infinity reaching the formatter raises a `ValueError` naming the field.
-  No existing test was changed and no dependency was added.
+  No existing test was changed and no dependency was added (in part 1).
+- Phase 7 part 2: `report.html` is written last (after `report.md`, `equity.svg`, `drawdown.svg`), so the file a reader
+  opens exists only if everything else was written; `ReportPaths` gets an `html` property. With `overwrite=True` the write
+  is not atomic (a mix of new and old files is possible when a write fails; documented, no temporary folder).
+- Phase 7 part 2: the monthly returns are shaded by CSS class (four steps per sign up to a cap of 10 percent, from the
+  unrounded return, blue positive and orange negative, unrelated to the series colours of the charts), not by inline styles.
+  The HTML is built with escaping helpers (`tag`, `block`, `Markup`) instead of f-strings. Characters that XML 1.0 forbids
+  are replaced by U+FFFD once, in `text()` of the model, so Markdown, HTML and the SVG files are covered. The validation line
+  uses the singular (`1 info`). A structural snapshot of the HTML outline replaces a snapshot of the whole file. The offline
+  example tests install a `monkeypatch` socket guard. Beyond the roadmap text, `tests/html_helpers.py` and
+  `tests/report_example_checks.py` are shared test helpers.
+- Phase 7 part 2: three existing tests changed: `tests/test_report_writer.py` (the file list, the set of paths and the
+  order of the rendered files get `report.html`; a test was renamed to "reports"), `tests/test_report_model.py` (the
+  validation summary `1 infos` is now `1 info`) and the snapshot `tests/snapshots/report.md` (the same two lines). No
+  dependency was added.
 
 ---
 
@@ -482,11 +496,11 @@ Done when:
 
 **Branch:** `feature/report` (part 1), `feature/report-html` (part 2) · **Goal:** one readable file that tells the whole story of a run.
 
-**Status:** In progress (part 1 of 2 merged). Part 1 (`feature/report`): trade statistics in the metrics layer (fixtures
-T1 to T6), the report model, formats, caveats, SVG charts, the Markdown renderer with its snapshot test, run ids, the writer
-for `report.md` and the two SVG files, `docs/report.md`, [ADR 0014](adr/0014-report.md). Part 2 (`feature/report-html`,
-created from `main` after part 1 is merged): the self-contained HTML renderer and its tests, `report.html` in the writer,
-a report for each example strategy (offline and, marked `network`, with real data), status **Done**.
+**Status:** Done. Part 1 (`feature/report`, merged): trade statistics in the metrics layer (fixtures T1 to T6), the report
+model, formats, caveats, SVG charts, the Markdown renderer with its snapshot test, run ids, the writer for `report.md` and
+the two SVG files, `docs/report.md`, [ADR 0014](adr/0014-report.md). Part 2 (`feature/report-html`): the self-contained
+HTML renderer and its tests (including a structural snapshot and a contrast test), `report.html` in the writer, a report for
+each example strategy (offline and, marked `network`, with real data).
 
 Tasks:
 

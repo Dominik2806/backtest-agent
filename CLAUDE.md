@@ -93,7 +93,8 @@ PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` wh
   are literals written out in `docs/metrics.md`; never compute one with project code. The alignment is on equity levels
   of the common dates (rule in `docs/metrics.md`), never silent; relative metrics with fewer than 2 observations are `None`.
 - **Report tests:** `write_report(evaluation, reports_dir, generated_at=...)` in `backtest_agent.reporting` writes
-  `reports/<run-id>/report.md` and the two chart SVGs (HTML in Phase 7 part 2); `docs/report.md` and ADR 0014 are the
+  `reports/<run-id>/report.md`, `equity.svg`, `drawdown.svg` and `report.html` (in this write order, so a failure on any
+  write removes the folder the call created; `overwrite=True` is not atomic); `docs/report.md` and ADR 0014 are the
   reference. The model (`reporting/model.py`) is a pure function of an `Evaluation`, a run id and an explicit timezone-aware
   `generated_at`: no clock, locale or file access in the model or the renderers, and the report recomputes no metric (a
   new number goes into `backtest_agent.metrics` first, with hand-calculated fixtures such as T1 to T6 in
@@ -103,5 +104,19 @@ PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` wh
   escaped by the renderer. `write_report` renders in memory first and never overwrites a folder silently. The snapshot
   `tests/snapshots/report.md` is reviewed by hand (regenerate with `uv run python tests/test_report_markdown_snapshot.py`);
   chart and heatmap tests use hand-calculated literals; the report adds no dependency.
+- **HTML report tests:** `render_html(model)` in `backtest_agent.reporting.html_renderer` is a pure function of the
+  `ReportModel` and adds no content and no number format. The markup is built only with `tag` and `block` (a plain `str`
+  child or attribute value is always escaped, only `Markup` passes through; no f-string with a data value), the CSS is one
+  constant string, and there is no script, external font, stylesheet, image or link (no `http` text at all, no `src`, only
+  `#fragment` hrefs, no `url(` or `@import`); the inline SVG has no namespace. The HTML must parse with `xml.etree` (the
+  doctype is accepted as it is). The monthly returns are shaded by CSS class from the unrounded return, and every text and
+  background colour pair of the CSS must have a WCAG contrast of at least 4.5 in both themes (formula in the test, no
+  library). Characters that XML forbids are replaced once, in `text()` of the model. Offline tests that write reports
+  install a `monkeypatch` guard on `socket.socket.connect`; live tests are in `tests/test_report_network.py` (marked
+  `network`). The structural snapshot `tests/snapshots/report_html_outline.txt` is reviewed by hand (regenerate with
+  `uv run python tests/test_report_html_outline.py`).
+- **No double brace:** no source file, tests included, contains the two-character sequence of two opening braces outside
+  `.github/` (a template-placeholder check greps for it); build such strings from constants, for example
+  `OPEN * 2` with `OPEN = chr(123)`.
 - **Never commit** secrets, `.env`, market data, run outputs or reports (`data/`, `runs/`, `reports/`, `*.parquet`).
 - Update this file when new commands or conventions are introduced.

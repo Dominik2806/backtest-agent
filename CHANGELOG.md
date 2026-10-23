@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Report, part 2 of 2 (F-14, Phase 7): `render_html(model)` renders the report as one self-contained HTML file (inline CSS and
+  inline SVG, no script, font, stylesheet, image or link; light and dark theme; every table scrolls inside its own container
+  at phone width; monthly returns shaded by class from the unrounded return, with a contrast of at least 4.5 checked in the
+  tests). The markup is built with escaping helpers, so a hostile strategy name or validation message stays text.
+  `write_report` now writes `report.md`, `equity.svg`, `drawdown.svg` and `report.html` (last); `ReportPaths.html`. A report
+  is written for each of the three example strategies in the tests, offline on `FakeProvider` and, marked `network`, with
+  real data. A structural snapshot protects the HTML outline. With `overwrite=True` a failed write can leave a mix of new
+  and old files (documented).
 - Report, part 1 of 2 (F-14, Phase 7): `write_report(evaluation, reports_dir, generated_at=...)` writes
   `reports/<run-id>/report.md` and the equity and drawdown charts as SVG files (the self-contained HTML version follows in
   part 2). The report shows the spec, the data hash and validation findings of the strategy and the benchmark run, the
@@ -101,6 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The validation line of the report uses the singular: `1 info`, `1 warning`, `1 error` (it said `1 infos`). Strings from the
+  spec or the data that contain characters XML 1.0 forbids (such as NUL) now show U+FFFD in the report.
 - `Portfolio.returns` and `BacktestResult.returns` are 0.0 after a portfolio was ruined by fees (equity 0) instead of
   NaN (0/0); the bar that ruined it keeps the return -1.
 - A symbol without a price on the first bar is valued at its last close from the warm-up bars (before, the core
