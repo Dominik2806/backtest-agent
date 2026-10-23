@@ -144,6 +144,10 @@ format; `*` marks the first and last month of the run, `·` a month outside the 
   `FileExistsError` unless `overwrite=True`. A run id that could leave the reports folder is rejected.
 - **Atomic:** everything is rendered in memory before the folder is created; if rendering raises, nothing is left on
   disk. If a write fails, a folder this call created is removed.
+- **Not atomic with `overwrite=True`:** the existing folder is kept, so a write that fails part-way can leave a mix of new
+  and old files. Files that the call does not write are left alone. Delete the folder and write again if that matters. A
+  temporary folder with a directory swap was considered and left out: it needs two renames with a rollback, behaves
+  differently on Windows (a folder open in a viewer blocks a rename) and would need its own failure tests.
 
 ## Charts
 

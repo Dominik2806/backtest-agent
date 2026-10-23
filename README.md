@@ -23,7 +23,8 @@ strategy family, and the auditor's findings. The trial counter makes overfitting
 the same as one.
 
 The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton, the data
-layer, the strategy spec and the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage) the performance metrics of a run next to its buy-and-hold benchmark (Phase 6) and the Markdown report with charts and
+layer, the strategy spec, the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage), the
+performance metrics of a run next to its buy-and-hold benchmark (Phase 6) and the Markdown report with charts and
 caveats (Phase 7, part 1; the HTML version follows in part 2) exist; the other features described above arrive in the phases named in the
 [roadmap](docs/ROADMAP.md).
 

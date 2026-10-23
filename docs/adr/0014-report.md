@@ -30,7 +30,7 @@ as "n/a" and never as `nan`, and must carry its caveats in every case. Layout, f
   `ValueError`) and is printed in UTC. Files are written as UTF-8 bytes with `\n` line ends on every operating system; the
   snapshot test reads its file with `\r\n` normalised, so a git checkout with autocrlf cannot break it.
 - **Charts (D1): our own SVG, no dependency.** `reporting/charts.py` draws the equity and drawdown lines as SVG text with
-  two-decimal coordinates. `matplotlib` would add about six packages (matplotlib, contourpy, kiwisolver, pillow,
+  two-decimal coordinates. `matplotlib` would add seven packages (matplotlib, contourpy, kiwisolver, pillow,
   fonttools, pyparsing, cycler), a large `uv.lock` change and CI time on two operating systems, and its SVG output is not
   byte-stable across versions and platforms, which would defeat literal chart tests. The strategy is solid and the
   benchmark dashed (colour and line style), the colours are two slots of the reference palette with a dark variant inside

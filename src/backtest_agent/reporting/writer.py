@@ -1,9 +1,14 @@
-"""The only place of the report package that touches the file system (docs/report.md, "Writing a report").
+"""The only place of the report package that touches the file system.
+
+See docs/report.md, sections "Using it" and "Run id and the output folder".
 
 ``render_report`` builds every file of a report in memory. ``write_report`` calls it first and creates
 ``<reports_dir>/<run-id>/`` only if that worked, so a failure while rendering (for example a NaN reaching the formatter)
 leaves nothing on disk. An existing folder is never overwritten unless ``overwrite=True``. Files are written as UTF-8
 bytes with ``\\n`` line ends on every operating system.
+
+With ``overwrite=True`` the write is not atomic: if a write fails part-way, the folder is kept and can hold a mix of new
+and old files. Files that this call does not write are left alone. Delete the folder and write again if that matters.
 """
 
 import re
