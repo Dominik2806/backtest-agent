@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -104,3 +105,13 @@ def test_a_hostile_name_gives_a_safe_id() -> None:
     run_id = make_run_id(ev, NOON)
     assert re.fullmatch(r"[0-9TZ]+-[a-z0-9-]+-[0-9a-f]{8}", run_id)
     assert "/" not in run_id and "\\" not in run_id and ".." not in run_id
+
+
+def test_the_worked_example_of_adr_0014_is_what_the_code_hashes() -> None:
+    adr = Path(__file__).resolve().parents[1] / "docs" / "adr" / "0014-report.md"
+    lines = adr.read_text(encoding="utf-8").splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == "```json") + 1
+    end = next(i for i in range(start, len(lines)) if lines[i].strip() == "```")
+    text = "".join(line.strip() for line in lines[start:end])
+    assert text == run_id_hash_input(equal_start())
+    assert hashlib.sha256(text.encode("utf-8")).hexdigest()[:8] == "a85a59ee"
