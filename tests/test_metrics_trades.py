@@ -163,3 +163,42 @@ def test_total_cost_equals_the_total_costs_of_a_fake_run() -> None:
     assert stats.n_trades == len(result.trades) > 0
     assert stats.total_cost == pytest.approx(result.total_costs, rel=TOL)
     assert sum(s.trades for s in stats.per_symbol.values()) == stats.n_trades
+
+
+@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize(
+    "costs, rebalance",
+    [
+        ((1.0, 2.0, 2.0), "weekly"),
+        ((0.0, 0.0, 0.0), "daily"),
+        ((1000.0, 1000.0, 500.0), "daily"),  # 25 percent: buys are scaled down hard
+        ((5000.0, 5000.0, 0.0), "monthly"),  # 100 percent: fees eat nearly everything
+    ],
+)
+def test_run_backtest_never_produces_a_fill_the_trade_statistics_reject(seed: int, costs, rebalance: str) -> None:
+    # The engine emits a row only for ``filled != 0`` (core.py), so the zero-shares guard cannot fire on a valid result.
+    # This checks it over fake worlds and cost levels: every fill has finite non-zero shares and a finite cost >= 0.
+    symbols = ("AAA", "BBB", "CCC")
+    spec = make_spec(
+        universe=symbols, start="2018-01-01", end="2018-09-28", rebalance=rebalance, costs=costs, capital=100000
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", InsufficientWarmupWarning)
+        result = run_backtest(spec, FakeProvider(symbols=symbols, seed=seed))
+    trades = result.trades
+    assert (trades["shares"] != 0.0).all()
+    assert np.isfinite(trades[["shares", "price", "notional", "cost"]].to_numpy()).all()
+    assert (trades["cost"] >= 0.0).all()
+    assert trade_statistics(trades).n_trades == len(trades)
+
+
+def test_a_fill_that_fees_reduce_to_nothing_leaves_no_zero_share_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The setup of H23c with a flat fee (1500) above the whole portfolio: no fill is ever recorded with 0 shares.
+    register_up_day(monkeypatch)
+    spec = make_spec(universe=("A",), start="2024-01-02", end="2024-01-08", signal="fixture_up_day", capital=1000)
+    costs = CostsSpec(commission_bps=0, spread_bps=0, slippage_bps=0, min_commission=1500)  # more than the cash
+    frame = price_frame({"A": [100.0] * 5}, {"A": [100.0, 101.0, 100.0, 100.0, 100.0]})
+    with pytest.warns(InsufficientWarmupWarning):
+        result = run_backtest(spec.model_copy(update={"costs": costs}), LiteralProvider(frame))
+    assert (result.trades["shares"] != 0.0).all()
+    assert trade_statistics(result.trades).n_trades == len(result.trades)
