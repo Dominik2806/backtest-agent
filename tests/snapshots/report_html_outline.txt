@@ -1,0 +1,36 @@
+h1 #report-title
+  h2 #spec-summary
+    table[region, -] Item | Value -- first body cell: th(scope=row)
+  h2 #data
+    h3 #strategy-run
+      table[region, -] Severity | Code | Symbol | Field | Rows | First dates | Message -- first body cell: td
+    h3 #benchmark-run
+      table[region, -] Severity | Code | Symbol | Field | Rows | First dates | Message -- first body cell: td
+    h3 #warm-up
+      table[region, -] Item | Value -- first body cell: th(scope=row)
+      table[region, -] Symbol | Rows before the first decision | First data date | Target weight of the first decision -- first body cell: th(scope=row)
+  h2 #risk-flags
+  h2 #metrics
+    h3 #assumptions
+      table[region, -] Assumption | Value -- first body cell: th(scope=row)
+    h3 #performance
+      table[region, -] Metric | Strategy | Benchmark -- first body cell: th(scope=row)
+    h3 #relative-to-the-benchmark
+      table[region, -] Metric | Value -- first body cell: th(scope=row)
+  h2 #benchmark-alignment
+    table[region, -] Item | Value -- first body cell: th(scope=row)
+  h2 #costs
+    table[region, -] Item | Strategy | Benchmark -- first body cell: th(scope=row)
+  h2 #charts
+    h3 #equity
+      figure svg(title, desc) figcaption
+    h3 #drawdown
+      figure svg(title, desc) figcaption
+  h2 #monthly-returns
+    table[region, bt-heat] Year | Jan | Feb | Mar | Apr | May | Jun | Jul | Aug | Sep | Oct | Nov | Dec -- first body cell: th(scope=row)
+  h2 #trade-statistics
+    table[region, -] Item | Value -- first body cell: th(scope=row)
+    table[region, -] Symbol | Trades | Buys | Sells -- first body cell: th(scope=row)
+  h2 #assumptions-and-caveats
+    h3 #fixed-caveats
+    h3 #this-run

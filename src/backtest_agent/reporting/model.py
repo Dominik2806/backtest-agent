@@ -33,10 +33,19 @@ OUTSIDE_RUN = "·"  # a month before the first or after the last bar of the run
 STRATEGY, BENCHMARK = "Strategy", "Benchmark"
 
 
+_XML_ILLEGAL = re.compile(
+    r"[\x00-\x08\x0e-\x1b\ud800-\udfff\ufffe\uffff]"
+)  # what XML 1.0 forbids and \s does not match
+
+
 def text(value: Any) -> str:
-    """Spec or data text for display: whitespace collapsed to single spaces, ``(none)`` if nothing is left."""
-    collapsed = re.sub(r"\s+", " ", str(value)).strip()
-    return collapsed or "(none)"
+    """Spec or data text for display: characters that XML 1.0 forbids (such as NUL) become U+FFFD, whitespace is
+    collapsed to single spaces, ``(none)`` if nothing is left.
+
+    The replacement is here, once, so that the Markdown, the HTML and the standalone SVG files are all well-formed.
+    """
+    collapsed = re.sub(r"\s+", " ", str(value)).strip()  # also turns \x0b, \x0c and \x1c-\x1f into spaces
+    return _XML_ILLEGAL.sub("\ufffd", collapsed) or "(none)"
 
 
 @dataclass(frozen=True)
