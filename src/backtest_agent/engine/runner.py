@@ -6,14 +6,12 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from backtest_agent.data.checks import validate_prices
 from backtest_agent.data.errors import DataUnavailableError
-from backtest_agent.data.hash import hash_frame
-from backtest_agent.data.provider import DataProvider, validate_standard_frame
+from backtest_agent.data.provider import DataProvider
 from backtest_agent.engine.core import Portfolio
 from backtest_agent.engine.costs import BpsCosts, CostModel, NoCosts
 from backtest_agent.engine.errors import InsufficientHistoryError, InsufficientWarmupWarning
-from backtest_agent.engine.history import warmup_window
+from backtest_agent.engine.history import load_history
 from backtest_agent.engine.result import BacktestResult, WarmupInfo
 from backtest_agent.engine.simulation import simulate_signals
 from backtest_agent.engine.sizing import target_weights
@@ -35,26 +33,16 @@ def run_backtest(
     If costs are applied and the spec has a non-zero cost number, a twin simulation without costs on the same data,
     signals and orders gives ``gross_equity``. The benchmark is not loaded.
     """
-    period, universe = spec.period, list(spec.universe)
-    window = warmup_window(spec)
+    period = spec.period
+    loaded = load_history(spec, provider)
+    loaded.validation.raise_for_errors()
+    window, frame, validation, data_hash = loaded.window, loaded.frame, loaded.validation, loaded.data_hash
     required, rows_needed, buffer_days, fetch_start = (
         window.required_rows,
         window.rows_needed,
         window.buffer_days,
         window.fetch_start,
     )
-
-    frame = provider.get_prices(universe, fetch_start, period.end)
-    delivered = set(frame.columns.get_level_values("symbol"))
-    missing = [s for s in universe if s not in delivered]
-    if missing:
-        raise DataUnavailableError(f"the provider returned no data for {missing}")
-    validate_standard_frame(frame, universe)
-    if frame.index[-1] > pd.Timestamp(period.end):
-        raise ValueError(f"the provider returned rows after period.end {period.end} (last: {frame.index[-1].date()})")
-    validation = validate_prices(frame, start=fetch_start, end=period.end)
-    validation.raise_for_errors()
-    data_hash = hash_frame(frame)
 
     closes = close_frame(frame)
     first_pos = int(frame.index.searchsorted(pd.Timestamp(period.start)))

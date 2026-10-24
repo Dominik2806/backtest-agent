@@ -12,7 +12,7 @@ from backtest_agent.engine.errors import (
     InsufficientHistoryError,
     InsufficientWarmupWarning,
 )
-from backtest_agent.engine.history import WarmupWindow, warmup_window
+from backtest_agent.engine.history import LoadedHistory, WarmupWindow, load_history, warmup_window
 from backtest_agent.engine.result import BacktestResult, WarmupInfo
 from backtest_agent.engine.runner import run_backtest
 from backtest_agent.engine.schedule import decision_bars, execution_orders
@@ -27,12 +27,14 @@ __all__ = [
     "EngineInvariantError",
     "InsufficientHistoryError",
     "InsufficientWarmupWarning",
+    "LoadedHistory",
     "NoCosts",
     "Portfolio",
     "WarmupInfo",
     "WarmupWindow",
     "decision_bars",
     "execution_orders",
+    "load_history",
     "run_backtest",
     "simulate",
     "simulate_signals",
