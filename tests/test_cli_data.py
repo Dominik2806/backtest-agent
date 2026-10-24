@@ -20,8 +20,8 @@ from backtest_agent.data import DataUnavailableError
 from backtest_agent.data.validation import Severity, ValidationIssue
 from backtest_agent.engine import run_backtest
 from cli_helpers import at, run_cli, write_spec
-from report_helpers import spec_for, world
-from runner_helpers import LiteralProvider, nan_rows
+from report_helpers import A_CLOSE, A_OPEN, B_CLOSE, B_OPEN, spec_for, world
+from runner_helpers import LiteralProvider, nan_rows, price_frame
 
 HASH_A = "61669f6e7476623e1289ff7dad8c8b767f36be44961c05ec4def3f45c15dd090"
 HASH_B = "ff487f9000d166df03fa5e84640c7524f7414b58173ed654e33fab7f1df0b094"
@@ -140,6 +140,22 @@ def test_rows_are_the_rows_with_data_not_the_rows_of_the_frame(spec_path: Path) 
     out = run_cli(["data", "fetch", "strategy.yaml"], provider=LiteralProvider(frame)).out.splitlines()
     assert out[2] == "  A         4 rows"
     assert out[6] == "  B         5 rows"
+
+
+@pytest.mark.parametrize(
+    ("symbol", "line"),
+    [
+        ("ABCDEFGH", "  ABCDEFGH  5 rows"),  # 8 characters: padded to 10, the value starts in column 12
+        ("ABCDEFGHI", "  ABCDEFGHI 5 rows"),  # 9 characters: padded to 10 is one space, still column 12
+        ("ABCDEFGHIJ", "  ABCDEFGHIJ 5 rows"),  # 10 characters: one space, never glued to the count
+        ("ABCDEFGHIJKL", "  ABCDEFGHIJKL 5 rows"),
+    ],
+)
+def test_a_long_symbol_is_followed_by_one_space(workdir: Path, symbol: str, line: str) -> None:
+    frame = price_frame({symbol: A_OPEN, "B": B_OPEN}, {symbol: A_CLOSE, "B": B_CLOSE})
+    path = write_spec(workdir, spec_for(universe=(symbol,)), "strategy.yaml")
+    out = run_cli(["data", "fetch", str(path)], provider=LiteralProvider(frame)).out.splitlines()
+    assert out[2] == line
 
 
 def test_a_run_stores_the_hashes_that_data_fetch_prints(spec_path: Path) -> None:

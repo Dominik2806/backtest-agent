@@ -207,7 +207,8 @@ Benchmark:  <fetch_start> to <period.end> (<buffer_days> days before the period 
 ```
 
 Rules: the first label is padded to 12 characters like in `bt run`; the lines under a block start with two spaces and the
-text is padded to 10 characters, so every value starts in column 12; counts are `0 errors`, `1 error`, `2 errors` (the same
+text is padded to 10 characters, so every value starts in column 12 (a symbol of 10 or more characters is followed by one
+space instead, so it never touches its count); counts are `0 errors`, `1 error`, `2 errors` (the same
 for `row`, `warning`, `info`); the rows of a symbol are the rows in which it has at least one value ([data.md](data.md),
 "Rows with data"); the hash is `hash_frame` of the frame as loaded for that request, warm-up rows included, the same value a
 run stores as `strategy` or `benchmark` data hash. Validation errors do **not** change the exit code (the fetch worked;

@@ -214,7 +214,7 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
 
     data = sub.add_parser(
         "data",
-        help="fetch the data of a spec: fetch",
+        help="fetch the data of a spec into the cache",
         description="Fetch the data a spec needs (docs/cli.md). Folders are relative to the current directory.",
     )
     data_actions = data.add_subparsers(dest="data_command", required=True, metavar="ACTION")

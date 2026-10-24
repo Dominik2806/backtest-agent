@@ -158,8 +158,13 @@ ISSUE_SEVERITY_WIDTH, ISSUE_CODE_WIDTH, ISSUE_TARGET_WIDTH = 8, 25, 12
 FRAME_LEVEL_CODES = ("unsorted_dates", "duplicate_dates")  # docs/data.md does not define their first_dates
 
 
+def _pad(cell: str, width: int) -> str:
+    """``cell`` padded to ``width``, and always followed by at least one space."""
+    return cell.ljust(max(width, len(cell) + 1))
+
+
 def _sub(label: str, value: str) -> str:
-    return f"  {label:<{SUB_WIDTH}}{value}"
+    return f"  {_pad(label, SUB_WIDTH)}{value}"
 
 
 def issue_line(issue: ValidationIssue) -> str:
@@ -177,7 +182,7 @@ def issue_line(issue: ValidationIssue) -> str:
         (text(issue.code), ISSUE_CODE_WIDTH),
         (target, ISSUE_TARGET_WIDTH),
     )
-    return "  " + "".join(cell.ljust(max(width, len(cell) + 1)) for cell, width in cells) + detail
+    return "  " + "".join(_pad(cell, width) for cell, width in cells) + detail
 
 
 def _data_block(
