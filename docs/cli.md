@@ -201,7 +201,7 @@ data and refuses if the result differs from the journal:
 | 1 | unexpected error: a bug, or an operating system error such as a folder that cannot be written | any other exception |
 | 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id | argparse |
 | 3 | the spec is invalid or its file cannot be read | `SpecError`, `UnknownSignalError` |
-| 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses; any other exception of a provider call |
+| 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors: the first 10 are listed, then `... and N more`); any other exception of a provider call |
 | 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists | `JournalError`, `JournalFormatError`, `FileExistsError`, `sqlite3.Error` (the index cannot be read) |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
 | 7 | `bt report` found changed data or changed metrics **(part 2)** | |

@@ -4,6 +4,7 @@ import io
 import warnings
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -167,3 +168,35 @@ def test_text_that_a_console_cannot_encode_is_escaped_instead_of_crashing(monkey
     assert code == 4
     assert raw_out.getvalue().decode("cp1252") == "name: café \\u4e2d\\u6587\n"
     assert "symbol \\u4e2d" in raw_err.getvalue().decode("cp1252")
+
+
+def _issues(count: int, *, symbol: str | None = "A") -> list[SimpleNamespace]:
+    return [SimpleNamespace(symbol=symbol, code=f"code_{n}", message=f"message {n}") for n in range(1, count + 1)]
+
+
+def _validation_failure(count: int, *, symbol: str | None = "A"):
+    return classify(DataValidationError("x", SimpleNamespace(errors=_issues(count, symbol=symbol))))
+
+
+def test_twelve_data_errors_are_shortened_to_ten_lines_and_a_count_of_the_rest() -> None:
+    failure = _validation_failure(12)
+    assert failure.code == ExitCode.DATA
+    lines = failure.message.splitlines()
+    assert lines[0] == "data validation failed with 12 error(s):"
+    assert lines[1:11] == [f"  - [code_{n}] A: message {n}" for n in range(1, 11)]
+    assert lines[11:] == ["  ... and 2 more"]
+
+
+def test_exactly_ten_data_errors_print_no_and_more_line() -> None:
+    lines = _validation_failure(10).message.splitlines()
+    assert lines[0] == "data validation failed with 10 error(s):"
+    assert len(lines) == 11
+    assert not any("... and" in line for line in lines)
+
+
+def test_one_data_error_over_the_limit_says_and_1_more() -> None:
+    assert _validation_failure(11).message.splitlines()[-1] == "  ... and 1 more"
+
+
+def test_a_data_error_without_a_symbol_says_all_symbols() -> None:
+    assert _validation_failure(1, symbol=None).message.splitlines()[1] == "  - [code_1] all symbols: message 1"
