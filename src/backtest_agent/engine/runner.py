@@ -1,7 +1,7 @@
 """``run_backtest``: spec and provider in, ``BacktestResult`` out (see docs/engine.md)."""
 
 import warnings
-from datetime import date, timedelta
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -13,6 +13,7 @@ from backtest_agent.data.provider import DataProvider, validate_standard_frame
 from backtest_agent.engine.core import Portfolio
 from backtest_agent.engine.costs import BpsCosts, CostModel, NoCosts
 from backtest_agent.engine.errors import InsufficientHistoryError, InsufficientWarmupWarning
+from backtest_agent.engine.history import warmup_window
 from backtest_agent.engine.result import BacktestResult, WarmupInfo
 from backtest_agent.engine.simulation import simulate_signals
 from backtest_agent.engine.sizing import target_weights
@@ -35,10 +36,13 @@ def run_backtest(
     signals and orders gives ``gross_equity``. The benchmark is not loaded.
     """
     period, universe = spec.period, list(spec.universe)
-    required = spec.warmup_rows
-    rows_needed = required + spec.execution.delay_bars
-    buffer_days = 2 * rows_needed + 14
-    fetch_start = period.start - timedelta(days=buffer_days)
+    window = warmup_window(spec)
+    required, rows_needed, buffer_days, fetch_start = (
+        window.required_rows,
+        window.rows_needed,
+        window.buffer_days,
+        window.fetch_start,
+    )
 
     frame = provider.get_prices(universe, fetch_start, period.end)
     delivered = set(frame.columns.get_level_values("symbol"))
