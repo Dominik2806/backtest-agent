@@ -5,7 +5,9 @@ so a value looks the same here as in the report and a hostile name cannot break 
 are the report's own. The CLI's own words are plain ASCII.
 """
 
-from backtest_agent.journal import RunRecord
+from pathlib import Path
+
+from backtest_agent.journal import CodeVersion, RunRecord, RunSummary
 from backtest_agent.reporting import format as fmt
 from backtest_agent.reporting.model import text, trial_line
 from backtest_agent.spec import StrategySpec
@@ -74,6 +76,64 @@ def record_lines(record: RunRecord) -> list[str]:
         "",
         line("Risk flags", flags_text(strategy["risk_flags"], benchmark["risk_flags"])),
     ]
+
+
+NAME_LIMIT = 40
+
+
+def plural(count: int, word: str) -> str:
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
+def _short_name(name: str) -> str:
+    cleaned = text(name)
+    return cleaned if len(cleaned) <= NAME_LIMIT else cleaned[: NAME_LIMIT - 3] + "..."
+
+
+def journal_lines(runs: tuple[RunSummary, ...], runs_dir: Path, family: str | None) -> list[str]:
+    """The table of ``bt journal list``: newest first, one row per run."""
+    if not runs:
+        of_family = f" of family {text(family)}" if family else ""
+        return [f"No runs{of_family} in {runs_dir.as_posix()}."]
+    rows = [("RUN ID", "FAMILY", "RUN", "VARIANT", "NEW", "NAME")]
+    for run in runs:
+        rows.append(
+            (
+                text(run.run_id),
+                text(run.family),
+                str(run.run_number),
+                str(run.trial_number),
+                fmt.yes_no(run.new_variant),
+                _short_name(run.strategy_name),
+            )
+        )
+    widths = [max(len(row[i]) for row in rows) for i in range(6)]
+    table = ["  ".join(f"{cell:<{widths[i]}}" for i, cell in enumerate(row)).rstrip() for row in rows]
+    return [*table, "", f"{plural(len(runs), 'run')} listed"]
+
+
+def _code_text(code: CodeVersion) -> str:
+    state = {True: "has uncommitted changes", False: "clean", None: "state unknown"}[code.dirty]
+    return f"{text(code.commit[:12])} ({state})"
+
+
+def show_lines(record: RunRecord, runs_dir: Path, reports_dir: Path) -> list[str]:
+    """The answer of ``bt journal show``: the block of ``bt run`` and the facts only the stored record has."""
+    run_id = record.run_id
+    evaluation = record.evaluation
+    lines = [
+        *record_lines(record),
+        line("Generated", fmt.utc_timestamp(record.generated_at)),
+        line("Code", _code_text(record.code_version)),
+        line("Data", f"strategy {text(evaluation['strategy']['data_hash'])}"),
+        " " * LABEL_WIDTH + f"benchmark {text(evaluation['benchmark']['data_hash'])}",
+        line("Spec", (runs_dir / run_id / "spec.yaml").as_posix()),
+        line("Journal", (runs_dir / run_id / "run.json").as_posix()),
+    ]
+    report = reports_dir / run_id / "report.md"
+    if report.is_file():
+        lines.append(line("Report", f"{report.as_posix()} and report.html"))
+    return lines
 
 
 def validate_lines(spec: StrategySpec, path: str) -> list[str]:

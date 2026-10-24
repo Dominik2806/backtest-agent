@@ -1,6 +1,7 @@
 """The commands of ``bt``: each handler takes the parsed arguments and a ``Context`` and returns an exit code."""
 
 import argparse
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -8,9 +9,11 @@ from pathlib import Path
 from typing import TextIO
 
 from backtest_agent.cli import render
+from backtest_agent.cli.argtypes import positive_int, run_id_arg
 from backtest_agent.cli.errors import ExitCode
 from backtest_agent.cli.provider import ProviderFactory
 from backtest_agent.experiment import run_experiment
+from backtest_agent.journal import get_run, list_runs, rebuild_index
 from backtest_agent.spec import load_spec
 
 
@@ -56,6 +59,54 @@ def cmd_validate(args: argparse.Namespace, context: Context) -> ExitCode:
     return ExitCode.OK
 
 
+def cmd_journal_list(args: argparse.Namespace, context: Context) -> ExitCode:
+    runs = list_runs(args.runs_dir, family=args.family, limit=args.limit)
+    context.emit(*render.journal_lines(runs, args.runs_dir, args.family))
+    return ExitCode.OK
+
+
+def cmd_journal_show(args: argparse.Namespace, context: Context) -> ExitCode:
+    record = get_run(args.runs_dir, args.run_id)
+    context.emit(*render.show_lines(record, args.runs_dir, args.reports_dir))
+    return ExitCode.OK
+
+
+def _indexed_runs(runs_dir: Path) -> int | None:
+    """Rows of the existing index (the table ``runs``, docs/journal.md), or None if it is missing or unreadable.
+
+    It reads the file as it is, without the comparison with the run folders that the read API makes: a stale index is
+    exactly the case in which the old count matters.
+    """
+    path = runs_dir / "index.sqlite"
+    if not path.is_file():
+        return None
+    try:
+        connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            return int(connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return None
+
+
+def cmd_journal_rebuild(args: argparse.Namespace, context: Context) -> ExitCode:
+    before = _indexed_runs(args.runs_dir)
+    found = rebuild_index(args.runs_dir)
+    context.emit(f"Rebuilt the index in {args.runs_dir.as_posix()}: {render.plural(found, 'run')} found.")
+    if before is not None:
+        context.emit(f"The old index had {render.plural(before, 'row')}.")
+        if found < before:
+            lost = before - found
+            print(
+                f"warning: the new index has {render.plural(found, 'run')}, the old one had {before}: the {lost} "
+                f"missing {'run is' if lost == 1 else 'runs are'} forgotten and no longer "
+                f"{'counts as a trial' if lost == 1 else 'count as trials'}",
+                file=context.err,
+            )
+    return ExitCode.OK
+
+
 def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser) -> None:
     """Add every command to the sub-parsers of the top-level parser."""
     run = sub.add_parser(
@@ -78,6 +129,50 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
         "--cache-dir", type=Path, default=Path("data/cache"), metavar="DIR", help="price cache folder (data/cache)"
     )
     run.set_defaults(handler=cmd_run)
+
+    journal = sub.add_parser(
+        "journal",
+        help="read the run journal: list, show, rebuild",
+        description="Read the run journal (docs/journal.md). Folders are relative to the current directory.",
+    )
+    actions = journal.add_subparsers(dest="journal_command", required=True, metavar="ACTION")
+    runs_dir = ("--runs-dir",)
+    runs_dir_help = {"type": Path, "default": Path("runs"), "metavar": "DIR", "help": "journal folder (runs)"}
+
+    listing = actions.add_parser(
+        "list",
+        parents=[common],
+        help="list the logged runs, newest first",
+        description="List the logged runs, newest first: run id, family, run number, variant number, whether the run "
+        "introduced its variant, name.",
+    )
+    listing.add_argument("--family", metavar="F", help="only runs of this strategy family (the signal id)")
+    listing.add_argument("--limit", type=positive_int, metavar="N", help="at most N runs (1 or more)")
+    listing.add_argument(*runs_dir, **runs_dir_help)
+    listing.set_defaults(handler=cmd_journal_list)
+
+    show = actions.add_parser(
+        "show",
+        parents=[common],
+        help="show one logged run",
+        description="Show one logged run: the summary of bt run, the code version, the data hashes and the paths.",
+    )
+    show.add_argument("run_id", metavar="RUN_ID", type=run_id_arg, help="the run id (see bt journal list)")
+    show.add_argument(*runs_dir, **runs_dir_help)
+    show.add_argument(
+        "--reports-dir", type=Path, default=Path("reports"), metavar="DIR", help="report folder (reports)"
+    )
+    show.set_defaults(handler=cmd_journal_show)
+
+    rebuild = actions.add_parser(
+        "rebuild",
+        parents=[common],
+        help="build the index again from the run folders",
+        description="Build the SQLite index again from the run folders. Nothing is renumbered. A run whose folder was "
+        "deleted is forgotten and no longer counts as a trial; the old and new number of runs are printed.",
+    )
+    rebuild.add_argument(*runs_dir, **runs_dir_help)
+    rebuild.set_defaults(handler=cmd_journal_rebuild)
 
     validate = sub.add_parser(
         "validate",

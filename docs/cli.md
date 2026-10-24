@@ -143,7 +143,17 @@ The run id must be a safe folder name (letters, digits, `.`, `_`, `-`); anything
 Option `--runs-dir DIR` (`runs`). Builds the SQLite index again from the run folders (`rebuild_index`). It is the answer to
 a stale index (exit code 5, below). It prints the number of runs found and, if the old index can be read, the number of rows
 it had. **If the new index has fewer runs than the old one, those runs are forgotten**: their folders were deleted, and
-the trial counter no longer counts them. `bt` then prints a warning on stderr that says so (exit code stays 0).
+the trial counter no longer counts them. `bt` then prints a warning on stderr that says so (exit code stays 0):
+
+```
+Rebuilt the index in runs: 2 runs found.                         (stdout)
+The old index had 3 rows.                                        (stdout, only if the old index could be read)
+warning: the new index has 2 runs, the old one had 3: the 1 missing run is forgotten and no longer counts as a trial   (stderr)
+```
+
+The old rows are counted directly in the file, because the read API refuses a stale index. The rebuild keeps the numbers of
+the stored `run.json` files and refuses (exit code 5, the old index is untouched) when they have a gap: deleting a run from
+the middle of a family cannot be repaired by a rebuild, only the last runs of a family can be forgotten.
 
 ### `bt data fetch SPEC` **(part 2)**
 
