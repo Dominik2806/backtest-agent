@@ -460,3 +460,25 @@ def test_the_help_names_the_options() -> None:
 
 def test_the_top_level_help_lists_report() -> None:
     assert "\n    report " in run_cli(["--help"]).out
+
+
+def test_bt_report_does_not_open_the_journal_index_when_it_is_missing(workdir: Path) -> None:
+    run_id = logged_run()
+    shutil.rmtree(workdir / "reports")
+    index = workdir / "runs" / "index.sqlite"
+    index.unlink()
+    result = run_cli(["report", run_id], provider=provider())
+    assert result.code == 0, result.err
+    assert not index.exists()  # a read of the index would have created or rebuilt it
+    assert sorted(path.name for path in (workdir / "runs").iterdir()) == [run_id]
+
+
+def test_bt_report_does_not_open_the_journal_index_when_it_is_garbage(workdir: Path) -> None:
+    run_id = logged_run()
+    shutil.rmtree(workdir / "reports")
+    index = workdir / "runs" / "index.sqlite"
+    garbage = b"this is not a database\x00\xff\xfe" * 40
+    index.write_bytes(garbage)
+    result = run_cli(["report", run_id], provider=provider())
+    assert result.code == 0, result.err
+    assert index.read_bytes() == garbage
