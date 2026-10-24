@@ -43,8 +43,8 @@ uv run pytest
 ```
 
 The tests should pass without network access. The `bt` command line has its own section ([Command line](#command-line));
-the quickstart for a fresh clone follows with the last part of Phase 9 (part 3). The Python library offers the data layer
-([docs/data.md](docs/data.md)) and the engine (`run_backtest`, see below):
+the quickstart for a fresh clone follows with the last part of Phase 9 (part 3). The Python library offers the data
+layer ([docs/data.md](docs/data.md)) and the engine (`run_backtest`, see below):
 
 ```python
 from datetime import date
@@ -111,21 +111,19 @@ One live test against yfinance exists and is excluded by default; run it manuall
 current directory (details, options, output and exit codes: [docs/cli.md](docs/cli.md)):
 
 ```powershell
-uv run bt validate strategies/sma_crossover.yaml   # check a spec; no data is fetched
-uv run bt validate strategies/sma_crossover.yaml --data  # also fetch and validate its data (exit 4 if a run would fail)
-uv run bt data fetch strategies/sma_crossover.yaml # fetch the two requests of a run into data/cache/, print the data hashes
-uv run bt validate strategies/sma_crossover.yaml --data  # also fetch and validate its data (exit 4 if a run would fail)
-uv run bt data fetch strategies/sma_crossover.yaml # fetch the two requests of a run into data/cache/, print the data hashes
-uv run bt run strategies/sma_crossover.yaml        # evaluate, log the run in runs/, write reports/<run id>/
-uv run bt journal list                             # the logged runs, newest first
-uv run bt journal show RUN_ID                      # one run: summary, code version, data hashes, paths
-uv run bt journal rebuild                          # build the journal index again from the run folders
+uv run bt validate strategies/sma_crossover.yaml          # check a spec; no data is fetched
+uv run bt validate strategies/sma_crossover.yaml --data   # also fetch and validate its data (exit 4 on errors)
+uv run bt data fetch strategies/sma_crossover.yaml        # fetch the two requests of a run into data/cache/
+uv run bt run strategies/sma_crossover.yaml               # evaluate, log the run in runs/, write reports/<run id>/
+uv run bt journal list                                    # the logged runs, newest first
+uv run bt journal show RUN_ID                             # one run: summary, code version, data hashes, paths
+uv run bt journal rebuild                                 # build the journal index again from the run folders
 ```
 
-`bt run`, `bt data fetch` and `bt validate --data` fetch prices from yfinance (cached under `data/cache/`), so they need a
-network connection the first time. The
-journal and the trial counter belong to one `--runs-dir`: run from the same folder to count your runs together. The command
-`bt report` and the full quickstart arrive with the last part of Phase 9 (part 3).
+`bt run`, `bt data fetch` and `bt validate --data` fetch prices from yfinance (cached under `data/cache/`), so they need
+a network connection the first time. The journal and the trial counter belong to one `--runs-dir`: run from the same
+folder to count your runs together. The command `bt report` and the full quickstart arrive with the last part of Phase 9
+(part 3).
 
 ## What is inside
 

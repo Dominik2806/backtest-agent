@@ -1,8 +1,8 @@
 # 0016: Command line
 
 - **Status:** Accepted. Phase 9 is delivered in three parts. Part 1 delivers `run`, `validate` (spec only) and
-  `journal list|show|rebuild`; part 2 adds `data fetch` and `validate --data`; part 3 adds `report` and the quickstart. The
-  part 3 decisions below (`bt report`, the release order) are decided here and built in part 3.
+  `journal list|show|rebuild`; part 2 adds `data fetch` and `validate --data`; part 3 adds `report` and the
+  quickstart. The part 3 decisions below (`bt report`, the release order) are decided here and built in part 3.
 
 ## Context
 
@@ -69,16 +69,16 @@ the exit-code table are in [cli.md](../cli.md).
   old rows are counted by reading the file directly, because the read API refuses a stale index, which is exactly the case
   in which the old count matters. A deleted run folder is forgotten (documented in the journal); a gap in the run numbers is
   refused.
-- **Three parts, and what the data commands decide (part 2).** The phase was planned as two pull requests. With the shared
-  window and loader refactor (`warmup_window` and `load_history` in `engine/history.py`, behaviour-only) and the `bt report`
-  core it exceeds one reviewable pull request twice over, so it ships in three: part 2 is the engine helpers plus
-  `bt data fetch` and `bt validate --data`, part 3 is `bt report` and the quickstart. The CLI never computes a window or
-  loads data itself: it calls `load_history` for the spec and for `benchmark_spec(spec)`, so the two requests of
-  `bt data fetch` are the two requests of a run by construction (a test pins the literal requests). `bt validate --data`
-  exits with code 4 when the fetched data has validation errors, because a run on it would fail, and prints every issue
-  on stdout (one short line on stderr, so nothing is printed twice); `bt data fetch` exits 0 with the same errors and
-  prints a warning on stderr, because the fetch itself worked. Issue lines are built from the structured fields only,
-  and the `first` dates are printed only where [data.md](../data.md) defines them.
+- **Three parts, and what the data commands decide (part 2).** The phase was planned as two pull requests. With the
+  shared window and loader refactor (`warmup_window` and `load_history` in `engine/history.py`, behaviour-only) and the
+  `bt report` core it exceeds one reviewable pull request twice over, so it ships in three: part 2 is the engine
+  helpers plus `bt data fetch` and `bt validate --data`, part 3 is `bt report` and the quickstart. The CLI never
+  computes a window or loads data itself: it calls `load_history` for the spec and for `benchmark_spec(spec)`, so the
+  two requests of `bt data fetch` are the two requests of a run by construction (a test pins the literal requests).
+  `bt validate --data` exits with code 4 when the fetched data has validation errors, because a run on it would fail,
+  and prints every issue on stdout (one short line on stderr, so nothing is printed twice); `bt data fetch` exits 0
+  with the same errors and prints a warning on stderr, because the fetch itself worked. Issue lines are built from
+  the structured fields only, and the `first` dates are printed only where [data.md](../data.md) defines them.
 - **`bt report` re-evaluates and refuses (part 3).** `run.json` holds dictionaries, not an `Evaluation`, so the report
   cannot be rendered from the journal alone. `bt report RUN_ID` rebuilds the spec from `run.json`, evaluates it on the cached
   data with the stored `costs_applied` and metric assumptions, builds the record again and compares `spec`, `evaluation`,
