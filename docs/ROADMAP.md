@@ -543,7 +543,7 @@ Done when:
 
 ## Phase 8: Experiment journal
 
-**Branch:** `feature/experiment-journal` · **Goal:** nothing that was tried is forgotten, so overfitting becomes visible.
+**Branch:** `feature/experiment-journal` (part 1), `feature/experiment-entry-point` (part 2) · **Goal:** nothing that was tried is forgotten, so overfitting becomes visible.
 
 **Status:** Done. Part 1 (`feature/experiment-journal`, delivered): the journal core, see [journal.md](journal.md). Part 2
 (`feature/experiment-entry-point`, delivered): `run_experiment`, the trial line of the report, the example.
