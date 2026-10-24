@@ -34,6 +34,57 @@ arrive in the phases named in the [roadmap](docs/ROADMAP.md).
 - Git
 - [Claude Code](https://claude.com/claude-code) for the agent workflow (from Phase 10 on)
 
+## Quickstart for a fresh clone
+
+> **Educational, not investment advice.** The example below runs a textbook trend-following strategy on past prices.
+> Its numbers say nothing about the future.
+
+You need Git and [uv](https://docs.astral.sh/uv/) (uv installs and manages Python 3.12 itself). Then:
+
+```powershell
+git clone https://github.com/Dominik2806/backtest-agent.git; cd backtest-agent
+uv sync                                                   # install the dependencies and the bt command
+uv run pytest                                             # optional: the tests run offline
+uv run bt validate strategies/sma_crossover.yaml          # check the example spec; no data is fetched
+uv run bt data fetch strategies/sma_crossover.yaml        # fetch its prices into data/cache/ (needs the network once)
+uv run bt run strategies/sma_crossover.yaml               # evaluate, log the run in runs/, write reports/<run id>/
+uv run bt journal list                                    # the logged runs; copy the RUN ID of yours
+uv run bt report RUN_ID --overwrite                       # check that the run reproduces, write its report again
+```
+
+The same commands work on macOS and Linux (in bash, chain with `&&` or a new line instead of `;`). Prices come from
+Yahoo Finance through the `yfinance` package; it may print a note about `curl_cffi` on stderr, which is harmless.
+
+What you get, all relative to the folder you run `bt` in (all three folders are git-ignored here):
+
+- `data/cache/`: the prices, one Parquet file per symbol and period. They are fetched once; `bt run` and `bt report`
+  reuse them, so a second run needs no network.
+- `runs/<run id>/run.json` (with `spec.yaml`) and `runs/index.sqlite`: the journal. Every `bt run` is logged and
+  counted per strategy family.
+- `reports/<run id>/report.html`: the report, one self-contained page; open it in a browser (`start`, `open` or
+  `xdg-open` followed by the path). `report.md` and two SVG charts are next to it.
+
+`bt run` prints a summary whose first lines look like this (the shape, not real numbers: the numbers depend on the
+data revisions of the provider and change when Yahoo adjusts its history, so yours will differ):
+
+```
+Run:        <run id>
+Strategy:   SMA crossover on liquid ETFs (family sma_crossover)
+Trials:     family sma_crossover: 1 distinct variant in 1 run as of this run. This run is run 1, ...
+Period:     2010-01-01 to 2023-12-31, <n> bars
+Costs:      applied
+
+Metric            Strategy  Benchmark (SPY)
+Total return       <percent>        <percent>
+```
+
+`bt report RUN_ID` evaluates the stored spec again on the cached data and compares the result with the journal (both
+data hashes, the metrics, the trades and the costs); only if everything is equal does it write the same report again,
+which is why `--overwrite` is needed after `bt run` has written it. **Exit code 7 means that the data or the metrics
+changed** (a deleted cache, or prices that the provider has revised), and nothing is written; use the cache the run was
+made with (`--cache-dir`, default `data/cache`). Details of every command, option and exit code:
+[docs/cli.md](docs/cli.md).
+
 ## Quickstart
 
 ```powershell
