@@ -5,6 +5,9 @@ benchmark, and what the number does not mean. The code is in `src/backtest_agent
 decisions are in [ADR 0014](adr/0014-report.md). The report only formats numbers that already exist in an `Evaluation`
 ([metrics.md](metrics.md)); the one family that did not exist, the trade statistics, was added to the metrics layer first.
 
+The command line ([cli.md](cli.md)) writes this report through `run_experiment` (`bt run`) and prints its numbers with the
+same formatters.
+
 **Status.** Phase 7 is done. Part 1 delivered the model, the Markdown report, the SVG charts, the run id and the writer.
 Part 2 delivers the self-contained HTML report (section "HTML"), `report.html` in the writer, and the reports of the three
 example strategies (offline and, marked `network`, with real data).

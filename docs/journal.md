@@ -6,6 +6,9 @@ were tried before the one they are looking at. The code is in `src/backtest_agen
 decisions are in [ADR 0015](adr/0015-experiment-journal.md). `evaluate()` and `run_backtest()` stay pure and write
 nothing; the journal is a separate step.
 
+The command line ([cli.md](cli.md)) is the user-facing entry point to this journal: `bt run` calls `run_experiment`, and
+`bt journal list`, `show` and `rebuild` use the read API and `rebuild_index`.
+
 **Status.** Phase 8 is done. Part 1 delivered the journal core: the folder format, the index, the counter and the read API
 (`record_run`, `list_runs`, `get_run`, `trial_count`, `run_count`, `rebuild_index`). Part 2 delivers the one entry point
 that evaluates, logs and reports (`run_experiment`, section "run_experiment"), the trial line of the report

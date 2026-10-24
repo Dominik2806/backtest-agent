@@ -3,8 +3,7 @@
 The whole backtester runs from one command, without any agent (F-16). `bt` is a thin layer over code that already exists
 and stays unchanged: a standard run is `run_experiment` ([journal.md](journal.md)), reading the journal is its read API,
 the numbers are printed by the formatters of the report ([report.md](report.md)). `evaluate()` and `run_backtest()` stay
-pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in ADR 0016 (added with the
-housekeeping commit of Phase 9, so the link is not here yet). The project is educational and not investment advice.
+pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in [ADR 0016](adr/0016-command-line.md). The project is educational and not investment advice.
 
 **Status.** Phase 9 is delivered in two pull requests. Part 1 has `run`, `validate` (spec only) and
 `journal list`, `journal show`, `journal rebuild`. Part 2 adds `data fetch`, `validate --data` and `report` (exit code 7)

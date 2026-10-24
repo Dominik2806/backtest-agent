@@ -45,7 +45,7 @@ Feature IDs (`F-01` to `F-27`) are stable references. Use them in PR description
 
 Python 3.12 managed with `uv`, `ruff` for linting and formatting, `pytest` for tests, `pandas` and `numpy` for the
 engine, `pydantic` v2 and `PyYAML` for specs, `yfinance` for the first data provider, `pyarrow` for the Parquet
-cache, `matplotlib` for report charts, `typer` for the CLI, GitHub Actions for CI, Claude Code subagents and skills
+cache, `matplotlib` for report charts, `argparse` (standard library) for the CLI, GitHub Actions for CI, Claude Code subagents and skills
 for the agent layer. Final library choices are made in the plan of the phase that first needs them and recorded as
 an ADR when they matter.
 
@@ -146,7 +146,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
 | 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
 | 8 | `feature/experiment-journal`, `feature/experiment-entry-point` | Run log with trial counter (two parts) | F-15 | S | Done |
-| 9 | `feature/cli` | `bt` command; release `v0.1.0` | F-16 | M | Planned |
+| 9 | `feature/cli`, `feature/cli-data-report` | `bt` command (two parts); release `v0.1.0` | F-16 | M | In progress (part 1 merged when its PR is merged) |
 | 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
 | 11 | `feature/agents-auditor-interpreter` | Bias auditor and report interpreter subagents | F-19, F-20 | M | Planned |
 | 12 | `feature/backtest-command` | `/backtest` command with approval gate; release `v0.2.0` | F-21 | M | Planned |
@@ -320,6 +320,17 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   `tests/test_report_writer.py` (the pinned parameter lists of `build_report_model` and `write_report` gain `trial`) and
   `tests/test_report_markdown_snapshot.py` with `tests/snapshots/report.md` (a literal `TrialInfo`; one added line). The
   HTML outline snapshot is unchanged because it records no list items.
+- Phase 9: the phase is split into two pull requests because it exceeds one reviewable PR. Part 1 (`feature/cli`): the `bt`
+  skeleton, `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, ADR 0016. Part 2
+  (`feature/cli-data-report`): `data fetch`, `validate --data`, `report`, the shared data window helper, README quickstart,
+  status **Done**. The release `v0.1.0` follows in its own pull request after part 2, then the fresh-clone check, then the tag.
+- Phase 9: the CLI uses `argparse` from the standard library instead of the `typer` named in the tech stack (no new
+  dependency), and is a package `src/backtest_agent/cli/` instead of one module `cli.py` (parser, commands, rendering, error
+  mapping and provider guard are separate jobs). Beyond the roadmap text, `bt journal rebuild` exists (the stale-index error
+  needs an answer), every captured warning is printed once without a path, and a provider guard turns any failure of a
+  provider call into a data error (exit code 4). `allow_short_warmup` has no flag and is not stored in `run.json`.
+- Phase 9 part 1: `tests/test_docs_links.py` was added (every relative link of the README and `docs/` resolves). No existing
+  test and no existing source file was changed.
 
 ---
 
@@ -562,7 +573,9 @@ Done when:
 
 ## Phase 9: Command-line interface
 
-**Branch:** `feature/cli` · **Goal:** the whole backtester runs from one command, without any agent.
+**Branch:** `feature/cli` (part 1), `feature/cli-data-report` (part 2, planned, created from `main` after part 1 is merged) · **Goal:** the whole backtester runs from one command, without any agent.
+
+**Status:** In progress. Part 1 (`feature/cli`): `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, [ADR 0016](adr/0016-command-line.md). Part 2: `data fetch`, `validate --data`, `report`, the README quickstart; Phase 9 is **Done** with part 2, and `v0.1.0` is released after it (`chore/release-v0.1.0`, see [ADR 0016](adr/0016-command-line.md)).
 
 Tasks:
 
