@@ -6,6 +6,7 @@
 - **Bars:** 5 bars, first bar 2024-01-02, last bar 2024-01-08
 - **Universe:** A
 - **Benchmark:** B
+- **Trials:** family buy_and_hold: 2 distinct variants in 3 runs as of this run. This run is run 3, a repeat of variant 1. Counts cover only runs logged in this journal.
 
 ## Spec summary
 

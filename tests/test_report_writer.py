@@ -110,7 +110,7 @@ def test_a_given_run_id_is_used(tmp_path: Path) -> None:
 
 def test_the_signature_has_no_parameter_that_touches_the_caveats() -> None:
     names = list(inspect.signature(write_report).parameters)
-    assert names == ["evaluation", "reports_dir", "generated_at", "run_id", "overwrite"]
+    assert names == ["evaluation", "reports_dir", "generated_at", "run_id", "overwrite", "trial"]
 
 
 # --- atomicity ---------------

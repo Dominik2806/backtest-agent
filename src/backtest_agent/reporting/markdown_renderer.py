@@ -76,6 +76,7 @@ def render_markdown(model: ReportModel) -> str:
         f"- **Bars:** {md_escape(header.bars)}",
         f"- **Universe:** {md_escape(header.universe)}",
         f"- **Benchmark:** {md_escape(header.benchmark)}",
+        f"- **Trials:** {md_escape(model.trials)}",
         "",
         "## Spec summary",
         "",

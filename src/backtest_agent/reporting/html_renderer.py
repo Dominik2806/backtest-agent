@@ -225,6 +225,7 @@ def render_html(model: ReportModel) -> str:
             _item("Bars", header.bars),
             _item("Universe", header.universe),
             _item("Benchmark", header.benchmark),
+            _item("Trials", model.trials),
         ),
     )
 
