@@ -83,8 +83,15 @@ the exit-code table are in [cli.md](../cli.md).
   cannot be rendered from the journal alone. `bt report RUN_ID` rebuilds the spec from `run.json`, evaluates it on the cached
   data with the stored `costs_applied` and metric assumptions, builds the record again and compares `spec`, `evaluation`,
   `trades` and `costs` with the stored ones (not `code_version`, `generated_at`, `run_number`, `trial_number`,
-  `trial_count`). Data hashes must be equal; floats are equal if `abs(a - b) <= 1e-9 * max(1, |a|, |b|)`; `None` against a
-  number is a difference; strings and integers are exact. A difference is code 7 and names the first paths. Only then
+  `trial_count`). Data hashes must be equal; two integers are equal only if they are the same integer; an integer against a
+  float, and two floats, are equal if `abs(a - b) <= 1e-9 * max(1, |a|, |b|)`; `None` against a number is a difference; a
+  boolean is equal only to the same boolean (never to `1` or `1.0`); strings are exact (the first draft of this ADR said
+  "strings and integers are exact", which left the integer against float case open: JSON gives `1` or `1.0` for the same
+  number and the metrics code may change that representation without changing the value). A difference is code 7 and
+  names the first paths (data hashes first, five of them, then "and N more"). A stored spec that no longer validates is
+  code 3, and stored `costs_applied` values that differ between strategy and benchmark, or metric assumptions that cannot be
+  read, are code 5 (a record that cannot be reproduced is a journal problem). An existing report folder is refused with
+  code 5 **before** any data is fetched, unless `--overwrite` is given. Only then
   `write_report` is called with the stored run id, `generated_at` and trial, never `run_experiment`, so nothing is logged and
   an unchanged run gives the original `report.md` byte for byte. Alternatives rejected: rendering from the stored
   dictionaries (a second renderer that could disagree with the report), storing the whole evaluation in `run.json` (the file

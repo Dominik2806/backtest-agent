@@ -5,8 +5,11 @@ so a value looks the same here as in the report and a hostile name cannot break 
 are the report's own. The CLI's own words are plain ASCII.
 """
 
+import json
+from collections.abc import Sequence
 from pathlib import Path
 
+from backtest_agent.cli.compare import MISSING, Difference
 from backtest_agent.cli.data import DataFetch, rows_with_data
 from backtest_agent.data.validation import ValidationIssue
 from backtest_agent.engine import LoadedHistory
@@ -219,3 +222,45 @@ def data_fetch_lines(fetch: DataFetch) -> list[str]:
 def validation_warning(count: int, path: str) -> str:
     """The warning of ``bt data fetch`` (stderr) when the fetched data has validation errors."""
     return f"warning: {count} validation error(s); a run would fail; bt validate {text(path)} --data lists them"
+
+
+MAX_DIFFERENCES_SHOWN = 5
+VALUE_LIMIT = 80
+
+
+def difference_value(value: object) -> str:
+    """A value of a difference as plain text. Floats keep every digit (``repr``): a rounded number would hide the
+    1e-9 level at which two runs are told apart."""
+    if value is MISSING:
+        return "(missing)"
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return text(value)
+    if isinstance(value, int | float):
+        return repr(value)
+    shown = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return shown if len(shown) <= VALUE_LIMIT else shown[: VALUE_LIMIT - 3] + "..."
+
+
+def changed_message(run_id: str, kind: str, found: Sequence[Difference]) -> str:
+    """The message of exit code 7: the first line, then the first differing paths (data hashes first)."""
+    lines = [f"run {text(run_id)} no longer reproduces: {kind} changed ({plural(len(found), 'difference')})"]
+    for difference in found[:MAX_DIFFERENCES_SHOWN]:
+        stored, fresh = difference_value(difference.stored), difference_value(difference.fresh)
+        lines.append(f"  {text(difference.path)}: stored {stored}, now {fresh}")
+    if len(found) > MAX_DIFFERENCES_SHOWN:
+        lines.append(f"  ... and {len(found) - MAX_DIFFERENCES_SHOWN} more")
+    return "\n".join(lines)
+
+
+def report_lines(run_id: str, runs_dir: Path, report_markdown: Path) -> list[str]:
+    """The answer of ``bt report``: the run is reproduced, nothing was logged, the report is written."""
+    return [
+        line("Run", text(run_id)),
+        line("Checked", "spec, evaluation, trades and costs equal the journal record"),
+        line("Journal", f"{(runs_dir / run_id / 'run.json').as_posix()} (unchanged)"),
+        line("Report", f"{report_markdown.as_posix()} and report.html"),
+    ]
