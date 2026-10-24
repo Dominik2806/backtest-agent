@@ -80,3 +80,26 @@ def test_a_missing_and_an_extra_key_print_the_missing_side() -> None:
         '  evaluation.gone: stored {"a":1}, now (missing)',
         "  evaluation.new: stored (missing), now 2.5",
     ]
+
+
+def test_a_string_with_line_breaks_is_printed_on_one_line_like_every_text_of_bt() -> None:
+    message = changed_message(RUN, "metrics", [changed("evaluation.name", "first\nsecond\r\n\tthird", "a\n\n\nb")])
+    assert message.splitlines() == [
+        f"run {RUN} no longer reproduces: metrics changed (1 difference)",
+        "  evaluation.name: stored first second third, now a b",
+    ]
+
+
+def test_a_character_that_xml_forbids_becomes_the_replacement_character_and_an_empty_string_is_none() -> None:
+    message = changed_message(
+        RUN, "metrics", [changed("evaluation.x", "red\x1b[31m", ""), changed("evaluation.y", "\x00", "   ")]
+    )
+    assert message.splitlines()[1:] == [
+        "  evaluation.x: stored red�[31m, now (none)",
+        "  evaluation.y: stored �, now (none)",
+    ]
+
+
+def test_a_path_is_cleaned_too() -> None:
+    message = changed_message(RUN, "metrics", [changed('evaluation["a\nb"]', 1, 2)])
+    assert len(message.splitlines()) == 2

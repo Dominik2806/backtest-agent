@@ -268,8 +268,8 @@ and the report. The stored `spec` is compared too because it is rebuilt through 
 | object against object, list against list | every key / index is equal; a key or index only in the stored record is `missing`, only in the fresh one `extra` |
 | any other pair (an object against a number, a string against a number, ...) | never: one difference at that path |
 
-A **data hash** is a value whose key is `data_hash`: `evaluation.strategy.data_hash` and `evaluation.benchmark.data_hash`,
-nothing else. If at least one of them differs the run is **"data changed"**, whatever else differs (the other differences
+A **data hash** is exactly one of the two paths `evaluation.strategy.data_hash` and `evaluation.benchmark.data_hash`; a key
+with the same name anywhere else (for example `spec.params.my_data_hash`) is an ordinary value. If at least one of them differs the run is **"data changed"**, whatever else differs (the other differences
 follow from it), and the hint is the one for changed data; if only other things differ it is **"metrics changed"**. Both
 are exit code 7. If both hashes differ they are listed in sorted order, the benchmark's first.
 
@@ -298,12 +298,15 @@ paths are printed; if there are more, a last path line says `  ... and N-5 more`
 with 5 or fewer there is no such line. The first line counts all of them (`1 difference`, `2 differences`).
 
 **Exit code 7** (stderr; warnings of the evaluation, if there are any, come first as `warning: ...` lines like for every
-command; then the first line, one line per path with the stored and the fresh value, the hint). How a value is printed: a
-float with all its digits (`repr`), because a rounded number would hide a difference at the 1e-9 level; an integer in
-decimal; a string **without quotes** (so a data hash is a bare word), cleaned like every text of `bt` (see "Windows and
-encodings"); `null`, `true` and `false` as in JSON; a
-missing side as `(missing)`; an object or a list (only when a whole subtree is the difference, or the types differ) as
-compact JSON with sorted keys, cut after 80 characters with `...`:
+command; then the first line, one line per path with the stored and the fresh value, the hint). How a value is printed:
+
+- a float with all its digits (`repr`), because a rounded number would hide a difference at the 1e-9 level; an integer in
+  decimal; `null`, `true` and `false` as in JSON;
+- a string **without quotes** (so a data hash is a bare word), cleaned like every text of `bt` (see "Windows and
+  encodings"): any run of whitespace, line breaks included, becomes one space, characters that XML forbids (such as an
+  escape character) become U+FFFD, and an empty string is shown as `(none)`; so a value is always one line;
+- a missing side as `(missing)`; an object or a list (only when a whole subtree is the difference, or the types differ)
+  as compact JSON with sorted keys, cut after 80 characters with `...`.
 
 ```
 bt: error: run <run id> no longer reproduces: data changed (<N> differences)
@@ -684,10 +687,12 @@ instead of `146.41` (the `high` of that row follows, `150`; its `low` stays `133
 1200`, its total return `1200 / 1000 - 1 = 0.2` and the excess return over the benchmark `0.2 - (-0.21592) = 0.41592`.
 Exit code 7, stdout empty, stderr. The program finds N = 18 differences: the strategy's data hash, the four changed entries
 of `evaluation.relative` (`excess_return`, `information_ratio`, `strategy_return_compared`, `tracking_error`; the
-benchmark's entries and `alignment` do not change), eight metrics of `evaluation.strategy.metrics` and five numbers of
-`costs.strategy`. Sorted as in "Paths and order" (inside `evaluation`: `assumptions`, `benchmark`, `relative`, `strategy`),
+benchmark's entries and `alignment` do not change), eight metrics of `evaluation.strategy.metrics` (`best_month`, `cagr`,
+`calmar`, `sharpe`, `sortino`, `total_return`, `volatility`, `worst_month`) and five numbers of `costs.strategy`
+(`cost_drag`, `cost_share`, `gross_final_equity`, `gross_return`, `net_return`). Sorted as in "Paths and order" (inside `evaluation`: `assumptions`, `benchmark`, `relative`, `strategy`),
 with the data hash first, the first five are the hash and the four `relative` entries, so `excess_return` is the second
-line and 13 (N-5) are left over. By hand only the hash, the excess return and `strategy_return_compared` (0.17128 before,
+line and 13 (N-5) are left over: the eight `evaluation.strategy.metrics.*` entries in the order just given, then the five
+`costs.strategy.*` entries in the order just given (1 + 4 + 8 + 5 = 18). By hand only the hash, the excess return and `strategy_return_compared` (0.17128 before,
 0.2 now) are derived here; the values of `information_ratio` and `tracking_error` follow the formulas of
 [metrics.md](metrics.md) and are the program's:
 

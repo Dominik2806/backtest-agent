@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 COMPARED_KEYS = ("spec", "evaluation", "trades", "costs")  # not code_version, generated_at, run_number, trial_*
+DATA_HASH_PATHS = ("evaluation.strategy.data_hash", "evaluation.benchmark.data_hash")
 RELATIVE_TOLERANCE = 1e-9
 _PLAIN_KEY = re.compile(r"[A-Za-z0-9_]+")
 
@@ -56,7 +57,8 @@ def prioritized(found: Sequence[Difference]) -> list[Difference]:
 
 
 def is_data_hash(difference: Difference) -> bool:
-    return difference.path.endswith("data_hash")
+    """Exactly the two data hashes of the evaluation; a key of the same name anywhere else is an ordinary value."""
+    return difference.path in DATA_HASH_PATHS
 
 
 def change_kind(found: Sequence[Difference]) -> Literal["data", "metrics"]:

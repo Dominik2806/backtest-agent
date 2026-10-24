@@ -290,3 +290,62 @@ def test_a_non_finite_number_is_equal_to_nothing_not_even_to_itself(stored: Any,
 
 def test_none_equals_none_which_is_how_an_undefined_metric_reproduces() -> None:
     assert differences(record(evaluation={"sharpe": None}), record(evaluation={"sharpe": None})) == []
+
+
+def test_the_keys_of_both_records_are_merged_and_sorted_whoever_has_them() -> None:
+    stored = record(evaluation={"b": 1, "d": 1})
+    fresh = record(evaluation={"a": 1, "c": 1, "b": 2})
+    found = differences(stored, fresh)
+    assert [(d.path, d.kind) for d in found] == [
+        ("evaluation.a", "extra"),
+        ("evaluation.b", "changed"),
+        ("evaluation.c", "extra"),
+        ("evaluation.d", "missing"),
+    ]
+
+
+def test_keys_are_sorted_by_code_point_so_a_capital_comes_before_a_small_letter() -> None:
+    stored = record(evaluation={"a": 1, "B": 1, "Z": 1, "_": 1})
+    fresh = record(evaluation={"a": 2, "B": 2, "Z": 2, "_": 2})
+    # "B" (66) and "Z" (90) before "_" (95) before "a" (97)
+    assert [d.path for d in differences(stored, fresh)] == [
+        "evaluation.B",
+        "evaluation.Z",
+        "evaluation._",
+        "evaluation.a",
+    ]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "spec.params.my_data_hash",
+        "spec.data_hash",
+        "evaluation.relative.data_hash",
+        "evaluation.strategy.data_hash.extra",
+        "evaluation.strategy.metrics.data_hash",
+        "costs.strategy.data_hash",
+    ],
+)
+def test_only_the_two_data_hashes_of_the_evaluation_are_data_hashes(path: str) -> None:
+    assert not is_data_hash(Difference(path, "a", "b", "changed"))
+
+
+@pytest.mark.parametrize("path", ["evaluation.strategy.data_hash", "evaluation.benchmark.data_hash"])
+def test_the_two_data_hash_paths_are_data_hashes(path: str) -> None:
+    assert is_data_hash(Difference(path, "a", "b", "changed"))
+
+
+def test_a_data_hash_named_key_elsewhere_is_an_ordinary_difference_metrics_changed_if_alone() -> None:
+    stored = record(spec={"params": {"my_data_hash": "a"}})
+    fresh = record(spec={"params": {"my_data_hash": "b"}})
+    found = differences(stored, fresh)
+    assert [d.path for d in found] == ["spec.params.my_data_hash"]
+    assert change_kind(found) == "metrics"
+    # and it does not jump the queue in front of the first-listed differences
+    both = differences(
+        record(spec={"params": {"my_data_hash": "a"}}, evaluation={"strategy": {"data_hash": "x"}}),
+        record(spec={"params": {"my_data_hash": "b"}}, evaluation={"strategy": {"data_hash": "y"}}),
+    )
+    assert [d.path for d in prioritized(both)] == ["evaluation.strategy.data_hash", "spec.params.my_data_hash"]
+    assert change_kind(both) == "data"
