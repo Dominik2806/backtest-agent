@@ -63,8 +63,7 @@ The same steps run without any agent through the `bt` command (Phase 9).
 | Agents | Strategy architect, signal coder, bias auditor, report interpreter, `/backtest` command (planned, Phases 10 to 12) | `.claude/` |
 | Robustness | Out-of-sample, walk-forward, sensitivity, regimes, look-ahead test, deflated Sharpe | `src/backtest_agent/robustness/` |
 
-Besides `data/`, `spec/` and `engine/`, only empty packages exist today (besides the packages listed above, `cli/` exists since Phase 9); `.claude/` is created by the phase that
-needs it. `strategies/` holds the example specs; agent-written signals will live there too (Phase 10).
+Only `robustness/` is still an empty package; `.claude/` is created by the phase that needs it. `strategies/` holds the example specs; agent-written signals will live there too (Phase 10).
 
 ## Data flow
 

@@ -42,9 +42,9 @@ uv sync
 uv run pytest
 ```
 
-The tests should pass without network access. The `bt` command line is arriving in Phase 9 (see [Command line](#command-line); its quickstart for a fresh clone
-follows with the second part). Besides it there is the test suite and the Python library: the data layer ([docs/data.md](docs/data.md)) and the engine
-(`run_backtest`, see below):
+The tests should pass without network access. The `bt` command line has its own section ([Command line](#command-line));
+the quickstart for a fresh clone follows with the second part of Phase 9. The Python library offers the data layer
+([docs/data.md](docs/data.md)) and the engine (`run_backtest`, see below):
 
 ```python
 from datetime import date

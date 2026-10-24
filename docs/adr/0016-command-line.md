@@ -14,7 +14,7 @@ the exit-code table are in [cli.md](../cli.md).
 
 ## Decision
 
-- **argparse, not typer.** The standard library is enough for five commands and keeps the dependency list unchanged.
+- **argparse, not typer.** The standard library is enough for a handful of commands and keeps the dependency list unchanged.
   The ROADMAP tech stack named `typer`; this is a deviation, recorded in the ROADMAP. Alternatives rejected: `typer` or
   `click` (a new dependency for subcommands and help text that argparse already gives), a hand-written parser.
 - **A package, `src/backtest_agent/cli/`, not one module.** The roadmap and the architecture said `cli.py`. Parser, error
@@ -30,8 +30,10 @@ the exit-code table are in [cli.md](../cli.md).
 - **`bt run` is `run_experiment`.** It loads the spec and calls `run_experiment(spec, provider, runs_dir=..., generated_at=
   clock(), reports_dir=None if --no-report, apply_costs=not --no-costs)`. `evaluate()` and `run_backtest()` stay pure and
   unchanged, and no CLI path logs without the journal or reports without a trial. `allow_short_warmup` and the metric
-  assumptions keep their defaults: `allow_short_warmup` is not stored in `run.json`, so a flag for it would make a stored run
-  impossible to reproduce; there is none. `--no-costs` is visible in the output and sets the existing risk flag.
+  assumptions keep their defaults. A run that succeeds under a strict mode gives the same numbers as under the default; the
+  flag only turns an error into the risk flag `insufficient_warmup` plus a warning. So the default never changes a number
+  and hides nothing. A strict flag would need a stored field in `run.json` to show which mode a run used; there is no flag
+  for now, and the agent phases may add one together with such a field. `--no-costs` is visible in the output and sets the existing risk flag.
 - **The provider guard wraps only the calls into the provider.** `GuardedProvider` turns any exception that is not a
   `DataError` into a `DataError` with the original as its cause, so "no network" is a data problem (exit code 4) and not a
   bug. The engine, the journal and the report are never wrapped, and `KeyboardInterrupt` is not an `Exception`, so it

@@ -34,7 +34,7 @@ The project is educational and not investment advice.
 | Metrics | Performance and risk metrics, benchmark comparison | `src/backtest_agent/metrics/` |
 | Reporting | Markdown and HTML reports with charts and caveats | `src/backtest_agent/reporting/` |
 | Journal | Run log with trial counter per strategy family | `src/backtest_agent/journal/` |
-| CLI | The `bt` command | `src/backtest_agent/cli.py` |
+| CLI | The `bt` command | `src/backtest_agent/cli/` |
 | Agents | Strategy architect, signal coder, bias auditor, report interpreter, `/backtest` command | `.claude/` |
 | Robustness | Out-of-sample, walk-forward, sensitivity, regimes, look-ahead test, deflated Sharpe | `src/backtest_agent/robustness/` |
 
@@ -146,7 +146,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
 | 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
 | 8 | `feature/experiment-journal`, `feature/experiment-entry-point` | Run log with trial counter (two parts) | F-15 | S | Done |
-| 9 | `feature/cli`, `feature/cli-data-report` | `bt` command (two parts); release `v0.1.0` | F-16 | M | In progress (part 1 merged when its PR is merged) |
+| 9 | `feature/cli`, `feature/cli-data-report` | `bt` command (two parts); release `v0.1.0` | F-16 | M | In progress (part 1 of 2) |
 | 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
 | 11 | `feature/agents-auditor-interpreter` | Bias auditor and report interpreter subagents | F-19, F-20 | M | Planned |
 | 12 | `feature/backtest-command` | `/backtest` command with approval gate; release `v0.2.0` | F-21 | M | Planned |
