@@ -38,7 +38,7 @@ flowchart LR
 4. The signal coder writes the signal function against the fixed interface; an interface test must pass.
 5. The data layer loads and validates prices and computes a data hash. History is loaded from `period.start` minus
    the warm-up of the signal (`StrategySpec.warmup_rows`) and the results are trimmed to the period (`run_backtest`,
-   Phase 4; the `bt` command follows in Phase 9).
+   Phase 4; `bt data fetch` makes exactly these requests, Phase 9).
 6. The engine shifts the signals by `delay_bars` (default 1), applies costs and produces equity curve, positions and
    trades; metrics are computed next to a buy-and-hold benchmark.
 7. The journal stores the run (spec, data hash, code version, metrics) and increments the trial counter of the
@@ -54,12 +54,12 @@ The same steps run without any agent through the `bt` command (Phase 9).
 |---|---|---|
 | Data layer | Provider interface, yfinance provider, fake provider, Parquet cache (Phase 1); validation, data hash (Phase 2) | `src/backtest_agent/data/` |
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals, example specs (Phase 3; see [strategy-spec.md](strategy-spec.md)) | `src/backtest_agent/spec/`, `strategies/` |
-| Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; costs and gross versus net (Phases 4 and 5, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
+| Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; `warmup_window` and `load_history` (the one place that knows the data window and loads and hashes a request, used by `run_backtest` and the CLI); costs and gross versus net (Phases 4 and 5, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
 | Metrics | Performance and risk metrics and benchmark comparison with `evaluate` (Phase 6, see [metrics.md](metrics.md)) | `src/backtest_agent/metrics/` |
 | Reporting | Markdown and HTML report with SVG charts, caveats and the trial line, see [report.md](report.md) | `src/backtest_agent/reporting/` |
 | Journal | Run log, SQLite index and trial counter per strategy family (Phase 8, see [journal.md](journal.md)) | `src/backtest_agent/journal/` |
 | Experiment | `run_experiment`: evaluate, log, report in one call (Phase 8) | `src/backtest_agent/experiment.py` |
-| CLI | The `bt` command: `run` (through `run_experiment`), `validate`, `journal list`, `show`, `rebuild` (Phase 9 part 1; `data fetch` and `report` in part 2; see [cli.md](cli.md)) | `src/backtest_agent/cli/` |
+| CLI | The `bt` command: `run` (through `run_experiment`), `validate` (also `--data`), `data fetch`, `journal list`, `show`, `rebuild` (Phase 9 parts 1 and 2; `report` in part 3; see [cli.md](cli.md)) | `src/backtest_agent/cli/` |
 | Agents | Strategy architect, signal coder, bias auditor, report interpreter, `/backtest` command (planned, Phases 10 to 12) | `.claude/` |
 | Robustness | Out-of-sample, walk-forward, sensitivity, regimes, look-ahead test, deflated Sharpe | `src/backtest_agent/robustness/` |
 

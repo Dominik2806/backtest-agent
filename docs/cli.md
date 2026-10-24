@@ -5,9 +5,10 @@ and stays unchanged: a standard run is `run_experiment` ([journal.md](journal.md
 the numbers are printed by the formatters of the report ([report.md](report.md)). `evaluate()` and `run_backtest()` stay
 pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in [ADR 0016](adr/0016-command-line.md). The project is educational and not investment advice.
 
-**Status.** Phase 9 is delivered in two pull requests. Part 1 has `run`, `validate` (spec only) and
-`journal list`, `journal show`, `journal rebuild`. Part 2 adds `data fetch`, `validate --data` and `report` (exit code 7)
-and the README quickstart. Everything marked **(part 2)** below does not exist yet.
+**Status.** Phase 9 is delivered in three pull requests. Part 1 has `run`, `validate` (spec only) and
+`journal list`, `journal show`, `journal rebuild`. Part 2 adds `data fetch` and `validate --data`. Part 3 adds `report`
+(exit code 7) and the README quickstart. Everything marked **(part 3)** below does not exist yet; until then the
+`bt report RUN_ID` that the hint of exit code 6 names is not available.
 
 ## Starting `bt`
 
@@ -128,8 +129,25 @@ Warm-up:    199 rows
 Risk flags: none
 ```
 
-`bt validate SPEC --data` **(part 2)** also fetches the data through the cache and shows the validation result (errors,
-warnings, infos) without running a backtest.
+**`bt validate SPEC --data [--cache-dir DIR]`** also fetches the two requests of a run through the cache (the same fetch as
+`bt data fetch` below, default `--cache-dir data/cache`) and lists the validation result, without running a backtest.
+Without `--data` the output above is unchanged and `--cache-dir` is unused. With `--data`, after the lines above and an
+empty line, it prints the two data blocks of `bt data fetch` and, under each block, **every validation issue** of that
+request (errors first, then warnings, then infos, in the order of [data.md](data.md), "Result, thresholds and errors"; no
+limit). An issue line is built from the structured fields of the issue only, never from its free-text message:
+
+```
+  <severity, 8 wide><code, 25 wide><target, 12 wide>count <n>[, first <date>[, <date> ...]]
+```
+
+`<severity>` is `error`, `warning` or `info`; `<code>` is the code of [data.md](data.md); `<target>` is `SYMBOL.field`, or
+`SYMBOL` when the issue has no field, or `-` for a frame-level issue; a cell longer than its width is followed by one
+space. `count` and the `first` dates are those of [data.md](data.md) (the dates are printed only where data.md defines
+them: not for the frame-level `unsorted_dates` and `duplicate_dates`, and not when the issue has none, like `no_data`).
+If the data has validation errors in either request, the exit code is **4**: a run on this data would fail with the same
+errors. Everything is printed first (stdout), then stderr gets one line, `bt: error: the data has 3 validation errors
+(listed above)` (`1 validation error` for one), and no hint, so no issue is printed twice. Without errors the exit code is 0 (warnings
+and infos do not change it). A provider failure, no data or a cache miss is exit code 4 as everywhere, with nothing on stdout.
 
 ### `bt journal list`
 
@@ -170,12 +188,36 @@ The old rows are counted directly in the file, because the read API refuses a st
 the stored `run.json` files and refuses (exit code 5, the old index is untouched) when they have a gap: deleting a run from
 the middle of a family cannot be repaired by a rebuild, only the last runs of a family can be forgotten.
 
-### `bt data fetch SPEC` **(part 2)**
+### `bt data fetch SPEC`
 
-Fetches what the spec needs into the cache: the universe over `fetch_start` to `period.end` and the benchmark over its own
-window, and prints rows per symbol, the validation counts and the data hash.
+Option `--cache-dir DIR` (`data/cache`). Fetches exactly the two requests of a run through the cache, so a later `bt run` is
+served from it: the universe over `fetch_start` to `period.end`, then the benchmark (`benchmark_spec`) over its own window
+("The data window" below). It runs no backtest and writes nothing but the cache. For each request it prints the window, the
+rows per symbol, the validation counts and the data hash:
 
-### `bt report RUN_ID` **(part 2)**
+```
+Spec:       <name>
+Strategy:   <fetch_start> to <period.end> (<buffer_days> days before the period start)
+  <symbol>  <n> row(s)                        (one line per symbol of the universe, in spec order)
+  Checks:   <n> error(s), <n> warning(s), <n> info(s)
+  Data:     <64 hex characters>
+Benchmark:  <fetch_start> to <period.end> (<buffer_days> days before the period start)
+  <symbol>  <n> row(s)
+  Checks:   <n> error(s), <n> warning(s), <n> info(s)
+  Data:     <64 hex characters>
+```
+
+Rules: the first label is padded to 12 characters like in `bt run`; the lines under a block start with two spaces and the
+text is padded to 10 characters, so every value starts in column 12 (a symbol of 10 or more characters is followed by one
+space instead, so it never touches its count); counts are `0 errors`, `1 error`, `2 errors` (the same
+for `row`, `warning`, `info`); the rows of a symbol are the rows in which it has at least one value ([data.md](data.md),
+"Rows with data"); the hash is `hash_frame` of the frame as loaded for that request, warm-up rows included, the same value a
+run stores as `strategy` or `benchmark` data hash. Validation errors do **not** change the exit code (the fetch worked;
+`bt validate SPEC --data` judges the data): stdout is the same and stderr gets
+`warning: N validation error(s); a run would fail; bt validate SPEC --data lists them` (with the path as typed). A provider
+failure, no data or a cache miss is exit code 4.
+
+### `bt report RUN_ID` **(part 3)**
 
 Writes the report of a logged run again, without logging anything. `run.json` holds dictionaries, not an `Evaluation`, so
 the report cannot be rendered from the journal alone. `bt report` therefore re-evaluates the stored spec on the (cached)
@@ -200,10 +242,10 @@ data and refuses if the result differs from the journal:
 | 1 | unexpected error: a bug, or an operating system error such as a folder that cannot be written | any other exception |
 | 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id | argparse |
 | 3 | the spec is invalid or its file cannot be read | `SpecError`, `UnknownSignalError` |
-| 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors: the first 10 are listed, then `... and N more`); any other exception of a provider call |
+| 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors of a run: the first 10 are listed, then `... and N more`; `bt validate --data` prints all of them on stdout and one line on stderr); any other exception of a provider call |
 | 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists | `JournalError`, `JournalFormatError`, `FileExistsError`, `sqlite3.Error` (the index cannot be read) |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
-| 7 | `bt report` found changed data or changed metrics **(part 2)** | |
+| 7 | `bt report` found changed data or changed metrics **(part 3)** | |
 | 130 | interrupted with Ctrl-C | `KeyboardInterrupt` |
 
 The checks run in this order: interrupt, report failed, spec, data, journal, everything else. The order matters because
@@ -268,9 +310,16 @@ fetch_start = period.start - buffer_days days
 ```
 
 The benchmark is a second run of `benchmark_spec(spec)` (symbol `benchmark`, signal `buy_and_hold`, warm-up 0) with its own
-window: for delay 1 it is `2 * 1 + 14 = 16` days before `period.start`. `bt data fetch` and `bt validate --data` **(part 2)**
-fetch exactly these two requests, so a later `bt run` is served from the cache. Requests whose end is today or later are
-never cached ([data.md](data.md)).
+window: for delay 1 it is `2 * 1 + 14 = 16` days before `period.start`. `bt data fetch` and `bt validate --data` fetch
+exactly these two requests, so a later `bt run` is served from the cache. Requests whose end is today or later are never
+cached ([data.md](data.md)).
+
+The formula is `warmup_window(spec)` and the load is `load_history(spec, provider)`, both in `engine/history.py`
+([engine.md](engine.md)); `bt` calls them and nothing else, for the spec and for `benchmark_spec(spec)`. Two worked
+windows: the benchmark above (delay 1, warm-up 0, `N = 1`, 16 days); and `strategies/sma_crossover.yaml` with `slow: 200`,
+whose warm-up is 199 rows (`bt validate` prints `Warm-up:    199 rows`) plus `delay_bars: 1`: `N = 199 + 1 = 200`,
+`buffer_days = 2 * 200 + 14 = 414`, so for `period.start` 2010-01-01 the first day of the request is
+`2010-01-01 - 414 days = 2008-11-13`.
 
 ## Example: one run, with the arithmetic
 
@@ -412,3 +461,98 @@ RUN ID                                    FAMILY        RUN  VARIANT  NEW  NAME
 
 2 runs listed
 ```
+
+## Example: the data commands, with the arithmetic
+
+The same world as above (`strategy.yaml` of "Example: one run"), so the tests can run it without the network. The provider
+holds one frame with the symbols `A` and `B`. **The frame, exactly** (every value is `float64`): five rows, on the dates
+2024-01-02, 2024-01-03, 2024-01-04, 2024-01-05 and 2024-01-08 (Tuesday to Monday; there is no row before 2024-01-02). For
+each symbol the `open` and `close` columns are the table of the example above; for **every row** `high = max(open, close)`
+and `low = min(open, close)`, and `volume = 1000.0` where a close exists. A request returns the requested symbols with all
+five fields (`open`, `high`, `low`, `close`, `volume`) and the rows between its first and last day, here all five. The data
+hash of a request is [`hash_frame`](data.md#data-hash) of that returned frame: for the request of `A` it is the hash of a
+frame with one symbol, five rows and five columns, and likewise for `B`.
+
+```powershell
+bt data fetch strategy.yaml
+```
+
+The strategy has warm-up 0 and `delay_bars: 1`, so `N = 0 + 1 = 1`, `buffer_days = 2 * 1 + 14 = 16` and the request starts
+`2024-01-02 - 16 days = 2023-12-17` (a Sunday) and ends on `period.end`, 2024-01-08. The benchmark is a buy-and-hold with warm-up
+0 and the same delay, so its request has the same window. The requests the provider receives are exactly
+`(A, 2023-12-17, 2024-01-08)` and `(B, 2023-12-17, 2024-01-08)`. The data starts on 2024-01-02: the business days (Monday to
+Friday) from 2023-12-17 up to, not including, 2024-01-02 are December 18 to 22 (5), December 25 to 29 (5) and January 1 (1),
+11 in all, more than the 3 that [data.md](data.md) allows, so each symbol gets one `starts_late` info (`count` 11) and no
+other check fires: the data ends on the requested last day, high and low follow open and close, the volume is 1000, no day
+is missing between two rows, the largest move is 10 percent and no close repeats. Output (exit code 0, stderr empty):
+
+```
+Spec:       Buy and hold A
+Strategy:   2023-12-17 to 2024-01-08 (16 days before the period start)
+  A         5 rows
+  Checks:   0 errors, 0 warnings, 1 info
+  Data:     61669f6e7476623e1289ff7dad8c8b767f36be44961c05ec4def3f45c15dd090
+Benchmark:  2023-12-17 to 2024-01-08 (16 days before the period start)
+  B         5 rows
+  Checks:   0 errors, 0 warnings, 1 info
+  Data:     ff487f9000d166df03fa5e84640c7524f7414b58173ed654e33fab7f1df0b094
+```
+
+The two hashes were computed with `hashlib` from the layout of [data.md](data.md) alone and are the `strategy` and
+`benchmark` data hashes that `bt run` stores for this spec.
+
+**A window that differs between the two requests.** The same command for a spec whose name is `SMA 2/4 on A` and whose
+signal is `sma_crossover` with `fast: 2` and `slow: 4` (everything else as above). The slow average needs `4 - 1 = 3`
+warm-up rows, `N = 3 + 1 = 4`, `buffer_days = 2 * 4 + 14 = 22`, so the request of `A` starts `2024-01-02 - 22 days =
+2023-12-11` (a Monday); the benchmark keeps its 16 days. The returned frames are the same five rows, so the hashes are the
+same; the `starts_late` of `A` now counts 16 business days (December 11 to 15, 18 to 22, 25 to 29 and January 1) instead of
+11, which `bt validate --data` would print:
+
+```
+Spec:       SMA 2/4 on A
+Strategy:   2023-12-11 to 2024-01-08 (22 days before the period start)
+  A         5 rows
+  Checks:   0 errors, 0 warnings, 1 info
+  Data:     61669f6e7476623e1289ff7dad8c8b767f36be44961c05ec4def3f45c15dd090
+Benchmark:  2023-12-17 to 2024-01-08 (16 days before the period start)
+  B         5 rows
+  Checks:   0 errors, 0 warnings, 1 info
+  Data:     ff487f9000d166df03fa5e84640c7524f7414b58173ed654e33fab7f1df0b094
+```
+
+**`bt validate strategy.yaml --data` with a broken frame.** The frame of `A` differs from the one above in two values: its
+`close` of 2024-01-04 is missing (NaN; `open` 110, `high` 121, `low` 110 and `volume` 1000.0 of that row stay as in the
+frame above) and its `volume` of
+2024-01-05 is missing (NaN). `B` is unchanged. The row of 2024-01-04 still has data (its `open`), so `A` still has 5 rows.
+A row with data and a missing close is `nan_in_history` (an error, field `close`, count 1, first date 2024-01-04); a row
+with data and a missing volume is `nan_volume` (a warning, field `volume`, count 1, first date 2024-01-05); `starts_late` is
+as before. The hash of the frame of `A` changes (a NaN is hashed as the one canonical NaN, see [data.md](data.md)). Output
+on stdout:
+
+```
+OK: strategy.yaml is a valid spec
+Name:       Buy and hold A
+Family:     buy_and_hold
+Universe:   A
+Benchmark:  B
+Period:     2024-01-02 to 2024-01-08
+Warm-up:    0 rows
+Risk flags: none
+
+Strategy:   2023-12-17 to 2024-01-08 (16 days before the period start)
+  A         5 rows
+  Checks:   1 error, 1 warning, 1 info
+  Data:     2717f62b8122d8a9189132458fc9ede5f1ae8ff2ee6e2927c7a51d2e7f6b7e49
+  error   nan_in_history           A.close     count 1, first 2024-01-04
+  warning nan_volume               A.volume    count 1, first 2024-01-05
+  info    starts_late              A           count 11, first 2024-01-02
+Benchmark:  2023-12-17 to 2024-01-08 (16 days before the period start)
+  B         5 rows
+  Checks:   0 errors, 0 warnings, 1 info
+  Data:     ff487f9000d166df03fa5e84640c7524f7414b58173ed654e33fab7f1df0b094
+  info    starts_late              B           count 11, first 2024-01-02
+```
+
+stderr is `bt: error: the data has 1 validation error (listed above)` and the exit code is 4. `bt data fetch strategy.yaml` on the
+same data prints the same two blocks without the issue lines (the `Spec:` line first), exits 0, and stderr is
+`warning: 1 validation error(s); a run would fail; bt validate strategy.yaml --data lists them`.

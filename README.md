@@ -43,8 +43,8 @@ uv run pytest
 ```
 
 The tests should pass without network access. The `bt` command line has its own section ([Command line](#command-line));
-the quickstart for a fresh clone follows with the second part of Phase 9. The Python library offers the data layer
-([docs/data.md](docs/data.md)) and the engine (`run_backtest`, see below):
+the quickstart for a fresh clone follows with the last part of Phase 9 (part 3). The Python library offers the data
+layer ([docs/data.md](docs/data.md)) and the engine (`run_backtest`, see below):
 
 ```python
 from datetime import date
@@ -111,16 +111,19 @@ One live test against yfinance exists and is excluded by default; run it manuall
 current directory (details, options, output and exit codes: [docs/cli.md](docs/cli.md)):
 
 ```powershell
-uv run bt validate strategies/sma_crossover.yaml   # check a spec; no data is fetched
-uv run bt run strategies/sma_crossover.yaml        # evaluate, log the run in runs/, write reports/<run id>/
-uv run bt journal list                             # the logged runs, newest first
-uv run bt journal show RUN_ID                      # one run: summary, code version, data hashes, paths
-uv run bt journal rebuild                          # build the journal index again from the run folders
+uv run bt validate strategies/sma_crossover.yaml          # check a spec; no data is fetched
+uv run bt validate strategies/sma_crossover.yaml --data   # also fetch and validate its data (exit 4 on errors)
+uv run bt data fetch strategies/sma_crossover.yaml        # fetch the two requests of a run into data/cache/
+uv run bt run strategies/sma_crossover.yaml               # evaluate, log the run in runs/, write reports/<run id>/
+uv run bt journal list                                    # the logged runs, newest first
+uv run bt journal show RUN_ID                             # one run: summary, code version, data hashes, paths
+uv run bt journal rebuild                                 # build the journal index again from the run folders
 ```
 
-`bt run` fetches prices from yfinance (cached under `data/cache/`), so it needs a network connection the first time. The
-journal and the trial counter belong to one `--runs-dir`: run from the same folder to count your runs together. The commands
-`bt data fetch` and `bt report` and the full quickstart arrive with the second part of Phase 9.
+`bt run`, `bt data fetch` and `bt validate --data` fetch prices from yfinance (cached under `data/cache/`), so they need
+a network connection the first time. The journal and the trial counter belong to one `--runs-dir`: run from the same
+folder to count your runs together. The command `bt report` and the full quickstart arrive with the last part of Phase 9
+(part 3).
 
 ## What is inside
 
@@ -134,7 +137,7 @@ journal and the trial counter belong to one `--runs-dir`: run from the same fold
 | Reporting | `write_report(evaluation, reports_dir, generated_at=...)` writes `reports/<run-id>/report.md`, a self-contained `report.html` and the equity and drawdown charts as SVG files: spec, data hashes and validation, risk flags with explanations, metrics next to the benchmark, costs, monthly returns, trade statistics and a fixed section of caveats. See [docs/report.md](docs/report.md) | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
 | Journal | `run_experiment(spec, provider, runs_dir=..., generated_at=...)` evaluates, logs the run under `runs/<run-id>/` (`run.json`, SQLite index) and, with `reports_dir`, writes the report with its trial line; trial counter per strategy family (runs and distinct variants). See [docs/journal.md](docs/journal.md) | [`src/backtest_agent/journal/`](src/backtest_agent/journal), [`experiment.py`](src/backtest_agent/experiment.py) |
 | Robustness (planned) | Out-of-sample, walk-forward, sensitivity, regimes, deflated Sharpe | [`src/backtest_agent/robustness/`](src/backtest_agent/robustness) |
-| CLI | The `bt` command: `run`, `validate`, `journal list`, `show`, `rebuild` (Phase 9, part 1). See [docs/cli.md](docs/cli.md) | [`src/backtest_agent/cli/`](src/backtest_agent/cli) |
+| CLI | The `bt` command: `run`, `validate` (also `--data`), `data fetch`, `journal list`, `show`, `rebuild` (Phase 9, parts 1 and 2; `report` and the quickstart follow in part 3). See [docs/cli.md](docs/cli.md) | [`src/backtest_agent/cli/`](src/backtest_agent/cli) |
 | Agents (planned) | The Claude Code subagents and the `/backtest` command | see [roadmap](docs/ROADMAP.md) |
 
 How the parts fit together: [docs/architecture.md](docs/architecture.md). Why they are built this way:
@@ -178,7 +181,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 6 | Performance metrics and buy-and-hold comparison | Done |
 | 7 | Markdown and HTML report with charts and caveats | Done |
 | 8 | Run log with trial counter | Done |
-| 9 | `bt` command; release `v0.1.0` | In progress (part 1 of 2) |
+| 9 | `bt` command; release `v0.1.0` | In progress (part 2 of 3) |
 | 10 | Strategy architect and signal coder subagents | Planned |
 | 11 | Bias auditor and report interpreter subagents | Planned |
 | 12 | `/backtest` command with approval gate; release `v0.2.0` | Planned |

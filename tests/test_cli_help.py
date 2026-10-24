@@ -7,7 +7,7 @@ from cli_helpers import run_cli
 
 def test_the_top_level_help_lists_the_commands() -> None:
     out = run_cli(["--help"]).out
-    for command in ("run", "validate", "journal"):
+    for command in ("run", "validate", "data", "journal"):
         assert f"\n    {command} " in out
     assert "Educational, not investment advice." in out
 

@@ -7,6 +7,9 @@ are the report's own. The CLI's own words are plain ASCII.
 
 from pathlib import Path
 
+from backtest_agent.cli.data import DataFetch, rows_with_data
+from backtest_agent.data.validation import ValidationIssue
+from backtest_agent.engine import LoadedHistory
 from backtest_agent.journal import CodeVersion, RunRecord, RunSummary
 from backtest_agent.reporting import format as fmt
 from backtest_agent.reporting.model import text, trial_line
@@ -148,3 +151,71 @@ def validate_lines(spec: StrategySpec, path: str) -> list[str]:
         line("Warm-up", f"{fmt.integer(spec.warmup_rows, 'warmup_rows')} rows"),
         line("Risk flags", codes_text([flag.code for flag in spec.risk_flags()])),
     ]
+
+
+SUB_WIDTH = 10  # the label of a line under a data block, so that its value starts in column 12
+ISSUE_SEVERITY_WIDTH, ISSUE_CODE_WIDTH, ISSUE_TARGET_WIDTH = 8, 25, 12
+FRAME_LEVEL_CODES = ("unsorted_dates", "duplicate_dates")  # docs/data.md does not define their first_dates
+
+
+def _pad(cell: str, width: int) -> str:
+    """``cell`` padded to ``width``, and always followed by at least one space."""
+    return cell.ljust(max(width, len(cell) + 1))
+
+
+def _sub(label: str, value: str) -> str:
+    return f"  {_pad(label, SUB_WIDTH)}{value}"
+
+
+def issue_line(issue: ValidationIssue) -> str:
+    """One validation issue, from its structured fields only (never the free-text message)."""
+    if issue.symbol is None:
+        target = "-"
+    else:
+        target = text(issue.symbol) + (f".{text(issue.field)}" if issue.field else "")
+    detail = f"count {fmt.integer(issue.count, 'count')}"
+    if issue.code not in FRAME_LEVEL_CODES and issue.first_dates:
+        dates = ", ".join(fmt.iso_date(day, "first_dates") for day in issue.first_dates)
+        detail += f", first {dates}"
+    cells = (
+        (issue.severity.value, ISSUE_SEVERITY_WIDTH),
+        (text(issue.code), ISSUE_CODE_WIDTH),
+        (target, ISSUE_TARGET_WIDTH),
+    )
+    return "  " + "".join(_pad(cell, width) for cell, width in cells) + detail
+
+
+def _data_block(
+    label: str, loaded: LoadedHistory, symbols: tuple[str, ...], spec: StrategySpec, *, issues: bool
+) -> list[str]:
+    window, validation = loaded.window, loaded.validation
+    first, last = fmt.iso_date(window.fetch_start, "fetch_start"), fmt.iso_date(spec.period.end, "period.end")
+    lines = [line(label, f"{first} to {last} ({window.buffer_days} days before the period start)")]
+    lines += [_sub(text(s), plural(rows_with_data(loaded.frame, s), "row")) for s in symbols]
+    counts = (
+        f"{plural(len(validation.errors), 'error')}, {plural(len(validation.warnings), 'warning')}, "
+        f"{plural(len(validation.infos), 'info')}"
+    )
+    lines += [_sub("Checks:", counts), _sub("Data:", text(loaded.data_hash))]
+    if issues:
+        lines += [issue_line(issue) for issue in validation.issues]
+    return lines
+
+
+def data_blocks(fetch: DataFetch, *, issues: bool) -> list[str]:
+    """The strategy block and the benchmark block of ``bt data fetch`` and ``bt validate --data``."""
+    spec = fetch.spec
+    return [
+        *_data_block("Strategy", fetch.strategy, tuple(spec.universe), spec, issues=issues),
+        *_data_block("Benchmark", fetch.benchmark, (spec.benchmark,), spec, issues=issues),
+    ]
+
+
+def data_fetch_lines(fetch: DataFetch) -> list[str]:
+    """The answer of ``bt data fetch``: the name of the spec and the two blocks, counts only."""
+    return [line("Spec", text(fetch.spec.name)), *data_blocks(fetch, issues=False)]
+
+
+def validation_warning(count: int, path: str) -> str:
+    """The warning of ``bt data fetch`` (stderr) when the fetched data has validation errors."""
+    return f"warning: {count} validation error(s); a run would fail; bt validate {text(path)} --data lists them"

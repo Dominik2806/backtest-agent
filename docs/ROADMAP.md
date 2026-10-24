@@ -146,7 +146,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
 | 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
 | 8 | `feature/experiment-journal`, `feature/experiment-entry-point` | Run log with trial counter (two parts) | F-15 | S | Done |
-| 9 | `feature/cli`, `feature/cli-data-report` | `bt` command (two parts); release `v0.1.0` | F-16 | M | In progress (part 1 of 2) |
+| 9 | `feature/cli`, `feature/cli-data`, `feature/cli-report` | `bt` command (three parts); release `v0.1.0` | F-16 | M | In progress (part 2 of 3) |
 | 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
 | 11 | `feature/agents-auditor-interpreter` | Bias auditor and report interpreter subagents | F-19, F-20 | M | Planned |
 | 12 | `feature/backtest-command` | `/backtest` command with approval gate; release `v0.2.0` | F-21 | M | Planned |
@@ -320,10 +320,11 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   `tests/test_report_writer.py` (the pinned parameter lists of `build_report_model` and `write_report` gain `trial`) and
   `tests/test_report_markdown_snapshot.py` with `tests/snapshots/report.md` (a literal `TrialInfo`; one added line). The
   HTML outline snapshot is unchanged because it records no list items.
-- Phase 9: the phase is split into two pull requests because it exceeds one reviewable PR. Part 1 (`feature/cli`): the `bt`
-  skeleton, `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, ADR 0016. Part 2
-  (`feature/cli-data-report`): `data fetch`, `validate --data`, `report`, the shared data window helper, README quickstart,
-  status **Done**. The release `v0.1.0` follows in its own pull request after part 2, then the fresh-clone check, then the tag.
+- Phase 9: the phase is split into three pull requests because it exceeds one reviewable PR (it was planned as two). Part 1
+  (`feature/cli`): the `bt` skeleton, `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes,
+  `docs/cli.md`, ADR 0016. Part 2 (`feature/cli-data`): the shared window and loader helpers of the engine, `data fetch`,
+  `validate --data`. Part 3 (`feature/cli-report`): `report`, the README quickstart, status **Done**. The release `v0.1.0`
+  follows in its own pull request after part 3, then the fresh-clone check, then the tag.
 - Phase 9: the CLI uses `argparse` from the standard library instead of the `typer` named in the tech stack (no new
   dependency), and is a package `src/backtest_agent/cli/` instead of one module `cli.py` (parser, commands, rendering, error
   mapping and provider guard are separate jobs). Beyond the roadmap text, `bt journal rebuild` exists (the stale-index error
@@ -331,6 +332,14 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   provider call into a data error (exit code 4). `allow_short_warmup` has no flag and is not stored in `run.json`.
 - Phase 9 part 1: `tests/test_docs_links.py` was added (every relative link of the README and `docs/` resolves). No existing
   test and no existing source file was changed.
+- Phase 9 part 2: `warmup_window(spec)` and `load_history(spec, provider)` are new public names of `backtest_agent.engine`
+  (`engine/history.py`), extracted from `run_backtest` so that the command line knows neither the window formula nor the
+  load steps; `run_backtest` behaves as before and no existing engine test changed. `bt validate --data` exits with code
+  4 when the data has validation errors (a run on it would fail); `bt data fetch` exits 0 with errors and prints a
+  warning on stderr. `docs/data.md` gained sentences that the command output needs (the field and `first_dates` of every
+  issue code, the counting rule of `starts_late` and `ends_early`, the generation order of issues, the bytes of a NaN in
+  the data hash); no behaviour changed and `tests/test_validation_documented_issue_fields.py` pins them. One line of an
+  existing test changed: `tests/test_cli_help.py` lists the new command `data`.
 
 ---
 
@@ -573,9 +582,9 @@ Done when:
 
 ## Phase 9: Command-line interface
 
-**Branch:** `feature/cli` (part 1), `feature/cli-data-report` (part 2, planned, created from `main` after part 1 is merged) · **Goal:** the whole backtester runs from one command, without any agent.
+**Branch:** `feature/cli` (part 1), `feature/cli-data` (part 2), `feature/cli-report` (part 3, rebased onto `main` after part 2 is merged) · **Goal:** the whole backtester runs from one command, without any agent.
 
-**Status:** In progress. Part 1 (`feature/cli`): `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, [ADR 0016](adr/0016-command-line.md). Part 2: `data fetch`, `validate --data`, `report`, the README quickstart; Phase 9 is **Done** with part 2, and `v0.1.0` is released after it (`chore/release-v0.1.0`, see [ADR 0016](adr/0016-command-line.md)).
+**Status:** In progress. Part 1 (`feature/cli`): `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, [ADR 0016](adr/0016-command-line.md). Part 2 (`feature/cli-data`): `warmup_window` and `load_history` (engine, behaviour-only), `data fetch`, `validate --data`. Part 3 (`feature/cli-report`): `report`, the README quickstart; Phase 9 is **Done** with part 3, and `v0.1.0` is released after it (`chore/release-v0.1.0`, see [ADR 0016](adr/0016-command-line.md)).
 
 Tasks:
 

@@ -25,6 +25,15 @@ MAX_ISSUES_SHOWN = 10
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
+class ReportedValidationErrors(DataError):
+    """The data has validation errors that the command already printed in full (``bt validate --data``)."""
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+        plural = "error" if count == 1 else "errors"
+        super().__init__(f"the data has {count} validation {plural} (listed above)")
+
+
 class ExitCode(IntEnum):
     OK = 0
     UNEXPECTED = 1
@@ -96,6 +105,8 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
         return Failure(ExitCode.SPEC, str(error), "the fields of a spec are described in docs/strategy-spec.md")
     if isinstance(error, UnknownSignalError):
         return Failure(ExitCode.SPEC, str(error.args[0]) if error.args else "unknown signal")
+    if isinstance(error, ReportedValidationErrors):
+        return Failure(ExitCode.DATA, str(error))
     if isinstance(error, DataError):
         message = _validation_message(error) if isinstance(error, DataValidationError) else str(error)
         return Failure(ExitCode.DATA, message, "check the symbols, the dates and your connection (--cache-dir)")
