@@ -6,6 +6,7 @@
 """
 
 import re
+import sqlite3
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
@@ -64,7 +65,7 @@ def _validation_message(error: DataValidationError) -> str:
 
 def _journal_hint(error: Exception, runs_dir: Path | None) -> str | None:
     where = f" --runs-dir {runs_dir.as_posix()}" if runs_dir is not None else ""
-    if isinstance(error, JournalIndexStale):
+    if isinstance(error, JournalIndexStale | sqlite3.Error):
         return f'run "bt journal rebuild{where}" (a run folder that was deleted is forgotten by the rebuild)'
     if isinstance(error, JournalBusyError):
         return "another process is writing to the journal; try again in a moment"
@@ -98,6 +99,12 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
     if isinstance(error, DataError):
         message = _validation_message(error) if isinstance(error, DataValidationError) else str(error)
         return Failure(ExitCode.DATA, message, "check the symbols, the dates and your connection (--cache-dir)")
+    if isinstance(error, sqlite3.Error):  # the index file is not a database; the run folders are intact
+        return Failure(
+            ExitCode.JOURNAL,
+            f"the journal index cannot be read ({type(error).__name__}: {error})",
+            _journal_hint(error, runs_dir),
+        )
     if isinstance(error, JournalError | FileExistsError):
         return Failure(ExitCode.JOURNAL, str(error), _journal_hint(error, runs_dir))
     return Failure(

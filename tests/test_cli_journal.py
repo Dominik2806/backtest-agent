@@ -3,11 +3,13 @@
 import io
 import re
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from backtest_agent.cli import main
+from backtest_agent.cli.commands import _indexed_runs
 from cli_helpers import at, run_cli, write_spec
 from report_helpers import spec_for, world
 from runner_helpers import LiteralProvider
@@ -253,3 +255,60 @@ def test_rebuild_with_an_unreadable_run_folder_is_exit_5_and_keeps_the_old_index
 def test_rebuild_of_a_missing_folder_finds_no_runs(workdir: Path) -> None:
     result = run_cli(["journal", "rebuild"])
     assert (result.code, result.out, result.err) == (0, "Rebuilt the index in runs: 0 runs found.\n", "")
+
+
+GARBAGE = b"\x00\xff this is not a database \x13\x37" * 40
+REBUILD_HINT = (
+    'hint: run "bt journal rebuild --runs-dir runs" (a run folder that was deleted is forgotten by the rebuild)'
+)
+
+
+def test_a_garbage_index_is_exit_5_for_list_and_run_with_the_rebuild_hint(workdir: Path, three_runs: list[str]) -> None:
+    (workdir / "runs" / "index.sqlite").write_bytes(GARBAGE)
+    folders = sorted(p.name for p in (workdir / "runs").iterdir())
+    for command in (["journal", "list"], ["run", "spec.yaml"]):
+        result = run_cli(command, provider=provider(), clock=at(10))
+        assert result.code == 5, command
+        assert result.out == ""
+        assert result.err.splitlines() == [
+            "bt: error: the journal index cannot be read (DatabaseError: file is not a database)",
+            REBUILD_HINT,
+        ]
+    assert sorted(p.name for p in (workdir / "runs").iterdir()) == folders  # the failed run logged nothing
+    assert len(list((workdir / "reports").iterdir())) == 3
+
+
+def test_show_does_not_need_the_index(workdir: Path, three_runs: list[str]) -> None:
+    (workdir / "runs" / "index.sqlite").write_bytes(GARBAGE)
+    assert run_cli(["journal", "show", three_runs[0]]).code == 0
+
+
+def test_an_empty_index_file_is_a_stale_journal(workdir: Path, three_runs: list[str]) -> None:
+    (workdir / "runs" / "index.sqlite").write_bytes(b"")
+    for command in (["journal", "list"], ["run", "spec.yaml"]):
+        result = run_cli(command, provider=provider(), clock=at(10))
+        assert result.code == 5, command
+        assert result.err.splitlines()[-1] == REBUILD_HINT
+
+
+def test_rebuild_repairs_a_garbage_index_and_prints_no_old_index_line(workdir: Path, three_runs: list[str]) -> None:
+    (workdir / "runs" / "index.sqlite").write_bytes(GARBAGE)
+    rebuilt = run_cli(["journal", "rebuild"])
+    assert (rebuilt.code, rebuilt.err) == (0, "")
+    assert rebuilt.out == "Rebuilt the index in runs: 3 runs found.\n"
+    assert run_cli(["journal", "list"]).out.splitlines()[-1] == "3 runs listed"
+    again = run_cli(["run", "spec.yaml"], provider=provider(), clock=at(10))
+    assert again.code == 0
+    assert "This run is run 4, a repeat of variant 1." in again.out
+
+
+def test_indexed_runs_is_none_when_the_file_is_not_a_readable_index(tmp_path: Path) -> None:
+    assert _indexed_runs(tmp_path) is None  # no file
+    (tmp_path / "index.sqlite").write_bytes(GARBAGE)
+    assert _indexed_runs(tmp_path) is None  # sqlite3.DatabaseError: file is not a database
+    (tmp_path / "index.sqlite").unlink()
+    connection = sqlite3.connect(str(tmp_path / "index.sqlite"))
+    connection.execute("CREATE TABLE other (x INTEGER)")
+    connection.commit()
+    connection.close()
+    assert _indexed_runs(tmp_path) is None  # sqlite3.OperationalError: no such table: runs

@@ -54,7 +54,9 @@ All commands accept `--help`. Every leaf command also accepts `--debug` (print t
 | `--no-costs` | off | run without the costs of the spec (`apply_costs=False`); the output says so and the run carries the risk flag `costs_not_applied`. It does not change the variant: a cost-free run of the same spec is a repeat ([journal.md](journal.md)) |
 | `--cache-dir DIR` | `data/cache` | the Parquet cache of the prices (relative to the current directory) |
 
-`--debug` only adds the traceback of an error on stderr; it never changes an exit code. It loads and validates the spec, then calls
+`--debug` only adds the traceback of an error on stderr; it never changes an exit code.
+
+`bt run` loads and validates the spec, then calls
 
 ```python
 run_experiment(
@@ -99,7 +101,8 @@ Journal:    <runs dir>/<run id>/run.json
 Report:     <reports dir>/<run id>/report.md and report.html      (not with --no-report)
 ```
 
-Paths always use `/`. The first two lines of the block are `Run` and `Strategy`; each later `Label:` is padded to 12
+In the printed summary lines paths always use `/` (an error message, for example from loading the spec, shows a path as the
+operating system writes it). The first two lines of the block are `Run` and `Strategy`; each later `Label:` is padded to 12
 characters. In the metric table the label column is left-aligned, the two value columns are right-aligned, every column is as
 wide as its longest cell and the columns are separated by two spaces. The labels of the metric rows are the labels of the
 report; the header of the last column is `Benchmark (` + the benchmark symbol + `)`.
@@ -199,7 +202,7 @@ data and refuses if the result differs from the journal:
 | 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id | argparse |
 | 3 | the spec is invalid or its file cannot be read | `SpecError`, `UnknownSignalError` |
 | 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses; any other exception of a provider call |
-| 5 | journal problem or an existing output: stale or busy index, unreadable `run.json` or index, run not found, run id exists, report folder exists | `JournalError`, `JournalFormatError`, `FileExistsError` |
+| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists | `JournalError`, `JournalFormatError`, `FileExistsError`, `sqlite3.Error` (the index cannot be read) |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
 | 7 | `bt report` found changed data or changed metrics **(part 2)** | |
 | 130 | interrupted with Ctrl-C | `KeyboardInterrupt` |
@@ -229,7 +232,7 @@ the two lines).
 
 | Situation | Hint |
 |---|---|
-| stale index | run `bt journal rebuild --runs-dir <dir>`; a run folder that was deleted is forgotten by the rebuild |
+| stale index, or an index that cannot be read (not a database) | run `bt journal rebuild --runs-dir <dir>`; a run folder that was deleted is forgotten by the rebuild. `show` reads only `run.json` and works anyway; an empty index file counts as a missing one (stale) |
 | busy index | another process is writing to the journal; try again in a moment |
 | run id exists | wait one second and run again (the run id has a resolution of one second); nothing was changed or counted |
 | report folder exists, run not logged | remove that folder or choose another `--reports-dir`; nothing was logged |

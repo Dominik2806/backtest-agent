@@ -19,6 +19,15 @@ from backtest_agent.spec import StrategySpec
 CLOCK = datetime(2026, 1, 15, 10, 30, 5, tzinfo=UTC)
 
 
+class NoNetworkProvider(DataProvider):
+    """The provider of a test that gave none: reaching it is a bug of the test (no test may reach yfinance)."""
+
+    name = "no-network"
+
+    def get_prices(self, symbols, start, end):
+        raise AssertionError("unit test reached the network")
+
+
 @dataclass(frozen=True)
 class Outcome:
     code: int
@@ -37,12 +46,17 @@ def run_cli(
     provider: DataProvider | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> Outcome:
-    """Run ``bt`` in process. The provider (if any) is returned by the factory whatever the cache dir is."""
+    """Run ``bt`` in process. The provider is returned by the factory whatever the cache dir is; without one, any
+    request for prices raises ``AssertionError`` ("unit test reached the network")."""
     out, err = io.StringIO(), io.StringIO()
-    kwargs = {}
-    if provider is not None:
-        kwargs["provider_factory"] = lambda cache_dir: provider
-    code = main(list(args), clock=clock if clock is not None else at(0), stdout=out, stderr=err, **kwargs)
+    chosen = provider if provider is not None else NoNetworkProvider()
+    code = main(
+        list(args),
+        provider_factory=lambda cache_dir: chosen,
+        clock=clock if clock is not None else at(0),
+        stdout=out,
+        stderr=err,
+    )
     return Outcome(code, out.getvalue(), err.getvalue())
 
 
