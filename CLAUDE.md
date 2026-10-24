@@ -57,15 +57,21 @@ Command line (`docs/cli.md`, ADR 0016): `bt` is `backtest_agent.cli:main` (`uv r
 factory, clock, streams), `render.py` (every printed line), `errors.py` (every exit code), `provider.py` (the default
 `CachedProvider(YFinanceProvider())` and `GuardedProvider`), `data.py` (`bt data fetch` and `bt validate --data`: the two
 requests of a run, made only through `engine.load_history`, which uses `engine.warmup_window`, the one place that knows
-the data window). Rules: CLI code runs a standard run only through `run_experiment`; `generated_at` comes from the
-injected clock, read only in `cli`; **all printed output is built in `cli/render.py`** (numbers through
+the data window), `compare.py` and `report.py` (`bt report`: `reproduce` rebuilds the stored spec, reads the stored
+`costs_applied` and metric assumptions, runs `evaluate` and compares the fresh record with the stored one; `compare.py` is
+pure and tested with literal dictionaries). Rules: CLI code runs a standard run only through `run_experiment`, and
+**`bt report` never does**: it logs nothing, never opens the index, and calls `write_report` with the stored run id, time
+and trial only when the comparison found no difference (otherwise exit code 7, `RunChangedError`); `generated_at` comes
+from the injected clock, read only in `cli`; **all printed output is built in `cli/render.py`** (numbers through
 `reporting/format.py`, free text through `reporting.model.text`, no second format); **exit codes are defined only in
-`cli/errors.py`** (mind the order of `classify`: `JournalFormatError` is a `ValueError`); every new command adds its row
-to the exit-code table and its section to `docs/cli.md`. Tests call `main` through
-`tests/cli_helpers.py::run_cli` with a literal provider and a fixed clock (a test that gives no provider fails if it reaches
-the network); the expected lines are the literals of `docs/cli.md` (the data hashes of its examples were computed with
-`hashlib` from `docs/data.md`, not with project code). The `bt` entry point is checked by
-`tests/test_cli_entry_point.py`; the live test is `tests/test_cli_network.py` (marked `network`).
+`cli/errors.py`** (mind the order of `classify`: `JournalFormatError` is a `ValueError`, `StoredSpecError` comes before
+`SpecError` and `RunChangedError` before `DataError`); every new command adds its row to the exit-code table and its
+section to `docs/cli.md`. Tests call `main` through `tests/cli_helpers.py::run_cli` with a literal provider and a fixed
+clock (a test that gives no provider fails if it reaches the network); the expected lines are the literals of
+`docs/cli.md` (the data hashes of its examples were computed with `hashlib` from `docs/data.md`, not with project code),
+and every `bt` line of a code block in the README or `docs/` must parse (`tests/test_docs_commands.py`). The `bt` entry
+point is checked by `tests/test_cli_entry_point.py`; the live tests are in `tests/test_cli_network.py` (marked
+`network`).
 
 Signal contract (details in `docs/strategy-spec.md`, ADR 0006): a signal `fn(prices, params) -> DataFrame` returns
 float64 in [0, 1] without NaN on the input index with one column per symbol, computed per symbol on its own trading

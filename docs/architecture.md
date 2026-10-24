@@ -59,7 +59,7 @@ The same steps run without any agent through the `bt` command (Phase 9).
 | Reporting | Markdown and HTML report with SVG charts, caveats and the trial line, see [report.md](report.md) | `src/backtest_agent/reporting/` |
 | Journal | Run log, SQLite index and trial counter per strategy family (Phase 8, see [journal.md](journal.md)) | `src/backtest_agent/journal/` |
 | Experiment | `run_experiment`: evaluate, log, report in one call (Phase 8) | `src/backtest_agent/experiment.py` |
-| CLI | The `bt` command: `run` (through `run_experiment`), `validate` (also `--data`), `data fetch`, `journal list`, `show`, `rebuild` (Phase 9 parts 1 and 2; `report` in part 3; see [cli.md](cli.md)) | `src/backtest_agent/cli/` |
+| CLI | The `bt` command: `run` (through `run_experiment`), `validate` (also `--data`), `data fetch`, `report`, `journal list`, `show`, `rebuild` (Phase 9; see [cli.md](cli.md)) | `src/backtest_agent/cli/` |
 | Agents | Strategy architect, signal coder, bias auditor, report interpreter, `/backtest` command (planned, Phases 10 to 12) | `.claude/` |
 | Robustness | Out-of-sample, walk-forward, sensitivity, regimes, look-ahead test, deflated Sharpe | `src/backtest_agent/robustness/` |
 

@@ -5,10 +5,10 @@ and stays unchanged: a standard run is `run_experiment` ([journal.md](journal.md
 the numbers are printed by the formatters of the report ([report.md](report.md)). `evaluate()` and `run_backtest()` stay
 pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in [ADR 0016](adr/0016-command-line.md). The project is educational and not investment advice.
 
-**Status.** Phase 9 is delivered in three pull requests. Part 1 has `run`, `validate` (spec only) and
-`journal list`, `journal show`, `journal rebuild`. Part 2 adds `data fetch` and `validate --data`. Part 3 adds `report`
-(exit code 7) and the README quickstart. Everything marked **(part 3)** below does not exist yet; until then the
-`bt report RUN_ID` that the hint of exit code 6 names is not available.
+**Status.** Every command described here exists: `run`, `validate` (also `--data`), `data fetch`, `report` and
+`journal list`, `journal show`, `journal rebuild`. They were delivered in three pull requests: part 1 `run`, `validate`
+(spec only) and the journal commands, part 2 `data fetch` and `validate --data`, part 3 `report` (exit code 7) and the
+README quickstart.
 
 ## Starting `bt`
 
@@ -304,7 +304,7 @@ command; then the first line, one line per path with the stored and the fresh va
   decimal; `null`, `true` and `false` as in JSON;
 - a string **without quotes** (so a data hash is a bare word), cleaned like every text of `bt` (see "Windows and
   encodings"): any run of whitespace, line breaks included, becomes one space, characters that XML forbids (such as an
-  escape character) become U+FFFD, and an empty string is shown as `(none)`; so a value is always one line;
+  escape character) become U+FFFD, and an empty or blank string is shown as `(none)`; so a value is always one line;
 - a missing side as `(missing)`; an object or a list (only when a whole subtree is the difference, or the types differ)
   as compact JSON with sorted keys, cut after 80 characters with `...`.
 
@@ -689,7 +689,7 @@ Exit code 7, stdout empty, stderr. The program finds N = 18 differences: the str
 of `evaluation.relative` (`excess_return`, `information_ratio`, `strategy_return_compared`, `tracking_error`; the
 benchmark's entries and `alignment` do not change), eight metrics of `evaluation.strategy.metrics` (`best_month`, `cagr`,
 `calmar`, `sharpe`, `sortino`, `total_return`, `volatility`, `worst_month`) and five numbers of `costs.strategy`
-(`cost_drag`, `cost_share`, `gross_final_equity`, `gross_return`, `net_return`). Sorted as in "Paths and order" (inside `evaluation`: `assumptions`, `benchmark`, `relative`, `strategy`),
+(`cost_drag`, `cost_share`, `gross_final_equity`, `gross_return`, `net_return`). Sorted as in the paragraph **Paths and order** of the section `bt report RUN_ID` (inside `evaluation`: `assumptions`, `benchmark`, `relative`, `strategy`),
 with the data hash first, the first five are the hash and the four `relative` entries, so `excess_return` is the second
 line and 13 (N-5) are left over: the eight `evaluation.strategy.metrics.*` entries in the order just given, then the five
 `costs.strategy.*` entries in the order just given (1 + 4 + 8 + 5 = 18). By hand only the hash, the excess return and `strategy_return_compared` (0.17128 before,

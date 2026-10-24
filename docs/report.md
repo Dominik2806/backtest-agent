@@ -331,7 +331,7 @@ so no light colour is left over in dark mode. The rules:
 
 ## What is deliberately not in the report
 
-- The command line (`bt run`, and `bt report` in Phase 9 part 3) and the journal itself (trial counter, code version,
+- The command line (`bt run` and `bt report`, Phase 9) and the journal itself (trial counter, code version,
   run store: Phase 8, see [journal.md](journal.md)); the report only prints the trial line it is given and never
   reads the journal.
 - Auditor and interpreter sections (Phase 11), out-of-sample, walk-forward, sensitivity and regime sections (Phases 13
