@@ -4,9 +4,9 @@ The whole backtester runs from one command, without any agent (F-16). `bt` is a 
 and stays unchanged: a standard run is `run_experiment` ([journal.md](journal.md)), reading the journal is its read API,
 the numbers are printed by the formatters of the report ([report.md](report.md)). `evaluate()` and `run_backtest()` stay
 pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in ADR 0016 (added with the
-housekeeping commit of Phase 9). The project is educational and not investment advice.
+housekeeping commit of Phase 9, so the link is not here yet). The project is educational and not investment advice.
 
-**Status.** Phase 9 is delivered in two pull requests. Part 1 (this one) has `run`, `validate` (spec only) and
+**Status.** Phase 9 is delivered in two pull requests. Part 1 has `run`, `validate` (spec only) and
 `journal list`, `journal show`, `journal rebuild`. Part 2 adds `data fetch`, `validate --data` and `report` (exit code 7)
 and the README quickstart. Everything marked **(part 2)** below does not exist yet.
 
@@ -50,11 +50,11 @@ All commands accept `--help`. Every leaf command also accepts `--debug` (print t
 |---|---|---|
 | `--runs-dir DIR` | `runs` | where the run is logged |
 | `--reports-dir DIR` | `reports` | where the report is written |
-| `--no-report` | off | log the run, write no report |
-| `--no-costs` | off | run without the costs of the spec (`apply_costs=False`); the output says so and the run carries the risk flag `costs_not_applied` |
-| `--cache-dir DIR` | `data/cache` | the Parquet cache of the prices |
+| `--no-report` | off | log the run, write no report: no `Report` line, and the reports folder is not created (`--reports-dir` is then unused) |
+| `--no-costs` | off | run without the costs of the spec (`apply_costs=False`); the output says so and the run carries the risk flag `costs_not_applied`. It does not change the variant: a cost-free run of the same spec is a repeat ([journal.md](journal.md)) |
+| `--cache-dir DIR` | `data/cache` | the Parquet cache of the prices (relative to the current directory) |
 
-It loads and validates the spec, then calls
+`--debug` only adds the traceback of an error on stderr; it never changes an exit code. It loads and validates the spec, then calls
 
 ```python
 run_experiment(
@@ -62,8 +62,8 @@ run_experiment(
     provider,
     runs_dir=...,
     generated_at=clock(),
-    reports_dir=None if --no - report else ...,
-    apply_costs=not --no - costs,
+    reports_dir=None if no_report else ...,
+    apply_costs=not no_costs,
 )
 ```
 
@@ -89,7 +89,9 @@ Trials:     <the Trials sentence of the report header>
 Period:     <start> to <end>, <n> bars
 Costs:      applied | NOT applied (the result overstates what trading would return)
 
-Metric            Strategy  Benchmark (<symbol>)       (rows: Total return, CAGR, Sharpe ratio, Maximum drawdown)
+Metric            Strategy  Benchmark (<symbol>)
+<one row each: Total return, CAGR, Sharpe ratio, Maximum drawdown>
+
 Excess return (compared window): <signed percent>
 
 Risk flags: none | strategy run: <codes>; benchmark run: <codes>
@@ -97,8 +99,16 @@ Journal:    <runs dir>/<run id>/run.json
 Report:     <reports dir>/<run id>/report.md and report.html      (not with --no-report)
 ```
 
-Paths always use `/`. `n/a` stands for a metric that is not defined (for example the Sharpe ratio of one bar). The
-labels of the metric rows are the labels of the report.
+Paths always use `/`. The first two lines of the block are `Run` and `Strategy`; each later `Label:` is padded to 12
+characters. In the metric table the label column is left-aligned, the two value columns are right-aligned, every column is as
+wide as its longest cell and the columns are separated by two spaces. The labels of the metric rows are the labels of the
+report; the header of the last column is `Benchmark (` + the benchmark symbol + `)`.
+
+**How numbers look** (the formatters of the report, [report.md](report.md), "Formats"): a percentage has two decimals, a
+thousands separator and an ASCII minus sign (`-21.59%`, `288,635.82%`); a ratio (Sharpe) has two decimals; the excess return
+alone carries an explicit `+` for a gain; a value that rounds to zero has no sign (never `-0.00%`); `n/a` stands for a metric
+that is not defined (for example the Sharpe ratio of one bar, or the excess return when the strategy and the benchmark share
+fewer than two dates), never `nan`. Which metrics are undefined when is defined in [metrics.md](metrics.md).
 
 ### `bt validate SPEC`
 
@@ -127,15 +137,18 @@ warnings, infos) without running a backtest.
 | `--limit N` | all | at most N runs, N of 1 or more |
 | `--runs-dir DIR` | `runs` | the journal |
 
-Newest first. Columns: the run id, the family, the run number in its family (`RUN`), the variant number (`VARIANT`), whether
-the run introduced its variant (`NEW`), the strategy name (cut after 40 characters). A journal without runs prints
-`No runs in <runs dir>.` and exits 0.
+Newest first (by the time of the run, then the run id). Columns, left-aligned, each as wide as its longest cell, separated by
+two spaces, no trailing spaces: the run id, the family, the run number in its family (`RUN`), the variant number (`VARIANT`),
+whether the run introduced its variant (`NEW`, `yes` or `no`), the strategy name (longer than 40 characters: the first 37
+followed by `...`). Then an empty line and `1 run listed` or `N runs listed`, the number of rows shown. `--family` is applied
+first, then `--limit` keeps the newest N. A journal without runs prints `No runs in <runs dir>.` (with a family:
+`No runs of family F in <runs dir>.`) and exits 0.
 
 ### `bt journal show RUN_ID`
 
 Options `--runs-dir DIR` (`runs`) and `--reports-dir DIR` (`reports`; used only to print the report path if that folder
-exists). It prints the block of `bt run` down to the risk flags and then when the run was made, the code version, both data
-hashes and the paths.
+exists under `--reports-dir`: `<reports dir>/<run id>/report.md`). It prints the block of `bt run` down to the risk flags and
+then when the run was made, the code version, both data hashes and the paths.
 The run id must be a safe folder name (letters, digits, `.`, `_`, `-`); anything else is a usage error.
 
 ### `bt journal rebuild`
@@ -191,8 +204,12 @@ data and refuses if the result differs from the journal:
 | 7 | `bt report` found changed data or changed metrics **(part 2)** | |
 | 130 | interrupted with Ctrl-C | `KeyboardInterrupt` |
 
-The checks run in this order, because `JournalFormatError` is a `ValueError` and `ExperimentReportError` a
-`RuntimeError`: interrupt, report failed, spec, data, journal, everything else. A run that was interrupted before the
+The checks run in this order: interrupt, report failed, spec, data, journal, everything else. The order matters because
+`JournalFormatError` is both a `JournalError` and a `ValueError` (so it is code 5, while any other `ValueError`, a bug for
+example, is code 1) and `ExperimentReportError` is a `RuntimeError`. Code 4 versus 1: only an exception raised inside a call
+into the data provider becomes code 4 (the guard below); the same exception raised anywhere else is code 1. Code 5, which of
+the messages: `run_experiment` checks the report folder first, so a report folder alone gives "report folder already exists",
+and both folders together give "run id already exists". A run that was interrupted before the
 journal committed leaves nothing behind (`record_run` rolls back); one that failed with code 6 stays in the journal and
 counts as a trial.
 
@@ -204,6 +221,9 @@ stdout carries results only; stderr carries errors and warnings. An error is one
 bt: error: <what went wrong>
 hint: <what to do>
 ```
+
+The first line is the message, the second the hint (not every error has a hint; a spec error lists its field paths between
+the two lines).
 
 `--debug` prints the full traceback (with the chained cause) before the block. The hints:
 
@@ -273,7 +293,8 @@ benchmark: B
 initial_capital: 1000
 ```
 
-Prices (daily bars on 2024-01-02, 03, 04, 05 and 08; the bars before `period.start` are not needed because the warm-up is 0):
+Prices (daily bars on 2024-01-02, 03, 04, 05 and 08; the warm-up of the signal is 0 rows, so no bar before `period.start` is
+needed, although the run still asks the provider for 16 days before it, see "The data window"):
 
 | | open | close |
 |---|---|---|
@@ -286,7 +307,12 @@ The command, with the clock at 2026-01-15 10:30:05 UTC, in an empty folder:
 bt run strategy.yaml
 ```
 
-The arithmetic (the detail is in R3b and H23):
+The arithmetic (the detail is in R3b and H23). The three cost numbers add up to `1000 + 1000 + 500 = 2500` bps, 25 percent of
+the traded value, charged as cash on top of every buy. An order is filled at the open of the bar after the signal
+(`delay_bars: 1`, `price: open`); a buy that cash plus its own fee cannot cover is scaled down by one factor; shares are
+fractional in general (here the factor happens to give whole shares). The statistics use the bar returns of the equity path,
+including the first bar (measured against the initial capital, so 0 here) and, for the drawdown, the initial capital as the
+first peak:
 
 - **Strategy.** The signal of 2024-01-02 is executed at the open of 2024-01-03, price 100. The wish is 10 shares (1000 /
   100); buying them costs `1000 + 0.25 * 1000 = 1250`, more than the cash 1000, so every buy is scaled by `1000 / 1250 = 0.8`:
@@ -308,7 +334,9 @@ The arithmetic (the detail is in R3b and H23):
 - **Trials.** The first run of the family `buy_and_hold` is run 1 and a new variant ([journal.md](journal.md)).
 - **Risk flags.** The costs are not zero and are applied, the delay is 1: none.
 
-Output (the last 8 characters of the run id are a hash of the inputs, written `HHHHHHHH` here; see ADR 0014):
+Output. The last 8 characters of the run id are a hash of the inputs of the run (the spec including its name, both data
+hashes, the metric assumptions and whether costs were applied), not of the time; they are written `HHHHHHHH` here, and the
+second run below has the same eight characters as the first (same inputs), only the time differs ([ADR 0014](adr/0014-report.md)):
 
 ```
 Run:        20260115T103005Z-buy-and-hold-a-HHHHHHHH
@@ -334,7 +362,9 @@ Exit code 0. With `--no-costs` the line `Costs:      NOT applied (the result ove
 risk flags line reads `Risk flags: strategy run: costs_not_applied; benchmark run: costs_not_applied`, and the numbers are
 the cost-free ones of R3c (strategy `1464.1 / 1000 - 1` = 46.41%, benchmark `980.1 / 1000 - 1` = -1.99%, excess +48.40%).
 
-Running the same command again one second later (clock 10:30:06) is a repeat of variant 1:
+Running the same command again one second later (clock 10:30:06) is a repeat of variant 1, because two runs are the same variant when their specs are equal apart from the name and the
+description ([journal.md](journal.md), "Variant hash"); a changed number or symbol, or twice the initial capital, is a new
+variant:
 
 ```
 Trials:     family buy_and_hold: 1 distinct variant in 2 runs as of this run. This run is run 2, a repeat of variant 1. Counts cover only runs logged in this journal.
@@ -362,10 +392,21 @@ then (the `Report:` line only if the report folder exists):
 
 ```
 Generated:  2026-01-15 10:30:05 UTC
-Code:       <12 characters of the commit> (clean) | (has uncommitted changes) | (state unknown)
+Code:       <12 characters of the commit> (clean)     (or: (has uncommitted changes), or: (state unknown); exactly one)
 Data:       strategy <64 hex characters>
             benchmark <64 hex characters>
 Spec:       runs/<run id>/spec.yaml
 Journal:    runs/<run id>/run.json
 Report:     reports/<run id>/report.md and report.html
+```
+
+After the second run (one second later) `bt journal list` prints, newest first (the 8 hash characters are the same in both
+ids, the third column is the run number, `NEW` is `no` for a repeat):
+
+```
+RUN ID                                    FAMILY        RUN  VARIANT  NEW  NAME
+20260115T103006Z-buy-and-hold-a-HHHHHHHH  buy_and_hold  2    1        no   Buy and hold A
+20260115T103005Z-buy-and-hold-a-HHHHHHHH  buy_and_hold  1    1        yes  Buy and hold A
+
+2 runs listed
 ```
