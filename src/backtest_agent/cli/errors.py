@@ -64,7 +64,7 @@ def _validation_message(error: DataValidationError) -> str:
 
 
 def _journal_hint(error: Exception, runs_dir: Path | None) -> str | None:
-    where = f" --runs-dir {runs_dir}" if runs_dir is not None else ""
+    where = f" --runs-dir {runs_dir.as_posix()}" if runs_dir is not None else ""
     if isinstance(error, JournalIndexStale):
         return f'run "bt journal rebuild{where}" (a run folder that was deleted is forgotten by the rebuild)'
     if isinstance(error, JournalBusyError):
