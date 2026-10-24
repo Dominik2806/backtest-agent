@@ -5,9 +5,10 @@ and stays unchanged: a standard run is `run_experiment` ([journal.md](journal.md
 the numbers are printed by the formatters of the report ([report.md](report.md)). `evaluate()` and `run_backtest()` stay
 pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in [ADR 0016](adr/0016-command-line.md). The project is educational and not investment advice.
 
-**Status.** Phase 9 is delivered in two pull requests. Part 1 has `run`, `validate` (spec only) and
-`journal list`, `journal show`, `journal rebuild`. Part 2 adds `data fetch`, `validate --data` and `report` (exit code 7)
-and the README quickstart. Everything marked **(part 2)** below does not exist yet.
+**Status.** Phase 9 is delivered in three pull requests. Part 1 has `run`, `validate` (spec only) and
+`journal list`, `journal show`, `journal rebuild`. Part 2 adds `data fetch` and `validate --data`. Part 3 adds `report`
+(exit code 7) and the README quickstart. Everything marked **(part 3)** below does not exist yet; until then the
+`bt report RUN_ID` that the hint of exit code 6 names is not available.
 
 ## Starting `bt`
 
@@ -216,7 +217,7 @@ run stores as `strategy` or `benchmark` data hash. Validation errors do **not** 
 `warning: N validation error(s); a run would fail; bt validate SPEC --data lists them` (with the path as typed). A provider
 failure, no data or a cache miss is exit code 4.
 
-### `bt report RUN_ID` **(part 2)**
+### `bt report RUN_ID` **(part 3)**
 
 Writes the report of a logged run again, without logging anything. `run.json` holds dictionaries, not an `Evaluation`, so
 the report cannot be rendered from the journal alone. `bt report` therefore re-evaluates the stored spec on the (cached)
@@ -244,7 +245,7 @@ data and refuses if the result differs from the journal:
 | 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors of a run: the first 10 are listed, then `... and N more`; `bt validate --data` prints all of them on stdout and one line on stderr); any other exception of a provider call |
 | 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists | `JournalError`, `JournalFormatError`, `FileExistsError`, `sqlite3.Error` (the index cannot be read) |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
-| 7 | `bt report` found changed data or changed metrics **(part 2)** | |
+| 7 | `bt report` found changed data or changed metrics **(part 3)** | |
 | 130 | interrupted with Ctrl-C | `KeyboardInterrupt` |
 
 The checks run in this order: interrupt, report failed, spec, data, journal, everything else. The order matters because

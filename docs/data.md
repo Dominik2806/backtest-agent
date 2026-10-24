@@ -186,7 +186,8 @@ result.raise_for_errors()  # raises DataValidationError if there is any error
   instance or `dataclasses.replace`. Invalid values raise `ValueError`.
 - `raise_for_errors()` raises `DataValidationError` (a `DataError`, with the full result in `.result`) if there is at
   least one error, and never for warnings or infos. `run_backtest` (Phase 4, see [engine.md](engine.md)) calls
-  it before every run and so will the command line (Phase 9); warnings and infos go into the result.
+  it before every run and so does the command line (`bt run`; `bt validate --data` lists every issue, see
+  [cli.md](cli.md)); warnings and infos go into the result.
 
 ## Data hash
 

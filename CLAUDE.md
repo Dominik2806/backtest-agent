@@ -55,13 +55,15 @@ Command line (`docs/cli.md`, ADR 0016): `bt` is `backtest_agent.cli:main` (`uv r
 `main(argv, *, provider_factory, clock, stdout, stderr) -> int` never calls `sys.exit`. Module map of `src/backtest_agent/cli/`:
 `parser.py` and `argtypes.py` (arguments), `commands.py` (handlers; they get everything from the `Context`: provider
 factory, clock, streams), `render.py` (every printed line), `errors.py` (every exit code), `provider.py` (the default
-`CachedProvider(YFinanceProvider())` and `GuardedProvider`). Rules: CLI code runs a standard run only through
-`run_experiment`; `generated_at` comes from the injected clock, read only in `cli`; **all printed output is built in
+`CachedProvider(YFinanceProvider())` and `GuardedProvider`), `data.py` (`bt data fetch` and `bt validate --data`: the two
+requests of a run, made only through `engine.load_history`, which uses `engine.warmup_window`, the one place that knows the
+data window). Rules: CLI code runs a standard run only through `run_experiment`; `generated_at` comes from the injected clock, read only in `cli`; **all printed output is built in
 `cli/render.py`** (numbers through `reporting/format.py`, free text through `reporting.model.text`, no second format);
 **exit codes are defined only in `cli/errors.py`** (mind the order of `classify`: `JournalFormatError` is a `ValueError`);
 every new command adds its row to the exit-code table and its section to `docs/cli.md`. Tests call `main` through
 `tests/cli_helpers.py::run_cli` with a literal provider and a fixed clock (a test that gives no provider fails if it reaches
-the network); the expected lines are the literals of `docs/cli.md`. The `bt` entry point is checked by
+the network); the expected lines are the literals of `docs/cli.md` (the data hashes of its examples were computed with
+`hashlib` from `docs/data.md`, not with project code). The `bt` entry point is checked by
 `tests/test_cli_entry_point.py`; the live test is `tests/test_cli_network.py` (marked `network`).
 
 Signal contract (details in `docs/strategy-spec.md`, ADR 0006): a signal `fn(prices, params) -> DataFrame` returns
