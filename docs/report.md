@@ -186,7 +186,10 @@ year or less, a benchmark that starts later or ends earlier, insufficient overla
 
 The last row of the header block, **Trials**, tells how many trials the strategy family had when this run was logged. It
 is the fact the journal knows ([journal.md](journal.md)); `ReportModel.trials` holds its text, `trial_line()` in
-`reporting/model.py` builds it from a `TrialInfo`, and both renderers print it as it is.
+`reporting/model.py` builds it from a `TrialInfo`, and both renderers print it as it is. The text below is the *value* of
+the row, on one line, without the label. The row itself is `- **Trials:** <value>` in Markdown and
+`<li><strong>Trials:</strong> <value></li>` in HTML, after the Benchmark row. In `journal.md` the value is sometimes
+written with the prefix `Trials:` only to show where it is printed.
 
 With a trial (`V` = `trial_count`, `R` = `run_number`, `N` = `trial_number`, `F` = the family, the signal id):
 
@@ -195,7 +198,9 @@ family F: V distinct variants in R runs as of this run. This run is run R, a new
 family F: V distinct variants in R runs as of this run. This run is run R, a repeat of variant N. Counts cover only runs logged in this journal.
 ```
 
-`variant` and `run` are singular for the number 1 and plural otherwise, each on its own (`1 distinct variant in 1 run`,
+The value uses single spaces, one colon after the family and one full stop after each of the three sentences; `F` is the
+signal id as it is (whitespace collapsed, nothing added around it: no quotes, no backticks). For a new variant `N` equals `V`
+(the new variant is the last one). `variant` and `run` are singular for the number 1 and plural otherwise, each on its own (`1 distinct variant in 1 run`,
 `1 distinct variant in 3 runs`, `2 distinct variants in 3 runs`, `3 distinct variants in 5 runs`; `2 distinct variants in
 1 run` cannot occur). Worked examples from the counter table of [journal.md](journal.md), family `sma_crossover`:
 
@@ -205,11 +210,20 @@ family F: V distinct variants in R runs as of this run. This run is run R, a rep
 | S3 | `family sma_crossover: 2 distinct variants in 3 runs as of this run. This run is run 3, a new variant (variant 2). Counts cover only runs logged in this journal.` |
 | S6 | `family sma_crossover: 3 distinct variants in 5 runs as of this run. This run is run 5, a repeat of variant 1. Counts cover only runs logged in this journal.` |
 
-Without a trial (`write_report` called directly) the value is `not recorded (this report was not written through
-run_experiment)`: the visible marker of a run that is not in the journal. `trial_line` raises `ValueError` naming the field
-for a `TrialInfo` that cannot be true: a number below 1, `trial_number` above `trial_count`, `trial_count` above
-`run_number`, a new variant whose `trial_number` is not `trial_count`, or a repeat whose `trial_count` equals `run_number`
-(a repeat needs an earlier run). The variant hash is not printed; it is in `run.json`.
+Without a trial (`write_report` called directly) the value is the single line `not recorded (this report was not written
+through run_experiment)` (one space where this page wraps the line): the visible marker of a run that is not in the
+journal. `trial_line` raises `ValueError` for a `TrialInfo` that cannot be true. The message starts with the name of the
+field and states the values; the rules, in the order they are checked, with the message for an example:
+
+| Rule | Message (example) |
+|---|---|
+| `run_number`, `trial_number` or `trial_count` below 1 | `trial.run_number must be 1 or more, got 0` |
+| `trial_number` above `trial_count` | `trial.trial_number (3) is above trial.trial_count (2)` |
+| `trial_count` above `run_number` | `trial.trial_count (2) is above trial.run_number (1)` |
+| a new variant whose `trial_number` is not `trial_count` | `trial.new_variant is true but trial.trial_number (1) differs from trial.trial_count (2)` |
+| a repeat whose `trial_count` equals `run_number` (a repeat needs an earlier run) | `trial.new_variant is false but trial.trial_count equals trial.run_number (2): a repeat needs an earlier run` |
+
+So `trial_count` 2 with `run_number` 1 gives the third message. The variant hash is not printed; it is in `run.json`.
 
 **How it fits the "Selection bias" caveat.** The fixed caveat stays exactly as it is: it is the general warning that a
 report cannot know how many other variants were tried. The line is the count of this journal, and its last sentence says so.

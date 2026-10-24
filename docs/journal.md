@@ -6,9 +6,10 @@ were tried before the one they are looking at. The code is in `src/backtest_agen
 decisions are in [ADR 0015](adr/0015-experiment-journal.md). `evaluate()` and `run_backtest()` stay pure and write
 nothing; the journal is a separate step.
 
-**Status.** Phase 8 part 1 delivers the journal core: the folder format, the index, the counter and the read API
+**Status.** Phase 8 is done. Part 1 delivered the journal core: the folder format, the index, the counter and the read API
 (`record_run`, `list_runs`, `get_run`, `trial_count`, `run_count`, `rebuild_index`). Part 2 delivers the one entry point
-that evaluates and logs (`run_experiment`) and the trial line of the report. Sections that belong to part 2 say so.
+that evaluates, logs and reports (`run_experiment`, section "run_experiment"), the trial line of the report
+([report.md](report.md), "The trial line") and the example below.
 
 ## Layout
 
@@ -142,6 +143,93 @@ the row says otherwise. The family of the rows S1 to S4 and S6 to S9 is `sma_cro
 
 Every row is a logged run, also S8 (its `costs_applied` is false). The same table is in `tests/test_journal_counter.py` as literals.
 
+## run_experiment
+
+`run_experiment` (module `backtest_agent.experiment`) is the one entry point of a standard run:
+
+```python
+run_experiment(spec, provider, *, runs_dir, generated_at, reports_dir=None, code_version=None,
+               allow_short_warmup=True, apply_costs=True, assumptions=DEFAULT_ASSUMPTIONS) -> Experiment
+```
+
+`Experiment` is frozen and has `evaluation`, `record` (the `RunRecord` of the journal) and `report` (`ReportPaths`, or `None`
+without `reports_dir`). `generated_at` must be timezone-aware; `code_version=None` means `detect_code_version()`. The
+steps, in this order:
+
+1. `evaluate(...)` (pure; the three options go to it). Nothing is on disk yet.
+2. If `reports_dir` is given and `reports_dir/<run-id>` already exists, nothing is logged and `FileExistsError` is raised
+   ("run id already exists; use a later generated_at" if `runs_dir/<run-id>` exists too, otherwise "report folder already
+   exists: ...; nothing was logged").
+3. `record_run(...)`: the journal commit. From here on the run counts.
+4. If `reports_dir` is given: `write_report(..., run_id=record.run_id, trial=record.trial)` with the same `generated_at`, so
+   the folders `runs/<run-id>/` and `reports/<run-id>/` have the same name and the trial numbers of the report are the ones
+   of `run.json`. Without `reports_dir` no report is written.
+
+`evaluate()` and `run_backtest()` stay pure and unchanged.
+
+**Errors.**
+
+| Situation | Result |
+|---|---|
+| `runs/<run-id>/` exists (same spec, data and name in the same second) | `FileExistsError("run id already exists; use a later generated_at: <run-id>")`, the original error is its `__cause__`; nothing is changed or counted |
+| any other `FileExistsError` from the journal | passes through unchanged (only the run id error is reworded; it is recognised by the existence of `runs/<run-id>/`) |
+| the journal fails (`JournalIndexStale`, `JournalBusyError`, ...) | that error; no report is written |
+| the report fails after the journal committed (any exception of `write_report`) | `ExperimentReportError`, with the cause chained |
+
+**A report that fails after logging.** The journal entry stays: a run that was tried counts, whether or not its report
+could be written. `ExperimentReportError` is a `RuntimeError` that carries `evaluation`, `record`, `generated_at` and
+`reports_dir`, and `error.retry() -> ReportPaths` writes the report again for the same run id, time and trial (it calls
+`write_report` with them and logs nothing, so the counters do not change). If `retry()` fails again, the error of
+`write_report` propagates as it is (an `OSError`, `FileExistsError` and so on, not another `ExperimentReportError`): the
+run is already logged, so there is nothing new to say, and the caller who holds the error can fix the cause (a full disk,
+a folder in the way) and call `retry()` again.
+
+## Example: the three example strategies
+
+The three strategies of `strategies/` on the fake provider, in temporary folders. Each one is run, run again unchanged (a
+repeat) and run once more with twice the initial capital (a new variant). The families are the signal ids `sma_crossover`,
+`momentum_12_1` and `buy_and_hold`, so each family is counted on its own. `tests/test_experiment_examples.py` runs this
+code (with a fixed code version) and checks the lines below.
+
+```python
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from backtest_agent.data import FakeProvider
+from backtest_agent.experiment import run_experiment
+from backtest_agent.spec import load_spec
+from backtest_agent.spec.schema import Period
+
+period = Period(start=date(2018, 1, 1), end=date(2019, 12, 31))  # the fake history starts in 2015
+start = datetime(2026, 1, 15, 10, 30, 5, tzinfo=UTC)
+with TemporaryDirectory() as folder:
+    for name in ("sma_crossover", "momentum_12_1", "buy_and_hold"):
+        spec = load_spec(f"strategies/{name}.yaml").model_copy(update={"period": period})
+        provider = FakeProvider(symbols=spec.universe)
+        larger = spec.model_copy(update={"initial_capital": 2 * spec.initial_capital})
+        for second, s in enumerate((spec, spec, larger)):
+            result = run_experiment(
+                s,
+                provider,
+                runs_dir=Path(folder) / "runs",
+                reports_dir=Path(folder) / "reports",
+                generated_at=start + timedelta(seconds=second),
+            )
+            print(result.record.trial)
+```
+
+For each family the three reports show (`F` is the family; the wording is in [report.md](report.md), "The trial line"):
+
+| Run | Trials line |
+|---|---|
+| 1, the spec | `family F: 1 distinct variant in 1 run as of this run. This run is run 1, a new variant (variant 1). Counts cover only runs logged in this journal.` |
+| 2, the spec again | `family F: 1 distinct variant in 2 runs as of this run. This run is run 2, a repeat of variant 1. Counts cover only runs logged in this journal.` |
+| 3, twice the capital | `family F: 2 distinct variants in 3 runs as of this run. This run is run 3, a new variant (variant 2). Counts cover only runs logged in this journal.` |
+
+(The initial capital is part of the variant hash, so run 3 is a new variant; the name, the data hash and the time are not.)
+After the three runs of a family `run_count` is 3 and `trial_count` is 2.
+
 ## The index
 
 `runs/index.sqlite`, rollback-journal mode (no `-wal` or `-shm` files; a short-lived `index.sqlite-journal` file exists while a write is running), `PRAGMA user_version = 1`. One table, `runs`, one row per
@@ -181,8 +269,8 @@ a complete run folder without a row, which step 3 reports as stale.
 
 **The same run id twice.** The id has a one-second resolution. Running an identical spec on identical data with the same
 `generated_at` (to the second) gives the same id and raises `FileExistsError`; nothing is overwritten and nothing is
-counted. Use a later `generated_at`. (`run_experiment` of part 2 turns this into the message "run id already exists; use a
-later generated_at".)
+counted. Use a later `generated_at`. (`run_experiment` turns this into the message "run id already exists; use a later
+generated_at", see "run_experiment".)
 
 **A busy index.** If another connection holds the write lock for longer than `busy_timeout` seconds, `record_run` raises
 `JournalBusyError` and writes nothing.
@@ -217,7 +305,9 @@ class `JournalError`.
 
 ## What the journal does not do
 
-It does not stop anyone from running something without logging it. Part 2 adds `run_experiment`, the one entry point that
-evaluates, logs and reports; a report written without it says that the trial count is not recorded. It does not group
-the periods of a variant (a changed period is a new variant), it does not keep the data, and it is not tamper-proof (see
-"Strategy family").
+It does not stop anyone from running something without logging it. **The rule is a convention plus a visible marker, not a
+guarantee:** a standard run goes through `run_experiment`; `evaluate()`, `run_backtest()` and `write_report()` stay legal
+without the journal, and a report written without a trial says `Trials: not recorded (this report was not written through
+run_experiment)`. The marker makes an unlogged report visible; it cannot force a run to be logged. The journal also does
+not group the periods of a variant (a changed period is a new variant), it does not keep the data, and it is not
+tamper-proof (see "Strategy family").

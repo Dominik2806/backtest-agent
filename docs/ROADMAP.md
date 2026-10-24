@@ -145,7 +145,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 5 | `feature/costs-slippage`, `feature/costs-results` | Commission, spread and slippage models (two parts) | F-10 | M | Done |
 | 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
 | 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
-| 8 | `feature/experiment-journal` | Run log with trial counter (two parts) | F-15 | S | In progress (part 1 of 2 merged) |
+| 8 | `feature/experiment-journal`, `feature/experiment-entry-point` | Run log with trial counter (two parts) | F-15 | S | Done |
 | 9 | `feature/cli` | `bt` command; release `v0.1.0` | F-16 | M | Planned |
 | 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
 | 11 | `feature/agents-auditor-interpreter` | Bias auditor and report interpreter subagents | F-19, F-20 | M | Planned |
@@ -305,8 +305,21 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 - Phase 8: beyond the roadmap text, `record_run` refuses a stale index (a run folder without a row, a row without a folder,
   or a missing index next to run folders) instead of starting a new counter, and readers wait for a running writer
   before they report that.
-- Phase 8 part 1: `run.json` and `index.sqlite` are written only through `record_run`; nothing calls it yet. The rule that
-  every standard run is logged is delivered with `run_experiment` in part 2.
+- Phase 8 part 1: `run.json` and `index.sqlite` are written only through `record_run`; nothing called it until part 2.
+- Phase 8 part 2: "every run is logged automatically" is delivered as `run_experiment`, the one entry point of a standard
+  run. Code cannot force it (`write_report` without a trial stays legal), so the rule is a convention plus a visible marker:
+  a report without a trial says `Trials: not recorded (this report was not written through run_experiment)`.
+- Phase 8 part 2: "the report shows how many trials the family has had" is a row of the header block (family, distinct
+  variants, runs, this run's number, new variant or repeat, as of this run, journal only), not a new section, so the
+  section order of `docs/report.md` is unchanged. The "Selection bias" caveat and `fixed_caveats()` are unchanged; the line
+  is the fact the journal knows and the caveat stays the general warning (`docs/report.md`, "The trial line").
+- Phase 8 part 2: beyond the roadmap text, `run_experiment` refuses a report folder that exists before it logs anything, and
+  a report that fails after logging raises `ExperimentReportError` whose `retry()` writes the report again without logging
+  twice (the journal entry stays: a tried run counts).
+- Phase 8 part 2: existing tests changed only where the new `trial` parameter forced it: `tests/test_report_model.py` and
+  `tests/test_report_writer.py` (the pinned parameter lists of `build_report_model` and `write_report` gain `trial`) and
+  `tests/test_report_markdown_snapshot.py` with `tests/snapshots/report.md` (a literal `TrialInfo`; one added line). The
+  HTML outline snapshot is unchanged because it records no list items.
 
 ---
 
@@ -532,7 +545,8 @@ Done when:
 
 **Branch:** `feature/experiment-journal` · **Goal:** nothing that was tried is forgotten, so overfitting becomes visible.
 
-**Status:** part 1 of 2 (the journal core, see [journal.md](journal.md)) is done; part 2 (entry point, report line) is open.
+**Status:** Done. Part 1 (`feature/experiment-journal`, delivered): the journal core, see [journal.md](journal.md). Part 2
+(`feature/experiment-entry-point`, delivered): `run_experiment`, the trial line of the report, the example.
 
 Tasks:
 

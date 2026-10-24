@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Experiment journal, part 2 of 2 (F-15, Phase 8): `run_experiment(spec, provider, runs_dir=..., generated_at=...,
+  reports_dir=None)` evaluates, logs the run and, if a reports folder is given, writes the report with the same run id and
+  the trial of the journal. A run id that exists gives "run id already exists; use a later generated_at"; a report folder
+  that exists stops before anything is logged. A report that fails after logging raises `ExperimentReportError`, whose
+  `retry()` writes the report again without logging twice. The header of the report has a new row, Trials: the family, the
+  distinct variants, the runs, the run number and whether the run is a new variant or a repeat, "as of this run", for the
+  runs logged in this journal (`write_report`, `render_report` and `build_report_model` take an optional `trial`; without
+  it the row says "not recorded"). The fixed caveats are unchanged. Example for the three example strategies in
+  `docs/journal.md`. Phase 8 is done.
 - Experiment journal, part 1 of 2 (F-15, Phase 8): `record_run(evaluation, runs_dir, generated_at=..., code_version=...)`
   stores a run under `runs/<run-id>/` (`run.json` as the source of truth, `spec.yaml` as a readable copy) and in a SQLite
   index (`runs/index.sqlite`, standard library only), all or nothing, under a write lock. Runs are counted per strategy family
@@ -17,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `run_count`, and `rebuild_index`, which rebuilds the index from the folders without renumbering. A stale index (an
   orphan folder, a deleted folder, a missing index) raises `JournalIndexStale` instead of restarting the counter. The code
   version (git commit and dirty flag) is detected without a dependency and is injectable. `check_run_id` moved to
-  `run_id.py`. `docs/journal.md`, ADR 0015. The report does not show the trial count yet (part 2).
+  `run_id.py`. `docs/journal.md`, ADR 0015.
 - Report, part 2 of 2 (F-14, Phase 7): `render_html(model)` renders the report as one self-contained HTML file (inline CSS and
   inline SVG, no script, font, stylesheet, image or link; light and dark theme; every table scrolls inside its own container
   at phone width; monthly returns shaded by class from the unrounded return, with a contrast of at least 4.5 checked in the

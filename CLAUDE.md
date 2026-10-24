@@ -40,6 +40,17 @@ which the zero-cost regressions (H14, buy and hold equals the asset return) use.
 `InsufficientWarmupWarning` must catch it (`pytest.warns`); the test summary shows no warnings.
 A test signal is registered per test with `monkeypatch` (see `tests/runner_helpers.py`), never permanently.
 
+Journal and entry point (`docs/journal.md`, ADR 0015): `run_experiment(spec, provider, *, runs_dir, generated_at,
+reports_dir=None, ...)` in `backtest_agent.experiment` is how a **standard run** is made. It evaluates (pure), logs the run
+with `record_run` and then, if `reports_dir` is given, writes the report with the same run id, `generated_at` and
+`trial=record.trial`. Module map: `journal/` (the log, the index and the counters; never imports `reporting`),
+`reporting/` (imports only the `TrialInfo` type of the journal), `experiment.py` (the only module that uses both).
+`evaluate()` and `run_backtest()` stay pure and write nothing. Standard runs go through `run_experiment`; this is a
+convention plus a visible marker, not a guarantee: `write_report` without a trial stays legal and its report says
+`Trials: not recorded`. A report that fails after logging raises `ExperimentReportError`; `error.retry()` writes the report
+again without logging twice. Tests that log write to `tmp_path` only; the expected values of the trial lines and counters
+are the literals of `docs/journal.md` and `docs/report.md`.
+
 Signal contract (details in `docs/strategy-spec.md`, ADR 0006): a signal `fn(prices, params) -> DataFrame` returns
 float64 in [0, 1] without NaN on the input index with one column per symbol, computed per symbol on its own trading
 rows, using only data up to the date, without modifying its input. Its params model declares `warmup_rows`, and every
