@@ -1,8 +1,8 @@
 """Exit codes and the mapping from an exception to one error message (docs/cli.md, "Exit codes", ADR 0016).
 
 ``classify`` is the only place that decides which code an error class gets. The order of the checks matters:
-``JournalFormatError`` is a ``ValueError`` and ``ExperimentReportError`` a ``RuntimeError``, so the specific classes
-come first and everything unknown is code 1.
+``JournalFormatError`` is both a ``JournalError`` and a ``ValueError`` and ``ExperimentReportError`` a
+``RuntimeError``, so the specific classes come first and everything unknown is code 1.
 """
 
 import re
@@ -15,7 +15,6 @@ from backtest_agent.experiment import ExperimentReportError
 from backtest_agent.journal import (
     JournalBusyError,
     JournalError,
-    JournalFormatError,
     JournalIndexStale,
     RunNotFoundError,
 )
@@ -99,7 +98,7 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
     if isinstance(error, DataError):
         message = _validation_message(error) if isinstance(error, DataValidationError) else str(error)
         return Failure(ExitCode.DATA, message, "check the symbols, the dates and your connection (--cache-dir)")
-    if isinstance(error, JournalError | JournalFormatError | FileExistsError):
+    if isinstance(error, JournalError | FileExistsError):
         return Failure(ExitCode.JOURNAL, str(error), _journal_hint(error, runs_dir))
     return Failure(
         ExitCode.UNEXPECTED,
