@@ -1,8 +1,8 @@
 # 0016: Command line
 
-- **Status:** Accepted. Phase 9 is delivered in three parts. Part 1 delivers `run`, `validate` (spec only) and
-  `journal list|show|rebuild`; part 2 adds `data fetch` and `validate --data`; part 3 adds `report` and the
-  quickstart. The part 3 decisions below (`bt report`, the release order) are decided here and built in part 3.
+- **Status:** Accepted and built. Phase 9 was delivered in three parts: part 1 `run`, `validate` (spec only) and
+  `journal list|show|rebuild`; part 2 `data fetch` and `validate --data`; part 3 `report` and the quickstart. The
+  release order below is still to be followed.
 
 ## Context
 
@@ -69,7 +69,7 @@ the exit-code table are in [cli.md](../cli.md).
   old rows are counted by reading the file directly, because the read API refuses a stale index, which is exactly the case
   in which the old count matters. A deleted run folder is forgotten (documented in the journal); a gap in the run numbers is
   refused.
-- **Three parts, and what the data commands decide (part 2).** The phase was planned as two pull requests. With the
+- **Three parts, and what the data commands decide.** The phase was planned as two pull requests. With the
   shared window and loader refactor (`warmup_window` and `load_history` in `engine/history.py`, behaviour-only) and the
   `bt report` core it exceeds one reviewable pull request twice over, so it ships in three: part 2 is the engine
   helpers plus `bt data fetch` and `bt validate --data`, part 3 is `bt report` and the quickstart. The CLI never
@@ -79,12 +79,20 @@ the exit-code table are in [cli.md](../cli.md).
   and prints every issue on stdout (one short line on stderr, so nothing is printed twice); `bt data fetch` exits 0
   with the same errors and prints a warning on stderr, because the fetch itself worked. Issue lines are built from
   the structured fields only, and the `first` dates are printed only where [data.md](../data.md) defines them.
-- **`bt report` re-evaluates and refuses (part 3).** `run.json` holds dictionaries, not an `Evaluation`, so the report
+- **`bt report` re-evaluates and refuses.** `run.json` holds dictionaries, not an `Evaluation`, so the report
   cannot be rendered from the journal alone. `bt report RUN_ID` rebuilds the spec from `run.json`, evaluates it on the cached
   data with the stored `costs_applied` and metric assumptions, builds the record again and compares `spec`, `evaluation`,
   `trades` and `costs` with the stored ones (not `code_version`, `generated_at`, `run_number`, `trial_number`,
-  `trial_count`). Data hashes must be equal; floats are equal if `abs(a - b) <= 1e-9 * max(1, |a|, |b|)`; `None` against a
-  number is a difference; strings and integers are exact. A difference is code 7 and names the first paths. Only then
+  `trial_count`). Data hashes must be equal; two integers are equal only if they are the same integer; an integer against a
+  float, and two floats, are equal if `abs(a - b) <= 1e-9 * max(1, |a|, |b|)`; `None` against a number is a difference; NaN and
+  infinity cannot occur (canonical JSON refuses them, an undefined metric is `null`) and would equal nothing; a
+  boolean is equal only to the same boolean (never to `1` or `1.0`); strings are exact (the first draft of this ADR said
+  "strings and integers are exact", which left the integer against float case open: JSON gives `1` or `1.0` for the same
+  number and the metrics code may change that representation without changing the value). A difference is code 7 and
+  names the first paths (data hashes first, five of them, then "and N more"). A stored spec that no longer validates is
+  code 3, and stored `costs_applied` values that differ between strategy and benchmark, or metric assumptions that cannot be
+  read, are code 5 (a record that cannot be reproduced is a journal problem). An existing report folder is refused with
+  code 5 **before** any data is fetched, unless `--overwrite` is given. Only then
   `write_report` is called with the stored run id, `generated_at` and trial, never `run_experiment`, so nothing is logged and
   an unchanged run gives the original `report.md` byte for byte. Alternatives rejected: rendering from the stored
   dictionaries (a second renderer that could disagree with the report), storing the whole evaluation in `run.json` (the file

@@ -7,10 +7,13 @@
 
 import re
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 
+from backtest_agent.cli import render
+from backtest_agent.cli.compare import Difference, change_kind
 from backtest_agent.data.errors import DataError, DataValidationError
 from backtest_agent.experiment import ExperimentReportError
 from backtest_agent.journal import (
@@ -19,7 +22,7 @@ from backtest_agent.journal import (
     JournalIndexStale,
     RunNotFoundError,
 )
-from backtest_agent.spec.errors import SpecError, UnknownSignalError
+from backtest_agent.spec.errors import SpecError, SpecProblem, UnknownSignalError
 
 MAX_ISSUES_SHOWN = 10
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -34,6 +37,36 @@ class ReportedValidationErrors(DataError):
         super().__init__(f"the data has {count} validation {plural} (listed above)")
 
 
+class RunChangedError(Exception):
+    """``bt report`` re-evaluated a stored run and the result is not the journal record (exit code 7)."""
+
+    def __init__(self, run_id: str, found: Sequence[Difference]) -> None:
+        self.run_id = run_id
+        self.found = tuple(found)
+        self.kind = change_kind(self.found)
+        super().__init__(f"run {run_id} no longer reproduces: {self.kind} changed")
+
+
+class StoredSpecError(SpecError):
+    """The spec stored in a run no longer validates: the schema or a signal changed since the run (exit code 3)."""
+
+    def __init__(self, run_id: str, problems: Sequence[SpecProblem]) -> None:
+        super().__init__(problems)
+        self.run_id = run_id
+        count = len(self.problems)
+        lines = [f"the stored spec of run {run_id} no longer validates ({count} problem{'s' if count != 1 else ''}):"]
+        lines += [f"  - {problem.path}: {problem.message}" for problem in self.problems]
+        Exception.__init__(self, "\n".join(lines))
+
+
+class ReportFolderExistsError(FileExistsError):
+    """``bt report`` refuses to write into an existing report folder without ``--overwrite`` (exit code 5)."""
+
+    def __init__(self, folder: Path) -> None:
+        self.folder = folder
+        super().__init__(f"report folder already exists: {folder.as_posix()}")
+
+
 class ExitCode(IntEnum):
     OK = 0
     UNEXPECTED = 1
@@ -42,6 +75,7 @@ class ExitCode(IntEnum):
     DATA = 4
     JOURNAL = 5
     REPORT_FAILED = 6
+    CHANGED = 7
     INTERRUPTED = 130
 
 
@@ -101,10 +135,24 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
             f"run {run_id} is logged but its report could not be written ({type(cause).__name__}: {cause})",
             f"bt report {run_id} writes the report again without logging the run twice",
         )
+    if isinstance(error, StoredSpecError):
+        return Failure(
+            ExitCode.SPEC,
+            str(error),
+            "the run folder is untouched; the spec schema or a signal changed since the run (docs/strategy-spec.md)",
+        )
     if isinstance(error, SpecError):
         return Failure(ExitCode.SPEC, str(error), "the fields of a spec are described in docs/strategy-spec.md")
     if isinstance(error, UnknownSignalError):
         return Failure(ExitCode.SPEC, str(error.args[0]) if error.args else "unknown signal")
+    if isinstance(error, RunChangedError):
+        untouched = "the stored run is untouched; "
+        hint = untouched + (
+            "use the cache the run was made with (--cache-dir) or log a new run with bt run"
+            if error.kind == "data"
+            else "the metric code or the stored values changed; log a new run with bt run"
+        )
+        return Failure(ExitCode.CHANGED, render.changed_message(error.run_id, error.kind, error.found), hint)
     if isinstance(error, ReportedValidationErrors):
         return Failure(ExitCode.DATA, str(error))
     if isinstance(error, DataError):
@@ -115,6 +163,10 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
             ExitCode.JOURNAL,
             f"the journal index cannot be read ({type(error).__name__}: {error})",
             _journal_hint(error, runs_dir),
+        )
+    if isinstance(error, ReportFolderExistsError):
+        return Failure(
+            ExitCode.JOURNAL, str(error), "pass --overwrite to replace the files in it, or choose another --reports-dir"
         )
     if isinstance(error, JournalError | FileExistsError):
         return Failure(ExitCode.JOURNAL, str(error), _journal_hint(error, runs_dir))

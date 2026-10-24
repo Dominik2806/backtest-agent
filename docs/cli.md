@@ -5,10 +5,10 @@ and stays unchanged: a standard run is `run_experiment` ([journal.md](journal.md
 the numbers are printed by the formatters of the report ([report.md](report.md)). `evaluate()` and `run_backtest()` stay
 pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in [ADR 0016](adr/0016-command-line.md). The project is educational and not investment advice.
 
-**Status.** Phase 9 is delivered in three pull requests. Part 1 has `run`, `validate` (spec only) and
-`journal list`, `journal show`, `journal rebuild`. Part 2 adds `data fetch` and `validate --data`. Part 3 adds `report`
-(exit code 7) and the README quickstart. Everything marked **(part 3)** below does not exist yet; until then the
-`bt report RUN_ID` that the hint of exit code 6 names is not available.
+**Status.** Every command described here exists: `run`, `validate` (also `--data`), `data fetch`, `report` and
+`journal list`, `journal show`, `journal rebuild`. They were delivered in three pull requests: part 1 `run`, `validate`
+(spec only) and the journal commands, part 2 `data fetch` and `validate --data`, part 3 `report` (exit code 7) and the
+README quickstart.
 
 ## Starting `bt`
 
@@ -217,22 +217,122 @@ run stores as `strategy` or `benchmark` data hash. Validation errors do **not** 
 `warning: N validation error(s); a run would fail; bt validate SPEC --data lists them` (with the path as typed). A provider
 failure, no data or a cache miss is exit code 4.
 
-### `bt report RUN_ID` **(part 3)**
+### `bt report RUN_ID`
 
 Writes the report of a logged run again, without logging anything. `run.json` holds dictionaries, not an `Evaluation`, so
 the report cannot be rendered from the journal alone. `bt report` therefore re-evaluates the stored spec on the (cached)
-data and refuses if the result differs from the journal:
+data and refuses if the result differs from the journal.
 
-- It rebuilds the spec from `run.json` and runs `evaluate` with the stored `costs_applied` and the stored metric
-  assumptions, then builds the record again and compares it with the stored one.
-- **Compared keys:** `spec`, `evaluation` (both data hashes, all metrics, the alignment, the assumptions), `trades`,
-  `costs`. **Not compared:** `code_version`, `generated_at`, `run_number`, `trial_number`, `trial_count`.
-- The two data hashes must be equal. Floats are equal if `abs(a - b) <= 1e-9 * max(1, |a|, |b|)`; `None` against a number
-  is a difference; strings, integers and booleans must be equal. A changed hash is "data changed", any other difference
-  is "metrics changed"; both give exit code 7 and name the first differing paths.
-- Then it writes the report with the stored run id, `generated_at` and trial, so with unchanged data and spec `report.md`
-  is identical to the original byte for byte. Options: `--runs-dir`, `--reports-dir`, `--cache-dir`, `--overwrite` (an
-  existing report folder is refused otherwise, exit code 5).
+| Option | Default | Meaning |
+|---|---|---|
+| `--runs-dir DIR` | `runs` | the journal the run is read from (only read; nothing is logged, the index is not opened) |
+| `--reports-dir DIR` | `reports` | where the report is written, in `<reports dir>/<run id>/` |
+| `--cache-dir DIR` | `data/cache` | the price cache; **it must be the cache the run was made with** |
+| `--overwrite` | off | replace the files of an existing report folder (`report.md`, `report.html`, the two SVGs); other files in it stay |
+
+**Flow, in this order** (each failure stops there and nothing is written):
+
+1. The run is read from `runs/<run id>/run.json` (not found or unreadable: exit code 5).
+2. If `<reports dir>/<run id>` exists and `--overwrite` is not given: exit code 5, **before** any data is fetched. The hint
+   names the option: `pass --overwrite to replace the files in it, or choose another --reports-dir`.
+3. The spec is rebuilt from `run.json`. A spec that no longer validates (the schema or a signal changed since the run) is
+   exit code 3: `the stored spec of run <id> no longer validates (<n> problems):` and the field paths.
+4. The stored settings are read: `costs_applied` of the strategy and of the benchmark must both be `true` or `false` and
+   **equal** (the evaluation takes one `apply_costs` flag for both runs, so two different values are a record that cannot be
+   reproduced) and the metric assumptions (`periods_per_year`, `risk_free_rate`) must be readable (unknown or invalid keys
+   are not); both are exit code 5, a journal problem.
+5. `evaluate` runs on the data of `--cache-dir` with the stored `costs_applied` and assumptions (data problems: exit code 4,
+   for example an empty cache and no network). It runs exactly the two requests of `bt data fetch`.
+6. The record is built again with the stored run id, time, code version and trial, and compared with the stored one. Any
+   difference is exit code 7 (below) and nothing is written.
+7. The report is written with the stored run id, `generated_at` and trial, never through `run_experiment`: nothing is
+   logged, the clock is not read, the journal and the index are not touched, and with unchanged data and spec **`report.md`
+   (and the other three files) is identical to the original byte for byte**, including the trial line "as of this run" even
+   if more runs of the family were logged since.
+
+**What is compared.** Exactly four of the keys of `run.json` ([journal.md](journal.md)): `spec`, `evaluation` (both data
+hashes, all metrics, the alignment, the assumptions), `trades` and `costs`. **Not compared:** the others, that is
+`schema_version`, `run_id`, `generated_at`, `code_version`, `family` and `trial` with all its keys (`variant_hash`,
+`run_number`, `trial_number`, `trial_count`, `new_variant`): the stored values of these are used to build the fresh record
+and the report. The stored `spec` is compared too because it is rebuilt through the current schema: a difference in
+`spec` means that the schema or a default changed since the run. Rules per value:
+
+| Stored against fresh | Equal when |
+|---|---|
+| string (also both data hashes) | the same text |
+| `true` / `false` | the same boolean; a boolean is never equal to `1`, `1.0`, `0` or `0.0` |
+| `null` | only `null`; `null` against a number is a difference |
+| NaN, infinity | never equal to anything, not even to themselves; this rule comes before the formula below, which would call infinity equal to any number; they cannot occur (below) |
+| integer against integer | the same integer (exact) |
+| integer against float, float against float | `abs(a - b) <= 1e-9 * max(1, abs(a), abs(b))` |
+| object against object, list against list | every key / index is equal; a key or index only in the stored record is `missing`, only in the fresh one `extra` |
+| any other pair (an object against a number, a string against a number, ...) | never: one difference at that path |
+
+A **data hash** is exactly one of the two paths `evaluation.strategy.data_hash` and `evaluation.benchmark.data_hash`; a key
+with the same name anywhere else (for example `spec.params.my_data_hash`) is an ordinary value. If at least one of them differs the run is **"data changed"**, whatever else differs (the other differences
+follow from it), and the hint is the one for changed data; if only other things differ it is **"metrics changed"**. Both
+are exit code 7. If both hashes differ they are listed in sorted order, the benchmark's first.
+
+**NaN and infinity cannot occur.** `run.json` is canonical JSON written with `allow_nan=False`, so the journal refuses to
+store them, and a metric that is not defined is stored as `null` (the Sharpe ratio of a run on flat prices, for example,
+is `null` in the journal and `n/a` in the report, and `bt report` reproduces such a run: `null` equals `null`). If a fresh
+evaluation ever produced a NaN, building its record would raise like `bt run` would (exit code 1, a bug) before the
+comparison; the comparison itself treats a non-finite number as different from everything, so it can never report such a
+run as reproduced.
+
+**Paths and order.** A difference is named by its path: keys joined by `.` and list indices as `[i]`, starting with the key
+(`evaluation.strategy.metrics.sharpe`, `trades.n_trades`, `spec.universe[1]`); a key that is not made only of the ASCII
+letters, digits and `_` (an empty key, a key with a dot, a space, a quote or a non-ASCII letter) is written as a
+JSON-quoted index appended without a dot, with JSON escapes and ASCII only (`evaluation.positions["BRK.B"].shares`,
+`evaluation["\u00e4"]`). The differences are found in a fixed order: the compared keys in the order above; inside an
+object the **union** of the keys of both records, sorted as strings by code point (case-sensitive, so `B` comes before
+`a`), a key that only one record has sitting in its sorted place; inside a list the indices; depth first.
+
+A key (or a list index) that only one record has is **one** difference at that path, whatever the value is: the whole value
+is printed, the missing side as `(missing)`; a list of another length gives one difference per surplus index. Two values
+of different types (an object against a list, a string against a number) are one difference at that path; the search does
+not go below it.
+
+The message lists the **data hash differences first** (in the order above), then the others in that order. At most **5**
+paths are printed; if there are more, a last path line says `  ... and N-5 more`, where N is the number of differences, and
+with 5 or fewer there is no such line. The first line counts all of them (`1 difference`, `2 differences`).
+
+**Exit code 7** (stderr; warnings of the evaluation, if there are any, come first as `warning: ...` lines like for every
+command; then the first line, one line per path with the stored and the fresh value, the hint). How a value is printed:
+
+- a float with all its digits (`repr`), because a rounded number would hide a difference at the 1e-9 level; an integer in
+  decimal; `null`, `true` and `false` as in JSON;
+- a string **without quotes** (so a data hash is a bare word), cleaned like every text of `bt` (see "Windows and
+  encodings"): any run of whitespace, line breaks included, becomes one space, characters that XML forbids (such as an
+  escape character) become U+FFFD, and an empty or blank string is shown as `(none)`; so a value is always one line;
+- a missing side as `(missing)`; an object or a list (only when a whole subtree is the difference, or the types differ)
+  as compact JSON with sorted keys, cut after 80 characters with `...`.
+
+```
+bt: error: run <run id> no longer reproduces: data changed (<N> differences)
+  evaluation.strategy.data_hash: stored <64 hex>, now <64 hex>
+  <up to four more paths>: stored <value>, now <value>
+  ... and <N-5> more
+hint: the stored run is untouched; use the cache the run was made with (--cache-dir) or log a new run with bt run
+```
+
+For "metrics changed" the first line ends `metrics changed (<N> differences)` (`1 difference` for one) and the hint is
+`the stored run is untouched; the metric code or the stored values changed; log a new run with bt run`.
+
+**Output on success** (stdout; nothing else, nothing on stderr unless the run has a warning):
+
+```
+Run:        <run id>
+Checked:    spec, evaluation, trades and costs equal the journal record
+Journal:    <runs dir>/<run id>/run.json (unchanged)
+Report:     <reports dir>/<run id>/report.md and report.html
+```
+
+**Caveats.** `--cache-dir` must be the cache of the run: a deleted cache, or a provider that revised an adjusted price since,
+gives exit code 7 by design (the data hash differs; the run in the journal stays valid and untouched). A run whose period ends
+today or later is never cached ([data.md](data.md)), so `bt report` fetches it live and can see other data than the run did.
+With no cache and no network the provider fails: exit code 4 and nothing is written. `bt report` is also the answer to exit
+code 6 (the run was logged but its report failed): it writes that report without logging the run twice.
 
 ## Exit codes
 
@@ -241,14 +341,14 @@ data and refuses if the result differs from the journal:
 | 0 | success (also `--help`, `--version`, an empty journal) | |
 | 1 | unexpected error: a bug, or an operating system error such as a folder that cannot be written | any other exception |
 | 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id | argparse |
-| 3 | the spec is invalid or its file cannot be read | `SpecError`, `UnknownSignalError` |
+| 3 | the spec is invalid or its file cannot be read; `bt report`: the spec stored in the run no longer validates | `SpecError`, `UnknownSignalError`, `StoredSpecError` |
 | 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors of a run: the first 10 are listed, then `... and N more`; `bt validate --data` prints all of them on stdout and one line on stderr); any other exception of a provider call |
-| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists | `JournalError`, `JournalFormatError`, `FileExistsError`, `sqlite3.Error` (the index cannot be read) |
+| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`) | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read) |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
-| 7 | `bt report` found changed data or changed metrics **(part 3)** | |
+| 7 | `bt report` found changed data or changed metrics: the re-evaluated record differs from the journal record | `RunChangedError` |
 | 130 | interrupted with Ctrl-C | `KeyboardInterrupt` |
 
-The checks run in this order: interrupt, report failed, spec, data, journal, everything else. The order matters because
+The checks run in this order: interrupt, report failed, spec (the stored spec of `bt report` first), run changed, data, journal, everything else. The order matters because
 `JournalFormatError` is both a `JournalError` and a `ValueError` (so it is code 5, while any other `ValueError`, a bug for
 example, is code 1) and `ExperimentReportError` is a `RuntimeError`. Code 4 versus 1: only an exception raised inside a call
 into the data provider becomes code 4 (the guard below); the same exception raised anywhere else is code 1. Code 5, which of
@@ -281,6 +381,10 @@ the two lines).
 | data problem | check the symbols, the dates and your connection (`--cache-dir`) |
 | spec invalid | the fields are described in `docs/strategy-spec.md`; the message already lists every field path |
 | report failed after logging | `bt report <run id>` writes it again without logging the run twice |
+| report folder exists, `bt report` | pass `--overwrite` to replace the files in it, or choose another `--reports-dir` |
+| stored spec no longer validates | the run folder is untouched; the spec schema or a signal changed since the run |
+| run changed, data (`bt report`) | the stored run is untouched; use the cache the run was made with (`--cache-dir`) or log a new run with `bt run` |
+| run changed, metrics (`bt report`) | the stored run is untouched; the metric code or the stored values changed; log a new run with `bt run` |
 
 **The provider guard.** Only the calls into the data provider are wrapped: any exception that is not a `DataError`
 (a connection error of the HTTP layer, for example) becomes a `DataError` ("the data provider failed (Type: message)") with the
@@ -556,3 +660,53 @@ Benchmark:  2023-12-17 to 2024-01-08 (16 days before the period start)
 stderr is `bt: error: the data has 1 validation error (listed above)` and the exit code is 4. `bt data fetch strategy.yaml` on the
 same data prints the same two blocks without the issue lines (the `Spec:` line first), exits 0, and stderr is
 `warning: 1 validation error(s); a run would fail; bt validate strategy.yaml --data lists them`.
+
+## Example: `bt report`, unchanged and with other prices
+
+After the first run of "Example: one run" (run id `20260115T103005Z-buy-and-hold-a-HHHHHHHH`), the report folder is deleted and
+the same provider is used again:
+
+```powershell
+bt report 20260115T103005Z-buy-and-hold-a-HHHHHHHH
+```
+
+```
+Run:        20260115T103005Z-buy-and-hold-a-HHHHHHHH
+Checked:    spec, evaluation, trades and costs equal the journal record
+Journal:    runs/20260115T103005Z-buy-and-hold-a-HHHHHHHH/run.json (unchanged)
+Report:     reports/20260115T103005Z-buy-and-hold-a-HHHHHHHH/report.md and report.html
+```
+
+Exit code 0, stderr empty. `report.md`, `report.html`, `equity.svg` and `drawdown.svg` are byte for byte the files of the
+first run, `run.json` and `runs/index.sqlite` are unchanged, and no run was logged. If the run was the second of its family
+and a third was logged since, the trial line still says "run 2" ("as of this run").
+
+With another price instead: the provider returns the same frame except that the last `close` of `A` (2024-01-08) is `150`
+instead of `146.41` (the `high` of that row follows, `150`; its `low` stays `133.1`, the open). The frame of `A` then hashes to
+`84cff02fdbf6860d463ec79c2cebba456c5dac2a6331d47831eb2f9602ea01d7`, and the metrics move: the strategy's last equity is `8 * 150 =
+1200`, its total return `1200 / 1000 - 1 = 0.2` and the excess return over the benchmark `0.2 - (-0.21592) = 0.41592`.
+Exit code 7, stdout empty, stderr. The program finds N = 18 differences: the strategy's data hash, the four changed entries
+of `evaluation.relative` (`excess_return`, `information_ratio`, `strategy_return_compared`, `tracking_error`; the
+benchmark's entries and `alignment` do not change), eight metrics of `evaluation.strategy.metrics` (`best_month`, `cagr`,
+`calmar`, `sharpe`, `sortino`, `total_return`, `volatility`, `worst_month`) and five numbers of `costs.strategy`
+(`cost_drag`, `cost_share`, `gross_final_equity`, `gross_return`, `net_return`). Sorted as in the paragraph **Paths and order** of the section `bt report RUN_ID` (inside `evaluation`: `assumptions`, `benchmark`, `relative`, `strategy`),
+with the data hash first, the first five are the hash and the four `relative` entries, so `excess_return` is the second
+line and 13 (N-5) are left over: the eight `evaluation.strategy.metrics.*` entries in the order just given, then the five
+`costs.strategy.*` entries in the order just given (1 + 4 + 8 + 5 = 18). By hand only the hash, the excess return and `strategy_return_compared` (0.17128 before,
+0.2 now) are derived here; the values of `information_ratio` and `tracking_error` follow the formulas of
+[metrics.md](metrics.md) and are the program's:
+
+```
+bt: error: run 20260115T103005Z-buy-and-hold-a-HHHHHHHH no longer reproduces: data changed (18 differences)
+  evaluation.strategy.data_hash: stored 61669f6e7476623e1289ff7dad8c8b767f36be44961c05ec4def3f45c15dd090, now 84cff02fdbf6860d463ec79c2cebba456c5dac2a6331d47831eb2f9602ea01d7
+  evaluation.relative.excess_return: stored 0.3872, now 0.41591999999999985
+  evaluation.relative.information_ratio: stored 11.59310139695154, now 11.554740195295285
+  evaluation.relative.strategy_return_compared: stored 0.1712800000000001, now 0.19999999999999996
+  evaluation.relative.tracking_error: stored 1.738965209542734, now 1.8623870882809872
+  ... and 13 more
+hint: the stored run is untouched; use the cache the run was made with (--cache-dir) or log a new run with bt run
+```
+
+(The derivation gives `0.41592`; the digits of `0.41591999999999985` past the twelfth come from the program, from the
+rounding of binary floating point, not from the derivation. A float is printed with all its digits because the
+comparison works at the 1e-9 level.) No report folder is created.

@@ -49,8 +49,13 @@ def parse_spec(text: str, source: str | None = None) -> StrategySpec:
     try:
         return StrategySpec.model_validate(data)
     except ValidationError as error:
-        problems = [_problem(err, data) for err in error.errors()]
-        raise SpecError(problems, source) from None
+        raise SpecError(problems_of(error, data), source) from None
+
+
+def problems_of(error: ValidationError, data: dict[str, Any]) -> list[SpecProblem]:
+    """Every error of a failed ``StrategySpec.model_validate(data)`` as a ``SpecProblem`` with a dotted field path
+    (``legs[0].x`` for a list index) and a readable message; ``parse_spec`` and ``bt report`` both use it."""
+    return [_problem(err, data) for err in error.errors()]
 
 
 def _load_yaml(text: str, source: str | None) -> Any:

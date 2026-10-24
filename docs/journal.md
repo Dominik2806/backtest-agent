@@ -48,7 +48,7 @@ is written. No absolute local path, no environment variable and no key is ever s
 | `family` | The strategy family (below) |
 | `trial` | `{"variant_hash", "run_number", "trial_number", "trial_count", "new_variant"}`, all as of this run (below) |
 | `spec` | `StrategySpec.to_dict()` of the strategy |
-| `evaluation` | `Evaluation.to_dict()`: both data hashes, both cost flags, risk flag codes, the metrics of strategy and benchmark, the relative metrics and the alignment, the metric assumptions |
+| `evaluation` | `Evaluation.to_dict()`, an object with the keys `assumptions` (`periods_per_year`, `risk_free_rate`), `benchmark`, `relative` and `strategy`. `strategy` has `costs_applied`, `data_hash`, `metrics`, `name`, `risk_flags`; `benchmark` has the same keys and `symbol`; `metrics` is the dictionary of the performance metrics ([metrics.md](metrics.md)); `relative` has `alignment`, `benchmark_return_compared`, `excess_return`, `information_ratio`, `strategy_return_compared`, `tracking_error` |
 | `trades` | `TradeStatistics.to_dict()` of the strategy run |
 | `costs` | `{"strategy": {...}, "benchmark": {...}}`, each with `costs_applied`, `total_costs`, `gross_final_equity`, `net_return`, `gross_return`, `cost_drag`, `cost_share` |
 

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Command line, part 3 of 3 (F-16, Phase 9): `bt report RUN_ID` re-evaluates the stored spec of a logged run on the
+  cached data (with the stored `costs_applied` and metric assumptions), compares `spec`, `evaluation`, `trades` and
+  `costs` with the journal record and, only if they are equal, writes the identical report again with the stored run id,
+  time and trial line; nothing is logged and the journal index is not opened. A difference is exit code 7 ("data
+  changed" if a data hash differs, else "metrics changed") with the first five paths and their values, data hashes
+  first; a stored spec that no longer validates is exit code 3, stored `costs_applied` values that disagree or metric
+  assumptions that cannot be read are exit code 5. The comparison (`cli/compare.py`, pure, tested with literal
+  dictionaries): strings exact; two integers exact; other numbers within `1e-9 * max(1, |a|, |b|)`; `null` only with
+  `null`; a boolean only with the same boolean; NaN and infinity equal nothing (they cannot occur in a record). The report
+  folder is checked before any data is fetched (exit code 5, the hint names `--overwrite`). `spec.loader.problems_of`
+  gives the stored spec the field paths of the loader. README: a quickstart for a fresh clone, run command by command in
+  a fresh clone, and `tests/test_docs_commands.py`, which parses every `bt` line of a code block of the README and
+  `docs/` with the real parser. A live test (marked `network`) runs `bt data fetch`, `bt run` and `bt report` on one cache
+  and compares the reports byte for byte. `docs/cli.md` has the full `bt report` section and a worked exit-7 example
+  whose first lines are derived by hand; a reader that saw only the docs recomputed it, and the gaps it found are fixed.
+  No new dependency.
 - Command line, part 2 of 3 (F-16, Phase 9): `warmup_window(spec)` and `load_history(spec, provider)` in
   `backtest_agent.engine` (`engine/history.py`): the one place that knows the data window (`rows_needed = warmup_rows +
   delay_bars`, `buffer_days = 2 * rows_needed + 14`) and the one loader of a request (checks, validation result, data

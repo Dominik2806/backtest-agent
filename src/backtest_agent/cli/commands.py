@@ -11,10 +11,12 @@ from typing import TextIO
 from backtest_agent.cli import render
 from backtest_agent.cli.argtypes import positive_int, run_id_arg
 from backtest_agent.cli.data import fetch_data
-from backtest_agent.cli.errors import ExitCode, ReportedValidationErrors
+from backtest_agent.cli.errors import ExitCode, ReportedValidationErrors, ReportFolderExistsError
 from backtest_agent.cli.provider import ProviderFactory
+from backtest_agent.cli.report import reproduce
 from backtest_agent.experiment import run_experiment
 from backtest_agent.journal import get_run, list_runs, rebuild_index
+from backtest_agent.reporting import write_report
 from backtest_agent.spec import load_spec
 
 
@@ -89,6 +91,28 @@ def cmd_journal_show(args: argparse.Namespace, context: Context) -> ExitCode:
     return ExitCode.OK
 
 
+def cmd_report(args: argparse.Namespace, context: Context) -> ExitCode:
+    """Write the report of a logged run again: re-evaluate, check that it reproduces, then render. Logs nothing."""
+    record = get_run(args.runs_dir, args.run_id)
+    folder = args.reports_dir / record.run_id
+    if folder.exists() and not args.overwrite:
+        raise ReportFolderExistsError(folder)
+    evaluation = reproduce(record, context.provider_factory(args.cache_dir))
+    try:
+        paths = write_report(
+            evaluation,
+            args.reports_dir,
+            generated_at=record.generated_at,
+            run_id=record.run_id,
+            overwrite=args.overwrite,
+            trial=record.trial,
+        )
+    except FileExistsError:
+        raise ReportFolderExistsError(folder) from None
+    context.emit(*render.report_lines(record.run_id, args.runs_dir, paths.markdown))
+    return ExitCode.OK
+
+
 def _indexed_runs(runs_dir: Path) -> int | None:
     """Rows of the existing index (the table ``runs``, docs/journal.md), or None if it is missing or unreadable.
 
@@ -147,6 +171,31 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
         "--cache-dir", type=Path, default=Path("data/cache"), metavar="DIR", help="price cache folder (data/cache)"
     )
     run.set_defaults(handler=cmd_run)
+
+    report = sub.add_parser(
+        "report",
+        parents=[common],
+        help="write the report of a logged run again, if the data and the metrics still reproduce it",
+        description="Write the report of a logged run again without logging anything. The stored spec is evaluated "
+        "again on the cached data with the stored costs_applied and metric assumptions and compared with the "
+        "journal record (spec, evaluation, trades, costs; data hashes exactly, floats to 1e-9); only an equal result "
+        "is rendered, with the stored run id, time and trial line. A difference is exit code 7 and nothing is "
+        "written. --cache-dir must be the cache the run was made with: a deleted cache or a revised price is a "
+        "difference by design, and a run whose period ends today or later is never cached. The stored run is never "
+        "changed.",
+    )
+    report.add_argument("run_id", metavar="RUN_ID", type=run_id_arg, help="the run id (see bt journal list)")
+    report.add_argument("--runs-dir", type=Path, default=Path("runs"), metavar="DIR", help="journal folder (runs)")
+    report.add_argument(
+        "--reports-dir", type=Path, default=Path("reports"), metavar="DIR", help="report folder (reports)"
+    )
+    report.add_argument(
+        "--cache-dir", type=Path, default=Path("data/cache"), metavar="DIR", help="price cache folder (data/cache)"
+    )
+    report.add_argument(
+        "--overwrite", action="store_true", help="replace the files of an existing report folder (default: refuse)"
+    )
+    report.set_defaults(handler=cmd_report)
 
     journal = sub.add_parser(
         "journal",

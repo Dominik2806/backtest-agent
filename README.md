@@ -24,9 +24,9 @@ the same as one.
 
 The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton, the data
 layer, the strategy spec, the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage), the
-performance metrics of a run next to its buy-and-hold benchmark (Phase 6), and the Markdown and HTML reports with charts
-and caveats (Phase 7), and the run journal with its trial counter (Phase 8) exist; the other features described above
-arrive in the phases named in the [roadmap](docs/ROADMAP.md).
+performance metrics of a run next to its buy-and-hold benchmark (Phase 6), the Markdown and HTML reports with charts
+and caveats (Phase 7), the run journal with its trial counter (Phase 8), and the `bt` command line (Phase 9) exist; the
+other features described above arrive in the phases named in the [roadmap](docs/ROADMAP.md).
 
 ## Requirements
 
@@ -34,17 +34,62 @@ arrive in the phases named in the [roadmap](docs/ROADMAP.md).
 - Git
 - [Claude Code](https://claude.com/claude-code) for the agent workflow (from Phase 10 on)
 
-## Quickstart
+## Quickstart for a fresh clone
+
+> **Educational, not investment advice.** The example below runs a textbook trend-following strategy on past prices.
+> Its numbers say nothing about the future.
+
+You need Git and [uv](https://docs.astral.sh/uv/) (uv installs and manages Python 3.12 itself). Then:
 
 ```powershell
 git clone https://github.com/Dominik2806/backtest-agent.git; cd backtest-agent
-uv sync
-uv run pytest
+uv sync                                                   # install the dependencies and the bt command
+uv run pytest                                             # optional: the tests run offline, in a couple of minutes
+uv run bt validate strategies/sma_crossover.yaml          # check the example spec; no data is fetched
+uv run bt data fetch strategies/sma_crossover.yaml        # fetch its prices into data/cache/ (needs the network once)
+uv run bt run strategies/sma_crossover.yaml               # evaluate, log the run in runs/, write reports/<run id>/
+uv run bt journal list                                    # the logged runs; copy the RUN ID of yours
+uv run bt report RUN_ID --overwrite                       # check that the run reproduces, write its report again
 ```
 
-The tests should pass without network access. The `bt` command line has its own section ([Command line](#command-line));
-the quickstart for a fresh clone follows with the last part of Phase 9 (part 3). The Python library offers the data
-layer ([docs/data.md](docs/data.md)) and the engine (`run_backtest`, see below):
+The same commands work on macOS and Linux (in bash, chain with `&&` or a new line instead of `;`). Prices come from
+Yahoo Finance through the `yfinance` package; it may print a note about `curl_cffi` on stderr, which is harmless.
+
+What you get, all relative to the folder you run `bt` in (all three folders are git-ignored here):
+
+- `data/cache/`: the prices, one Parquet file per symbol and period. They are fetched once; `bt run` and `bt report`
+  reuse them, so a second run needs no network.
+- `runs/<run id>/run.json` (with `spec.yaml`) and `runs/index.sqlite`: the journal. Every `bt run` is logged and
+  counted per strategy family.
+- `reports/<run id>/report.html`: the report, one self-contained page; open it in a browser (`start`, `open` or
+  `xdg-open` followed by the path). `report.md` and two SVG charts are next to it.
+
+`bt run` prints a summary whose first lines look like this (the shape, not real numbers: the numbers depend on the
+data revisions of the provider and change when Yahoo adjusts its history, so yours will differ):
+
+```
+Run:        <run id>
+Strategy:   SMA crossover on liquid ETFs (family sma_crossover)
+Trials:     family sma_crossover: 1 distinct variant in 1 run as of this run. This run is run 1, ...
+Period:     2010-01-01 to 2023-12-31, <n> bars
+Costs:      applied
+
+Metric            Strategy  Benchmark (SPY)
+Total return       <percent>        <percent>
+```
+
+`bt report RUN_ID` evaluates the stored spec again on the cached data and compares the result with the journal (both
+data hashes, the metrics, the trades and the costs); only if everything is equal does it write the same report again,
+which is why `--overwrite` is needed after `bt run` has written it. **Exit code 7 means that the data or the metrics
+changed** (a deleted cache, or prices that the provider has revised), and nothing is written; use the cache the run was
+made with (`--cache-dir`, default `data/cache`). Details of every command, option and exit code:
+[docs/cli.md](docs/cli.md).
+
+## Using the Python library
+
+The `bt` command line has its own section ([Command line](#command-line)), and the
+[quickstart for a fresh clone](#quickstart-for-a-fresh-clone) above runs it end to end. The Python library offers the
+data layer ([docs/data.md](docs/data.md)) and the engine (`run_backtest`, see below):
 
 ```python
 from datetime import date
@@ -122,8 +167,8 @@ uv run bt journal rebuild                                 # build the journal in
 
 `bt run`, `bt data fetch` and `bt validate --data` fetch prices from yfinance (cached under `data/cache/`), so they need
 a network connection the first time. The journal and the trial counter belong to one `--runs-dir`: run from the same
-folder to count your runs together. The command `bt report` and the full quickstart arrive with the last part of Phase 9
-(part 3).
+folder to count your runs together. `bt report RUN_ID` writes the report of a logged run again, after checking that the
+run still reproduces from the cached data (see the quickstart above and [docs/cli.md](docs/cli.md)).
 
 ## What is inside
 
@@ -137,7 +182,7 @@ folder to count your runs together. The command `bt report` and the full quickst
 | Reporting | `write_report(evaluation, reports_dir, generated_at=...)` writes `reports/<run-id>/report.md`, a self-contained `report.html` and the equity and drawdown charts as SVG files: spec, data hashes and validation, risk flags with explanations, metrics next to the benchmark, costs, monthly returns, trade statistics and a fixed section of caveats. See [docs/report.md](docs/report.md) | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
 | Journal | `run_experiment(spec, provider, runs_dir=..., generated_at=...)` evaluates, logs the run under `runs/<run-id>/` (`run.json`, SQLite index) and, with `reports_dir`, writes the report with its trial line; trial counter per strategy family (runs and distinct variants). See [docs/journal.md](docs/journal.md) | [`src/backtest_agent/journal/`](src/backtest_agent/journal), [`experiment.py`](src/backtest_agent/experiment.py) |
 | Robustness (planned) | Out-of-sample, walk-forward, sensitivity, regimes, deflated Sharpe | [`src/backtest_agent/robustness/`](src/backtest_agent/robustness) |
-| CLI | The `bt` command: `run`, `validate` (also `--data`), `data fetch`, `journal list`, `show`, `rebuild` (Phase 9, parts 1 and 2; `report` and the quickstart follow in part 3). See [docs/cli.md](docs/cli.md) | [`src/backtest_agent/cli/`](src/backtest_agent/cli) |
+| CLI | The `bt` command: `run`, `validate` (also `--data`), `data fetch`, `report`, `journal list`, `show`, `rebuild` (Phase 9). See [docs/cli.md](docs/cli.md) | [`src/backtest_agent/cli/`](src/backtest_agent/cli) |
 | Agents (planned) | The Claude Code subagents and the `/backtest` command | see [roadmap](docs/ROADMAP.md) |
 
 How the parts fit together: [docs/architecture.md](docs/architecture.md). Why they are built this way:
@@ -181,7 +226,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 6 | Performance metrics and buy-and-hold comparison | Done |
 | 7 | Markdown and HTML report with charts and caveats | Done |
 | 8 | Run log with trial counter | Done |
-| 9 | `bt` command; release `v0.1.0` | In progress (part 2 of 3) |
+| 9 | `bt` command; release `v0.1.0` | Done |
 | 10 | Strategy architect and signal coder subagents | Planned |
 | 11 | Bias auditor and report interpreter subagents | Planned |
 | 12 | `/backtest` command with approval gate; release `v0.2.0` | Planned |

@@ -146,7 +146,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 6 | `feature/metrics-benchmark`, `feature/benchmark-comparison` | Performance metrics and buy-and-hold comparison (two parts) | F-12, F-13 | M | Done |
 | 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
 | 8 | `feature/experiment-journal`, `feature/experiment-entry-point` | Run log with trial counter (two parts) | F-15 | S | Done |
-| 9 | `feature/cli`, `feature/cli-data`, `feature/cli-report` | `bt` command (three parts); release `v0.1.0` | F-16 | M | In progress (part 2 of 3) |
+| 9 | `feature/cli`, `feature/cli-data`, `feature/cli-report` | `bt` command (three parts); release `v0.1.0` | F-16 | M | Done |
 | 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
 | 11 | `feature/agents-auditor-interpreter` | Bias auditor and report interpreter subagents | F-19, F-20 | M | Planned |
 | 12 | `feature/backtest-command` | `/backtest` command with approval gate; release `v0.2.0` | F-21 | M | Planned |
@@ -340,6 +340,19 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   issue code, the counting rule of `starts_late` and `ends_early`, the generation order of issues, the bytes of a NaN in
   the data hash); no behaviour changed and `tests/test_validation_documented_issue_fields.py` pins them. One line of an
   existing test changed: `tests/test_cli_help.py` lists the new command `data`.
+- Phase 9 part 3: `bt report` follows ADR 0016 except for decisions that the ADR now states. Two integers are compared
+  exactly but an integer against a float is numeric (the first ADR text said "strings and integers are exact", which
+  left that case open); a boolean never equals a number; NaN and infinity equal nothing and cannot occur, because the
+  journal refuses them. The report folder is checked before any data is fetched (exit code 5, the hint names
+  `--overwrite`). A stored spec that no longer validates is exit code 3 (`StoredSpecError`); stored `costs_applied`
+  values that disagree between strategy and benchmark, or metric assumptions that cannot be read, are exit code 5
+  (`JournalFormatError`). The messages of exit code 7 print floats with `repr`, not through `reporting/format.py`, which
+  rounds and would hide a difference at the 1e-9 level. New public names: `ExitCode.CHANGED` (7), `RunChangedError`,
+  `StoredSpecError`, `ReportFolderExistsError`.
+- Phase 9 part 3: the one existing source file touched is `spec/loader.py`, which gained the public `problems_of(error,
+  data)` (7 lines, no behaviour change): `parse_spec` and `bt report` share the mapping of a pydantic error to a field
+  path, so a list index reads `legs[0].x`. `tests/test_cli_network.py` only gained a test; no existing line of any test
+  changed in part 3. The phase shipped in three pull requests (see the first Phase 9 entry).
 
 ---
 
@@ -582,9 +595,9 @@ Done when:
 
 ## Phase 9: Command-line interface
 
-**Branch:** `feature/cli` (part 1), `feature/cli-data` (part 2), `feature/cli-report` (part 3, rebased onto `main` after part 2 is merged) · **Goal:** the whole backtester runs from one command, without any agent.
+**Branch:** `feature/cli` (part 1), `feature/cli-data` (part 2), `feature/cli-report` (part 3, rebased onto `main` after part 2 was merged) · **Goal:** the whole backtester runs from one command, without any agent.
 
-**Status:** In progress. Part 1 (`feature/cli`): `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, [ADR 0016](adr/0016-command-line.md). Part 2 (`feature/cli-data`): `warmup_window` and `load_history` (engine, behaviour-only), `data fetch`, `validate --data`. Part 3 (`feature/cli-report`): `report`, the README quickstart; Phase 9 is **Done** with part 3, and `v0.1.0` is released after it (`chore/release-v0.1.0`, see [ADR 0016](adr/0016-command-line.md)).
+**Status:** Done. Part 1 (`feature/cli`, delivered): `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, [ADR 0016](adr/0016-command-line.md). Part 2 (`feature/cli-data`, delivered): `warmup_window` and `load_history` (engine, behaviour-only), `data fetch`, `validate --data`. Part 3 (`feature/cli-report`, delivered): `report`, the README quickstart and the test that every `bt` line of the documentation parses; `v0.1.0` is released after it (`chore/release-v0.1.0`, see [ADR 0016](adr/0016-command-line.md)).
 
 Tasks:
 
