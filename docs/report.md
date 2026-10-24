@@ -43,10 +43,12 @@ paths = write_report(evaluation, "reports", generated_at=datetime.now(timezone.u
 print(paths.markdown)
 ```
 
-`write_report(evaluation, reports_dir, *, generated_at, run_id=None, overwrite=False)` creates `reports_dir/<run-id>/` and
+`write_report(evaluation, reports_dir, *, generated_at, run_id=None, overwrite=False, trial=None)` creates `reports_dir/<run-id>/` and
 returns `ReportPaths(directory, run_id, files)`. `generated_at` must be timezone-aware. The wall clock is read by the
 caller, never by the report. `render_report(...)` returns the same files as `{name: text}` without touching the disk.
-`reports/` is git-ignored; no report, data or run output is ever committed.
+`reports/` is git-ignored; no report, data or run output is ever committed. `trial` is the place of the run in the journal
+(a `TrialInfo`, see "The trial line"); `build_report_model` and `render_report` take it too. A standard run goes through
+`run_experiment` ([journal.md](journal.md)), which logs the run and passes `trial=record.trial` and the same run id.
 
 Files of one report:
 
@@ -65,7 +67,7 @@ reader opens first, is written last, so it exists only if everything else was wr
 The headings are protected by the snapshot test `tests/snapshots/report.md`.
 
 1. **Header.** Strategy name, run id, generation time (UTC), requested period, number of bars and first and last bar,
-   universe, benchmark.
+   universe, benchmark, trials (one more row of the header block, see "The trial line").
 2. **Spec summary.** Name, description, universe, period, data provider, signal and its parameters, warm-up rows, rebalance,
    sizing, execution delay and price, same-bar flag, initial capital, the costs block (commission, spread, slippage,
    minimum commission), benchmark.
@@ -180,6 +182,55 @@ month can be partial; the report does not know how many other variants were trie
 investment advice. "This run" lists what follows from the run: the actual delay and price, risk flag codes, a window of a
 year or less, a benchmark that starts later or ends earlier, insufficient overlap. It never replaces the fixed text.
 
+## The trial line
+
+The last row of the header block, **Trials**, tells how many trials the strategy family had when this run was logged. It
+is the fact the journal knows ([journal.md](journal.md)); `ReportModel.trials` holds its text, `trial_line()` in
+`reporting/model.py` builds it from a `TrialInfo`, and both renderers print it as it is. The text below is the *value* of
+the row, on one line, without the label. The row itself is `- **Trials:** <value>` in Markdown and
+`<li><strong>Trials:</strong> <value></li>` in HTML, after the Benchmark row. In `journal.md` the value is sometimes
+written with the prefix `Trials:` only to show where it is printed.
+
+With a trial (`V` = `trial_count`, `R` = `run_number`, `N` = `trial_number`, `F` = the family, the signal id):
+
+```
+family F: V distinct variants in R runs as of this run. This run is run R, a new variant (variant V). Counts cover only runs logged in this journal.
+family F: V distinct variants in R runs as of this run. This run is run R, a repeat of variant N. Counts cover only runs logged in this journal.
+```
+
+The value uses single spaces, one colon after the family and one full stop after each of the three sentences; `F` is the
+signal id as it is (whitespace collapsed, nothing added around it: no quotes, no backticks). For a new variant `N` equals `V`
+(the new variant is the last one). `variant` and `run` are singular for the number 1 and plural otherwise, each on its own (`1 distinct variant in 1 run`,
+`1 distinct variant in 3 runs`, `2 distinct variants in 3 runs`, `3 distinct variants in 5 runs`; `2 distinct variants in
+1 run` cannot occur). Worked examples from the counter table of [journal.md](journal.md), family `sma_crossover`:
+
+| Step | Line |
+|---|---|
+| S1 | `family sma_crossover: 1 distinct variant in 1 run as of this run. This run is run 1, a new variant (variant 1). Counts cover only runs logged in this journal.` |
+| S3 | `family sma_crossover: 2 distinct variants in 3 runs as of this run. This run is run 3, a new variant (variant 2). Counts cover only runs logged in this journal.` |
+| S6 | `family sma_crossover: 3 distinct variants in 5 runs as of this run. This run is run 5, a repeat of variant 1. Counts cover only runs logged in this journal.` |
+
+Without a trial (`write_report` called directly) the value is the single line `not recorded (this report was not written
+through run_experiment)` (one space where this page wraps the line): the visible marker of a run that is not in the
+journal. `trial_line` raises `ValueError` for a `TrialInfo` that cannot be true. The message starts with the name of the
+field and states the values; the rules, in the order they are checked, with the message for an example:
+
+| Rule | Message (example) |
+|---|---|
+| `run_number`, `trial_number` or `trial_count` below 1 | `trial.run_number must be 1 or more, got 0` |
+| `trial_number` above `trial_count` | `trial.trial_number (3) is above trial.trial_count (2)` |
+| `trial_count` above `run_number` | `trial.trial_count (2) is above trial.run_number (1)` |
+| a new variant whose `trial_number` is not `trial_count` | `trial.new_variant is true but trial.trial_number (1) differs from trial.trial_count (2)` |
+| a repeat whose `trial_count` equals `run_number` (a repeat needs an earlier run) | `trial.new_variant is false but trial.trial_count equals trial.run_number (2): a repeat needs an earlier run` |
+
+So `trial_count` 2 with `run_number` 1 gives the third message. The variant hash is not printed; it is in `run.json`.
+
+**How it fits the "Selection bias" caveat.** The fixed caveat stays exactly as it is: it is the general warning that a
+report cannot know how many other variants were tried. The line is the count of this journal, and its last sentence says so.
+Trials outside the journal (another machine or folder, a deleted run folder, a renamed signal id, an experiment run by hand,
+a run written without `run_experiment`) are in neither, so the caveat applies even when the line shows a number: the number
+is a lower bound of the real count, not the count.
+
 ## Escaping
 
 The model keeps text from the spec or the data (names, symbols, validation messages) with whitespace collapsed, `(none)` for
@@ -277,8 +328,8 @@ so no light colour is left over in dark mode. The rules:
 
 ## What is deliberately not in the report
 
-- The command line (`bt report`, Phase 9) and the journal: trial counter, code version, run store (Phase 8). The report says
-  that it does not know how many variants were tried.
+- The command line (`bt report`, Phase 9) and the journal itself (trial counter, code version, run store: Phase 8, see
+  [journal.md](journal.md)); the report only prints the trial line it is given and never reads the journal.
 - Auditor and interpreter sections (Phase 11), out-of-sample, walk-forward, sensitivity and regime sections (Phases 13
   and 14), the deflated Sharpe ratio (Phase 15).
 - PDF, a JSON export of the model, interactive or zoomable charts, a log axis, a gross-equity line, a benchmark heatmap,
@@ -296,7 +347,8 @@ so no light colour is left over in dark mode. The rules:
 | `tests/test_report_model.py` | Literal display strings (R3b, H23, T2), heatmap grid with partial months, equity caption for equal, late and early start, table and caveats guards |
 | `tests/test_report_charts.py` | Hand-calculated ticks, coordinates and paths, degenerate inputs, escaping, guards |
 | `tests/test_report_markdown.py` | Headings and table headers in order, links, escaping of hostile text, caveats for every kind of run |
-| `tests/test_report_markdown_snapshot.py`, `tests/snapshots/report.md` | The reviewed structure of the whole Markdown report |
+| `tests/test_report_markdown_snapshot.py`, `tests/snapshots/report.md` | The reviewed structure of the whole Markdown report (with a literal `TrialInfo`) |
+| `tests/test_report_trial_line.py` | The trial line: literal wording of every reachable case, plurals, new and repeat, none, each refusal, exact text in Markdown and HTML, escaping, the unchanged Selection bias caveat |
 | `tests/test_report_none_values.py` | `None` never prints as `nan`, `None` or an empty cell; NaN and infinity raise with the field name |
 | `tests/test_report_writer.py` | Four files in write order, links, line ends, atomicity (a render failure, a failure on any write including the HTML write, which is the last one), `FileExistsError`, path traversal, cleanup after a failed write |
 | `tests/report_helpers.py` | Synthetic evaluations (equal start, late and early benchmark, insufficient overlap, costs off, benchmark in the universe, flags, insufficient warm-up) |

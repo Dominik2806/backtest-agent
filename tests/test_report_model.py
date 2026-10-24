@@ -106,7 +106,7 @@ def test_a_naive_generated_at_is_rejected() -> None:
 def test_the_signatures_have_no_way_to_touch_the_caveats() -> None:
     for function in (build_report_model, heatmap_section):
         assert not [name for name in inspect.signature(function).parameters if "caveat" in name.lower()]
-    assert list(inspect.signature(build_report_model).parameters) == ["evaluation", "run_id", "generated_at"]
+    assert list(inspect.signature(build_report_model).parameters) == ["evaluation", "run_id", "generated_at", "trial"]
 
 
 # --- data, flags ----------------------------------------------------------------------------------

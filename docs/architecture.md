@@ -42,7 +42,8 @@ flowchart LR
 6. The engine shifts the signals by `delay_bars` (default 1), applies costs and produces equity curve, positions and
    trades; metrics are computed next to a buy-and-hold benchmark.
 7. The journal stores the run (spec, data hash, code version, metrics) and increments the trial counter of the
-   strategy family.
+   strategy family. `run_experiment` does steps 6 to 8 for a standard run: evaluate, log, then write the report with the
+   trial line (see [journal.md](journal.md)).
 8. The report is written, the bias auditor adds findings and the report interpreter adds the verdict.
 
 The same steps run without any agent through the `bt` command (Phase 9).
@@ -55,8 +56,9 @@ The same steps run without any agent through the `bt` command (Phase 9).
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals, example specs (Phase 3; see [strategy-spec.md](strategy-spec.md)) | `src/backtest_agent/spec/`, `strategies/` |
 | Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; costs and gross versus net (Phases 4 and 5, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
 | Metrics | Performance and risk metrics and benchmark comparison with `evaluate` (Phase 6, see [metrics.md](metrics.md)) | `src/backtest_agent/metrics/` |
-| Reporting | Markdown report (HTML in Phase 7 part 2) with SVG charts and caveats, see [report.md](report.md) | `src/backtest_agent/reporting/` |
-| Journal | Run log with trial counter per strategy family | `src/backtest_agent/journal/` |
+| Reporting | Markdown and HTML report with SVG charts, caveats and the trial line, see [report.md](report.md) | `src/backtest_agent/reporting/` |
+| Journal | Run log, SQLite index and trial counter per strategy family (Phase 8, see [journal.md](journal.md)) | `src/backtest_agent/journal/` |
+| Experiment | `run_experiment`: evaluate, log, report in one call (Phase 8) | `src/backtest_agent/experiment.py` |
 | CLI | The `bt` command (planned, Phase 9) | `src/backtest_agent/cli.py` |
 | Agents | Strategy architect, signal coder, bias auditor, report interpreter, `/backtest` command (planned, Phases 10 to 12) | `.claude/` |
 | Robustness | Out-of-sample, walk-forward, sensitivity, regimes, look-ahead test, deflated Sharpe | `src/backtest_agent/robustness/` |
@@ -85,4 +87,4 @@ reports are git-ignored and never committed.
 | Bad data must not produce a result | `validate_prices` reports data errors, warnings and infos with stable codes; `ValidationResult.raise_for_errors()` raises `DataValidationError`, and the run pipeline calls it before every run (mechanism done in Phase 2, wired into the run by `run_backtest` in Phase 4 and the CLI in Phase 9); the data hash ties a result to its exact data |
 | Tests must not touch the network | A fake in-memory data provider, yfinance mocked in tests, the one live test marked `network` and excluded by default; CI runs without network access (active) |
 | Market data, outputs and secrets must not be committed | `.gitignore` entries for `data/`, `runs/`, `reports/`, `*.parquet`, `.env`; PR checklist (active) |
-| An overfitted result must not look like a real one | Trial counter in the journal and the deflated Sharpe ratio (planned, Phases 8 and 15) |
+| An overfitted result must not look like a real one | Trial counter in the journal and the trial line of the report (Phase 8, done); the deflated Sharpe ratio (planned, Phase 15) |

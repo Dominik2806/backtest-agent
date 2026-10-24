@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from backtest_agent.journal.models import TrialInfo
 from backtest_agent.metrics.evaluation import Evaluation
 from backtest_agent.reporting.charts import line_chart_svg
 from backtest_agent.reporting.html_renderer import render_html
@@ -44,12 +45,14 @@ class ReportPaths:
         return self.directory / REPORT_HTML
 
 
-def render_report(evaluation: Evaluation, *, run_id: str, generated_at: datetime) -> dict[str, str]:
+def render_report(
+    evaluation: Evaluation, *, run_id: str, generated_at: datetime, trial: TrialInfo | None = None
+) -> dict[str, str]:
     """All files of a report as text, by file name, rendered in memory. Nothing is written.
 
     The order is the order of writing: the HTML report, which embeds the charts and is the file a reader opens, is last.
     """
-    model = build_report_model(evaluation, run_id=run_id, generated_at=generated_at)
+    model = build_report_model(evaluation, run_id=run_id, generated_at=generated_at, trial=trial)
     charts = model.charts
     return {
         REPORT_MD: render_markdown(model),
@@ -66,16 +69,20 @@ def write_report(
     generated_at: datetime,
     run_id: str | None = None,
     overwrite: bool = False,
+    trial: TrialInfo | None = None,
 ) -> ReportPaths:
     """Write the report of ``evaluation`` to ``<reports_dir>/<run-id>/`` and return the paths.
 
     ``generated_at`` must be timezone-aware. The run id is ``make_run_id(evaluation, generated_at)`` unless one is
-    given (checked by ``check_run_id``). Everything is rendered before the folder is created. Raises
-    ``FileExistsError`` if the folder exists and ``overwrite`` is False. If writing a file fails, a folder that this
-    call created is removed again.
+    given (checked by ``check_run_id``). ``trial`` is the place of the run in the journal (``run_experiment`` passes
+    it); without it the report says that the trials are not recorded. Everything is rendered before the folder is
+    created. Raises ``FileExistsError`` if the folder exists and ``overwrite`` is False. If writing a file fails, a
+    folder that this call created is removed again.
     """
     chosen = check_run_id(run_id if run_id is not None else make_run_id(evaluation, generated_at))
-    files = render_report(evaluation, run_id=chosen, generated_at=generated_at)  # may raise: nothing is on disk yet
+    files = render_report(
+        evaluation, run_id=chosen, generated_at=generated_at, trial=trial
+    )  # may raise: nothing is on disk yet
 
     base = Path(reports_dir)
     directory = base / chosen

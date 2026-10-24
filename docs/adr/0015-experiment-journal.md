@@ -67,3 +67,23 @@ states the count. The layout, the schema, the definitions and the failure behavi
   journal types, so the guard moved from `reporting/writer.py` to `run_id.py` and is re-exported by the writer. This
   touches ADR 0014 only in that the "neutral module" it names for the run id now also holds the guard; the run id
   format and the hash input are unchanged.
+
+## Part 2: the entry point and the trial line
+
+- **One entry point, in its own module.** `run_experiment` (`backtest_agent/experiment.py`) evaluates, logs and reports in
+  this order. `journal` never imports `reporting`; `reporting` imports only the `TrialInfo` type; `experiment.py` is the
+  one module that uses both. Alternative rejected: logging inside `evaluate()` or `write_report()`, which would make pure
+  functions write to disk.
+- **A logged run counts, so the entry stays when the report fails.** The failure raises `ExperimentReportError` with the
+  evaluation, the record, the time and the reports folder, and `retry()` writes the report again for the same run id and
+  trial without logging. A second failure of `retry()` is the plain error of `write_report`, not another wrapper. Alternative
+  rejected: deleting the journal entry (a failed-looking run would vanish from the count).
+- **Only the run id collision is reworded.** `FileExistsError` becomes "run id already exists; use a later generated_at"
+  only when `runs/<run-id>/` exists; any other `FileExistsError` passes through. A report folder that already exists is
+  refused before anything is logged.
+- **The trial line is a header row, not a section and not a caveat.** It states the fact the journal knows (family,
+  distinct variants, runs, this run's number, new or repeat, as of this run, only runs logged in this journal). The fixed
+  "Selection bias" caveat is unchanged: it stays the general warning, because runs outside the journal are invisible to the
+  line. `trial_line` refuses a `TrialInfo` that cannot be true. The variant hash is not printed.
+- **Convention plus a marker.** A report written without a trial says `Trials: not recorded (...)`. See
+  [journal.md](../journal.md), "What the journal does not do".

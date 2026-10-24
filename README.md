@@ -25,8 +25,8 @@ the same as one.
 The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton, the data
 layer, the strategy spec, the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage), the
 performance metrics of a run next to its buy-and-hold benchmark (Phase 6), and the Markdown and HTML reports with charts
-and caveats (Phase 7) exist; the other features described above arrive in the phases named in the
-[roadmap](docs/ROADMAP.md).
+and caveats (Phase 7), and the run journal with its trial counter (Phase 8) exist; the other features described above
+arrive in the phases named in the [roadmap](docs/ROADMAP.md).
 
 ## Requirements
 
@@ -85,6 +85,24 @@ result = run_backtest(spec, FakeProvider(symbols=spec.universe))
 print(result.equity.iloc[-1], result.total_costs, [flag.code for flag in result.risk_flags], result.warmup.sufficient)
 ```
 
+A standard run goes through `run_experiment`: it evaluates the spec next to its benchmark, logs the run under
+`runs/<run-id>/` (counted per strategy family) and writes the report with the trial line, how many distinct variants in
+how many runs the family has had, into `reports/<run-id>/`
+([docs/journal.md](docs/journal.md), [docs/report.md](docs/report.md)):
+
+```python
+from datetime import UTC, datetime
+from backtest_agent.experiment import run_experiment
+
+experiment = run_experiment(
+    spec, FakeProvider(symbols=spec.universe), runs_dir="runs", reports_dir="reports", generated_at=datetime.now(UTC)
+)
+print(experiment.record.trial, experiment.report.markdown)
+```
+
+A report written with `write_report` alone says `Trials: not recorded`; the journal cannot force a run to be logged, so
+this is a convention plus a visible marker.
+
 One live test against yfinance exists and is excluded by default; run it manually with `uv run pytest -m network`.
 
 ## What is inside
@@ -97,7 +115,7 @@ One live test against yfinance exists and is excluded by default; run it manuall
 | Engine | Portfolio simulation with execution delay, rebalancing and costs (commission, half-spread, slippage), long-only, multi-asset, and `run_backtest` (data with warm-up, validation, hash, net and gross result). See [docs/engine.md](docs/engine.md) | [`src/backtest_agent/engine/`](src/backtest_agent/engine) |
 | Metrics | CAGR, volatility, Sharpe, Sortino, drawdown, Calmar, hit rate, turnover, exposure and monthly returns of a run, and `evaluate`, which runs the buy-and-hold benchmark through the same engine and reports excess return, tracking error and information ratio. See [docs/metrics.md](docs/metrics.md) | [`src/backtest_agent/metrics/`](src/backtest_agent/metrics) |
 | Reporting | `write_report(evaluation, reports_dir, generated_at=...)` writes `reports/<run-id>/report.md`, a self-contained `report.html` and the equity and drawdown charts as SVG files: spec, data hashes and validation, risk flags with explanations, metrics next to the benchmark, costs, monthly returns, trade statistics and a fixed section of caveats. See [docs/report.md](docs/report.md) | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
-| Journal (planned) | Run log with trial counter per strategy family | [`src/backtest_agent/journal/`](src/backtest_agent/journal) |
+| Journal | `run_experiment(spec, provider, runs_dir=..., generated_at=...)` evaluates, logs the run under `runs/<run-id>/` (`run.json`, SQLite index) and, with `reports_dir`, writes the report with its trial line; trial counter per strategy family (runs and distinct variants). See [docs/journal.md](docs/journal.md) | [`src/backtest_agent/journal/`](src/backtest_agent/journal), [`experiment.py`](src/backtest_agent/experiment.py) |
 | Robustness (planned) | Out-of-sample, walk-forward, sensitivity, regimes, deflated Sharpe | [`src/backtest_agent/robustness/`](src/backtest_agent/robustness) |
 | CLI and agents (planned) | The `bt` command and the Claude Code subagents | see [roadmap](docs/ROADMAP.md) |
 
@@ -141,7 +159,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 5 | Commission, spread and slippage models | Done |
 | 6 | Performance metrics and buy-and-hold comparison | Done |
 | 7 | Markdown and HTML report with charts and caveats | Done |
-| 8 | Run log with trial counter | Planned |
+| 8 | Run log with trial counter | Done |
 | 9 | `bt` command; release `v0.1.0` | Planned |
 | 10 | Strategy architect and signal coder subagents | Planned |
 | 11 | Bias auditor and report interpreter subagents | Planned |

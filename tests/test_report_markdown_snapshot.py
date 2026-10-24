@@ -17,19 +17,29 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from backtest_agent.journal.models import TrialInfo
 from backtest_agent.reporting.markdown_renderer import render_markdown
 from backtest_agent.reporting.model import build_report_model
 
 SNAPSHOT = Path(__file__).resolve().parent / "snapshots" / "report.md"
 WHEN = datetime(2026, 1, 15, 10, 30, 5, tzinfo=UTC)
 RUN_ID = "20260115T103005Z-buy-and-hold-a-a85a59ee"
+# the third run of its family, a repeat of variant 1 (two variants so far); the hash is the one of docs/journal.md
+TRIAL = TrialInfo(
+    "buy_and_hold",
+    "a7b3d3b5b0e2a72814fcb465bc7d203f96ae332c45eff8880ac85e5a9a492cad",
+    run_number=3,
+    trial_number=1,
+    trial_count=2,
+    new_variant=False,
+)
 
 
 def current() -> str:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from report_helpers import equal_start
 
-    return render_markdown(build_report_model(equal_start(), run_id=RUN_ID, generated_at=WHEN))
+    return render_markdown(build_report_model(equal_start(), run_id=RUN_ID, generated_at=WHEN, trial=TRIAL))
 
 
 def test_the_markdown_matches_the_snapshot() -> None:

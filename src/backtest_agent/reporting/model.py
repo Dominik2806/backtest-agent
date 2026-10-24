@@ -18,6 +18,7 @@ import pandas as pd
 
 from backtest_agent.data.validation import ValidationResult
 from backtest_agent.engine.result import BacktestResult
+from backtest_agent.journal.models import TrialInfo
 from backtest_agent.metrics.evaluation import Evaluation
 from backtest_agent.metrics.performance import PerformanceMetrics, drawdown_path, monthly_returns
 from backtest_agent.metrics.relative import Alignment
@@ -189,6 +190,7 @@ class ReportModel:
     """
 
     header: HeaderSection
+    trials: str  # the value of the "Trials" item of the header block (see ``trial_line``)
     spec: Table
     data: DataSection
     flags: tuple[FlagRow, ...]
@@ -204,6 +206,50 @@ class ReportModel:
     def __post_init__(self) -> None:
         if self.fixed_caveats != fixed_caveats():
             raise ValueError("the fixed caveats of a report must be exactly the text of fixed_caveats()")
+
+
+NO_TRIAL = "not recorded (this report was not written through run_experiment)"
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
+def trial_line(trial: TrialInfo | None) -> str:
+    """The value of the Trials item: the family, the counts as of this run and whether the run is new or a repeat.
+
+    ``None`` (a report not written through ``run_experiment``) says so. An impossible ``TrialInfo`` raises
+    ``ValueError`` naming the field, so the report never states something that cannot be true (docs/report.md).
+    """
+    if trial is None:
+        return NO_TRIAL
+    for field in ("run_number", "trial_number", "trial_count"):
+        if getattr(trial, field) < 1:
+            raise ValueError(f"trial.{field} must be 1 or more, got {getattr(trial, field)}")
+    if trial.trial_number > trial.trial_count:
+        raise ValueError(f"trial.trial_number ({trial.trial_number}) is above trial.trial_count ({trial.trial_count})")
+    if trial.trial_count > trial.run_number:
+        raise ValueError(f"trial.trial_count ({trial.trial_count}) is above trial.run_number ({trial.run_number})")
+    if trial.new_variant and trial.trial_number != trial.trial_count:
+        raise ValueError(
+            f"trial.new_variant is true but trial.trial_number ({trial.trial_number}) differs from "
+            f"trial.trial_count ({trial.trial_count})"
+        )
+    if not trial.new_variant and trial.trial_count == trial.run_number:
+        raise ValueError(
+            f"trial.new_variant is false but trial.trial_count equals trial.run_number ({trial.run_number}): "
+            "a repeat needs an earlier run"
+        )
+    which = (
+        f"a new variant (variant {trial.trial_number})"
+        if trial.new_variant
+        else f"a repeat of variant {trial.trial_number}"
+    )
+    return (
+        f"family {text(trial.family)}: {_plural(trial.trial_count, 'distinct variant')} in "
+        f"{_plural(trial.run_number, 'run')} as of this run. This run is run {trial.run_number}, {which}. "
+        "Counts cover only runs logged in this journal."
+    )
 
 
 # --- builders ---------------------------------------------------------------------------------------------------------
@@ -698,10 +744,17 @@ def _trades_section(evaluation: Evaluation) -> TradesSection:
     return TradesSection(summary, per_symbol, notes)
 
 
-def build_report_model(evaluation: Evaluation, *, run_id: str, generated_at: datetime) -> ReportModel:
-    """The model of one report. ``generated_at`` must be timezone-aware; it is the only time in the report."""
+def build_report_model(
+    evaluation: Evaluation, *, run_id: str, generated_at: datetime, trial: TrialInfo | None = None
+) -> ReportModel:
+    """The model of one report. ``generated_at`` must be timezone-aware; it is the only time in the report.
+
+    ``trial`` is where the run stands in the journal (``run_experiment`` passes it); without it the report says that
+    the trials are not recorded.
+    """
     return ReportModel(
         header=_header(evaluation, run_id, generated_at),
+        trials=trial_line(trial),
         spec=_spec_table(evaluation.result),
         data=_data_section(evaluation),
         flags=_flags(evaluation),
