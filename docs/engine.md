@@ -224,11 +224,20 @@ function (see [metrics.md](metrics.md), "Benchmark and relative metrics").
 1. **Window.** Let `N = spec.warmup_rows + delay_bars`. History is fetched from `period.start` minus `2 * N + 14`
    calendar days up to `period.end` for the symbols of the universe (`provider.get_prices`). The buffer is generous
    (about 1.4 trading rows per row needed, plus two weeks for holidays); the rows are then counted, there is no
-   retry.
+   retry. The window is `warmup_window(spec)` in `engine/history.py` (a frozen `WarmupWindow`: `required_rows`,
+   `delay_bars`, `rows_needed`, `buffer_days`, `fetch_start`); it is the only place that knows the formula, and the
+   command line uses it through `load_history`.
 2. **Checks.** The frame must follow the standard format with the universe symbols in order; rows after `period.end`
    are a broken provider contract (`ValueError`). `validate_prices` runs on the whole frame; errors raise
    `DataValidationError`, warnings and infos go into `BacktestResult.validation`.
 3. **Hash.** `data_hash` is `hash_frame` of the frame as loaded, warm-up rows included.
+
+   Steps 1 to 3 are one function, `load_history(spec, provider)` in `engine/history.py`, which `run_backtest` calls. It
+   returns a `LoadedHistory` (`window`, `frame`, `validation`, `data_hash`) and does **not** raise validation errors
+   (`run_backtest` calls `validation.raise_for_errors()` right after it); the failures of the contract still raise there
+   (`DataUnavailableError` for a missing symbol, `ValueError` for a frame in the wrong format or with rows after
+   `period.end`). The hash is computed before the validation errors are raised, which no caller can observe because
+   `hash_frame` only repeats a check the frame has already passed.
 4. **Signals.** The registered signal runs through `Signal.generate` (the runtime contract check) on the **whole**
    loaded frame; the history is not trimmed before, so the signals are warmed up on the first bar.
 5. **Simulation.** `simulate_signals` runs with the sizing, execution, rebalance rule and initial capital of the spec

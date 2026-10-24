@@ -54,7 +54,7 @@ The same steps run without any agent through the `bt` command (Phase 9).
 |---|---|---|
 | Data layer | Provider interface, yfinance provider, fake provider, Parquet cache (Phase 1); validation, data hash (Phase 2) | `src/backtest_agent/data/` |
 | Strategy spec | Pydantic schema for YAML specs, signal interface and registry, built-in signals, example specs (Phase 3; see [strategy-spec.md](strategy-spec.md)) | `src/backtest_agent/spec/`, `strategies/` |
-| Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; costs and gross versus net (Phases 4 and 5, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
+| Engine | Daily bar loop with vector operations across symbols, long-only, multi-asset, execution delay, rebalancing; `run_backtest` and `BacktestResult`; `warmup_window` and `load_history` (the one place that knows the data window and loads and hashes a request, used by `run_backtest` and the CLI); costs and gross versus net (Phases 4 and 5, see [engine.md](engine.md)) | `src/backtest_agent/engine/` |
 | Metrics | Performance and risk metrics and benchmark comparison with `evaluate` (Phase 6, see [metrics.md](metrics.md)) | `src/backtest_agent/metrics/` |
 | Reporting | Markdown and HTML report with SVG charts, caveats and the trial line, see [report.md](report.md) | `src/backtest_agent/reporting/` |
 | Journal | Run log, SQLite index and trial counter per strategy family (Phase 8, see [journal.md](journal.md)) | `src/backtest_agent/journal/` |

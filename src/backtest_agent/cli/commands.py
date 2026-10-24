@@ -10,7 +10,8 @@ from typing import TextIO
 
 from backtest_agent.cli import render
 from backtest_agent.cli.argtypes import positive_int, run_id_arg
-from backtest_agent.cli.errors import ExitCode
+from backtest_agent.cli.data import fetch_data
+from backtest_agent.cli.errors import ExitCode, ReportedValidationErrors
 from backtest_agent.cli.provider import ProviderFactory
 from backtest_agent.experiment import run_experiment
 from backtest_agent.journal import get_run, list_runs, rebuild_index
@@ -53,9 +54,26 @@ def cmd_run(args: argparse.Namespace, context: Context) -> ExitCode:
 
 
 def cmd_validate(args: argparse.Namespace, context: Context) -> ExitCode:
-    """Load and check a spec. No network, nothing is written."""
+    """Load and check a spec. Without ``--data``: no network, nothing is written."""
     spec = load_spec(args.spec)
-    context.emit(*render.validate_lines(spec, args.spec))
+    lines = render.validate_lines(spec, args.spec)
+    if not args.data:
+        context.emit(*lines)
+        return ExitCode.OK
+    fetch = fetch_data(spec, context.provider_factory(args.cache_dir))
+    context.emit(*lines, "", *render.data_blocks(fetch, issues=True))
+    if fetch.error_count:
+        raise ReportedValidationErrors(fetch.error_count)
+    return ExitCode.OK
+
+
+def cmd_data_fetch(args: argparse.Namespace, context: Context) -> ExitCode:
+    """Fetch the two requests of a run through the cache and print them; judging the data is ``validate --data``."""
+    spec = load_spec(args.spec)
+    fetch = fetch_data(spec, context.provider_factory(args.cache_dir))
+    context.emit(*render.data_fetch_lines(fetch))
+    if fetch.error_count:
+        print(render.validation_warning(fetch.error_count, args.spec), file=context.err)
     return ExitCode.OK
 
 
@@ -177,9 +195,39 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
     validate = sub.add_parser(
         "validate",
         parents=[common],
-        help="check a strategy spec (schema, signal id, parameters); no data is fetched",
+        help="check a strategy spec (schema, signal id, parameters); with --data also its data",
         description="Check a strategy spec: the schema, the registered signal id and its parameters. "
-        "Every problem is listed with its field path. No data is fetched and nothing is written.",
+        "Every problem is listed with its field path. Without --data no data is fetched and nothing is written. "
+        "With --data the two requests of a run are fetched through the cache and every validation issue is listed; "
+        "validation errors give exit code 4 because a run would fail.",
     )
     validate.add_argument("spec", metavar="SPEC", help="path of the YAML strategy spec")
+    validate.add_argument("--data", action="store_true", help="also fetch the data of the spec and validate it")
+    validate.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=Path("data/cache"),
+        metavar="DIR",
+        help="price cache folder (data/cache); used with --data",
+    )
     validate.set_defaults(handler=cmd_validate)
+
+    data = sub.add_parser(
+        "data",
+        help="fetch the data of a spec: fetch",
+        description="Fetch the data a spec needs (docs/cli.md). Folders are relative to the current directory.",
+    )
+    data_actions = data.add_subparsers(dest="data_command", required=True, metavar="ACTION")
+    fetch = data_actions.add_parser(
+        "fetch",
+        parents=[common],
+        help="fetch the two requests of a run into the cache and print what came back",
+        description="Fetch exactly the two requests of a run through the cache: the universe over its window and the "
+        "benchmark over its own window. Prints the rows per symbol, the validation counts and the data hash of each "
+        "request; validation errors give a warning, not an exit code (bt validate SPEC --data judges them).",
+    )
+    fetch.add_argument("spec", metavar="SPEC", help="path of the YAML strategy spec")
+    fetch.add_argument(
+        "--cache-dir", type=Path, default=Path("data/cache"), metavar="DIR", help="price cache folder (data/cache)"
+    )
+    fetch.set_defaults(handler=cmd_data_fetch)

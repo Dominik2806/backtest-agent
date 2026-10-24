@@ -136,7 +136,18 @@ Details that matter:
   number of affected rows) and at most `max_dates_per_issue` (default 5) `first_dates`. A symbol whose volume is NaN
   (or zero) on every row gives exactly one `nan_volume` (or `zero_volume`) issue with `count` equal to the number of
   rows, and its message says "every row". For `starts_late` and `ends_early`, `count` is the number of missing
-  business days.
+  business days (Monday to Friday): for `starts_late` those from `start` (included) up to the symbol's first data date
+  (not included), for `ends_early` those from the day after the symbol's last data date up to `end` (included); the
+  issue fires if the count is above the tolerance. `field` is `None` for the frame-level issues and for `no_data`,
+  `calendar_gap`, `starts_late` and `ends_early`; every other issue names its field: `volume` for `nan_volume`,
+  `negative_volume` and `zero_volume`, `high` for `ohlc_high_below_low`, `close` for `ohlc_close_outside_range`,
+  `extreme_move`, `stale_price` and `split_artifact`, `open` for `ohlc_open_outside_range`, and the affected field for
+  `non_finite_value`, `nan_in_history` and `non_positive_price`. For `starts_late` and `ends_early`, `first_dates` holds exactly one date: the symbol's first data date
+  (`starts_late`) or last data date (`ends_early`). For every other per-symbol issue, `first_dates` are the earliest
+  affected dates in ascending order, at most `max_dates_per_issue`; an affected date is the date of an affected row, and
+  for `calendar_gap`, `extreme_move` and `split_artifact` the date of the row where the gap or the move ends (`no_data`
+  has no dates). What `first_dates` of the frame-level issues `unsorted_dates` and `duplicate_dates` hold is not defined
+  here; the command line prints no dates for them.
 - **Strict thresholds.** A move of exactly 40 percent, a gap of exactly 4 missing business days, a stale run of 4
   or a range deviation of exactly 3 business days does not fire; one more does.
 - **No cascades.** OHLC checks use only rows whose four prices are finite and positive, and high and low are ordered
@@ -165,8 +176,10 @@ result.raise_for_errors()  # raises DataValidationError if there is any error
 
 - A `ValidationIssue` has `severity`, a stable `code`, `symbol` and `field` (both `None` for frame-level issues),
   `count`, `first_dates` and a readable `message`.
-- Issues are ordered errors first, then warnings, then infos, and in the fixed order of the table above inside a
-  severity (symbols in column order). Equal data and config give an equal result and identical JSON.
+- Issues are generated frame-level first (`unsorted_dates`, `duplicate_dates`), then symbol by symbol in column order,
+  and for one symbol in the order of the table above; they are then sorted by severity only, errors first, then
+  warnings, then infos, and the sort is stable, so inside a severity that generation order is kept. Equal data and
+  config give an equal result and identical JSON.
 - `to_dict()` and `to_json()` (sorted keys, ISO dates) contain `ok`, `counts`, `issues` and the `config` that was
   used, so a stored result states its own thresholds.
 - `ValidationConfig` is a frozen dataclass with the defaults of the table; change a threshold per run with a new
@@ -182,12 +195,13 @@ the exact data it used. The frame must follow the standard format (`ValueError` 
 order (version `HASH_VERSION = "1"`):
 
 1. the ASCII tag `backtest-agent/frame-hash/v1` and a newline (the version prefix);
-2. the row count and the symbol count, each as little-endian `uint64`;
+2. the row count and the symbol count (the number of distinct symbols, not of columns), each as little-endian
+   `uint64`;
 3. for every column, with symbols sorted and fields in the order `open`, `high`, `low`, `close`, `volume`: the symbol
    and the field as UTF-8, each prefixed by its byte length as little-endian `uint64`;
 4. the index as little-endian `int64`, days since 1970-01-01;
 5. the values column by column as little-endian `float64`, with every NaN written as the one canonical NaN
-   (`0x7ff8000000000000`) and negative zero written as positive zero.
+   (`0x7ff8000000000000`, the eight bytes `00 00 00 00 00 00 f8 7f`) and negative zero written as positive zero.
 
 Consequences: the digest is the same on Windows and Linux and does not depend on the pandas, numpy or Parquet version
 (Parquet or pickle bytes are never hashed), on the datetime unit, or on the order in which symbols were requested. Any
