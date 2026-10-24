@@ -250,22 +250,28 @@ data and refuses if the result differs from the journal.
    (and the other three files) is identical to the original byte for byte**, including the trial line "as of this run" even
    if more runs of the family were logged since.
 
-**What is compared.** The keys `spec`, `evaluation` (both data hashes, all metrics, the alignment, the assumptions), `trades`
-and `costs` of the record (`RunRecord.to_dict()`). **Not compared:** `code_version`, `generated_at`, `run_number`,
-`trial_number`, `trial_count` (and the run id, which is the key). Rules per value:
+**What is compared.** Exactly four of the keys of `run.json` ([journal.md](journal.md)): `spec`, `evaluation` (both data
+hashes, all metrics, the alignment, the assumptions), `trades` and `costs`. **Not compared:** the others, that is
+`schema_version`, `run_id`, `generated_at`, `code_version`, `family` and `trial` with all its keys (`variant_hash`,
+`run_number`, `trial_number`, `trial_count`, `new_variant`): the stored values of these are used to build the fresh record
+and the report. The stored `spec` is compared too because it is rebuilt through the current schema: a difference in
+`spec` means that the schema or a default changed since the run. Rules per value:
 
 | Stored against fresh | Equal when |
 |---|---|
 | string (also both data hashes) | the same text |
 | `true` / `false` | the same boolean; a boolean is never equal to `1`, `1.0`, `0` or `0.0` |
 | `null` | only `null`; `null` against a number is a difference |
-| NaN, infinity | never equal to anything, not even to themselves; they cannot occur (below) |
+| NaN, infinity | never equal to anything, not even to themselves; this rule comes before the formula below, which would call infinity equal to any number; they cannot occur (below) |
 | integer against integer | the same integer (exact) |
 | integer against float, float against float | `abs(a - b) <= 1e-9 * max(1, abs(a), abs(b))` |
 | object against object, list against list | every key / index is equal; a key or index only in the stored record is `missing`, only in the fresh one `extra` |
 | any other pair (an object against a number, a string against a number, ...) | never: one difference at that path |
 
-A changed data hash is **"data changed"**, any other difference is **"metrics changed"**. Both are exit code 7.
+A **data hash** is a value whose key is `data_hash`: `evaluation.strategy.data_hash` and `evaluation.benchmark.data_hash`,
+nothing else. If at least one of them differs the run is **"data changed"**, whatever else differs (the other differences
+follow from it), and the hint is the one for changed data; if only other things differ it is **"metrics changed"**. Both
+are exit code 7. If both hashes differ they are listed in sorted order, the benchmark's first.
 
 **NaN and infinity cannot occur.** `run.json` is canonical JSON written with `allow_nan=False`, so the journal refuses to
 store them, and a metric that is not defined is stored as `null` (the Sharpe ratio of a run on flat prices, for example,
@@ -275,24 +281,39 @@ comparison; the comparison itself treats a non-finite number as different from e
 run as reproduced.
 
 **Paths and order.** A difference is named by its path: keys joined by `.` and list indices as `[i]`, starting with the key
-(`evaluation.strategy.metrics.sharpe`, `trades.n_trades`); a key that is not made of letters, digits and `_` is written as a
-JSON-quoted index (`evaluation.positions["BRK.B"].shares`). The differences are found in a fixed order: the compared keys in
-the order above, inside an object the keys sorted, inside a list the indices, depth first. The message lists the **data hash
-differences first**, then the others in that order; at most **5** paths are printed, then `  ... and N more`.
+(`evaluation.strategy.metrics.sharpe`, `trades.n_trades`, `spec.universe[1]`); a key that is not made only of the ASCII
+letters, digits and `_` (an empty key, a key with a dot, a space, a quote or a non-ASCII letter) is written as a
+JSON-quoted index appended without a dot, with JSON escapes and ASCII only (`evaluation.positions["BRK.B"].shares`,
+`evaluation["\u00e4"]`). The differences are found in a fixed order: the compared keys in the order above; inside an
+object the **union** of the keys of both records, sorted as strings by code point (case-sensitive, so `B` comes before
+`a`), a key that only one record has sitting in its sorted place; inside a list the indices; depth first.
 
-**Exit code 7** (stderr; the first line, one line per path with the stored and the fresh value, the hint). A float is printed
-with all its digits (`repr`), because a rounded number would hide a difference at the 1e-9 level; `null` and `true`/`false`
-print as in JSON and a missing key as `(missing)`:
+A key (or a list index) that only one record has is **one** difference at that path, whatever the value is: the whole value
+is printed, the missing side as `(missing)`; a list of another length gives one difference per surplus index. Two values
+of different types (an object against a list, a string against a number) are one difference at that path; the search does
+not go below it.
+
+The message lists the **data hash differences first** (in the order above), then the others in that order. At most **5**
+paths are printed; if there are more, a last path line says `  ... and N-5 more`, where N is the number of differences, and
+with 5 or fewer there is no such line. The first line counts all of them (`1 difference`, `2 differences`).
+
+**Exit code 7** (stderr; warnings of the evaluation, if there are any, come first as `warning: ...` lines like for every
+command; then the first line, one line per path with the stored and the fresh value, the hint). How a value is printed: a
+float with all its digits (`repr`), because a rounded number would hide a difference at the 1e-9 level; an integer in
+decimal; a string **without quotes** (so a data hash is a bare word), cleaned like every text of `bt` (see "Windows and
+encodings"); `null`, `true` and `false` as in JSON; a
+missing side as `(missing)`; an object or a list (only when a whole subtree is the difference, or the types differ) as
+compact JSON with sorted keys, cut after 80 characters with `...`:
 
 ```
-bt: error: run <run id> no longer reproduces: data changed (<n> differences)
+bt: error: run <run id> no longer reproduces: data changed (<N> differences)
   evaluation.strategy.data_hash: stored <64 hex>, now <64 hex>
   <up to four more paths>: stored <value>, now <value>
-  ... and <n> more
+  ... and <N-5> more
 hint: the stored run is untouched; use the cache the run was made with (--cache-dir) or log a new run with bt run
 ```
 
-For "metrics changed" the first line ends `metrics changed (<n> differences)` (`1 difference` for one) and the hint is
+For "metrics changed" the first line ends `metrics changed (<N> differences)` (`1 difference` for one) and the hint is
 `the stored run is untouched; the metric code or the stored values changed; log a new run with bt run`.
 
 **Output on success** (stdout; nothing else, nothing on stderr unless the run has a warning):
@@ -658,19 +679,26 @@ first run, `run.json` and `runs/index.sqlite` are unchanged, and no run was logg
 and a third was logged since, the trial line still says "run 2" ("as of this run").
 
 With another price instead: the provider returns the same frame except that the last `close` of `A` (2024-01-08) is `150`
-instead of `146.41` (the `high` of that row follows, `150`). The frame of `A` then hashes to
+instead of `146.41` (the `high` of that row follows, `150`; its `low` stays `133.1`, the open). The frame of `A` then hashes to
 `84cff02fdbf6860d463ec79c2cebba456c5dac2a6331d47831eb2f9602ea01d7`, and the metrics move: the strategy's last equity is `8 * 150 =
 1200`, its total return `1200 / 1000 - 1 = 0.2` and the excess return over the benchmark `0.2 - (-0.21592) = 0.41592`.
-Exit code 7, stdout empty, stderr. N is the number of differences, 6 or more here: the two derived above and a number of
-further metrics, which this example does not derive (they are listed in the order of "Paths and order"; the three paths
-after the second are further entries of `evaluation.relative` and `evaluation.strategy`, and `N - 5` more follow):
+Exit code 7, stdout empty, stderr. The program finds N = 18 differences: the strategy's data hash, the four changed entries
+of `evaluation.relative` (`excess_return`, `information_ratio`, `strategy_return_compared`, `tracking_error`; the
+benchmark's entries and `alignment` do not change), eight metrics of `evaluation.strategy.metrics` and five numbers of
+`costs.strategy`. Sorted as in "Paths and order" (inside `evaluation`: `assumptions`, `benchmark`, `relative`, `strategy`),
+with the data hash first, the first five are the hash and the four `relative` entries, so `excess_return` is the second
+line and 13 (N-5) are left over. By hand only the hash, the excess return and `strategy_return_compared` (0.17128 before,
+0.2 now) are derived here; the values of `information_ratio` and `tracking_error` follow the formulas of
+[metrics.md](metrics.md) and are the program's:
 
 ```
-bt: error: run 20260115T103005Z-buy-and-hold-a-HHHHHHHH no longer reproduces: data changed (N differences)
+bt: error: run 20260115T103005Z-buy-and-hold-a-HHHHHHHH no longer reproduces: data changed (18 differences)
   evaluation.strategy.data_hash: stored 61669f6e7476623e1289ff7dad8c8b767f36be44961c05ec4def3f45c15dd090, now 84cff02fdbf6860d463ec79c2cebba456c5dac2a6331d47831eb2f9602ea01d7
   evaluation.relative.excess_return: stored 0.3872, now 0.41591999999999985
-  (three more paths, each with its stored and fresh value)
-  ... and N-5 more
+  evaluation.relative.information_ratio: stored 11.59310139695154, now 11.554740195295285
+  evaluation.relative.strategy_return_compared: stored 0.1712800000000001, now 0.19999999999999996
+  evaluation.relative.tracking_error: stored 1.738965209542734, now 1.8623870882809872
+  ... and 13 more
 hint: the stored run is untouched; use the cache the run was made with (--cache-dir) or log a new run with bt run
 ```
 

@@ -198,7 +198,7 @@ order (version `HASH_VERSION = "1"`):
 1. the ASCII tag `backtest-agent/frame-hash/v1` and a newline (the version prefix);
 2. the row count and the symbol count (the number of distinct symbols, not of columns), each as little-endian
    `uint64`;
-3. for every column, with symbols sorted and fields in the order `open`, `high`, `low`, `close`, `volume`: the symbol
+3. for every column, with symbols sorted (as strings, by code point) and fields in the order `open`, `high`, `low`, `close`, `volume`: the symbol
    and the field as UTF-8, each prefixed by its byte length as little-endian `uint64`;
 4. the index as little-endian `int64`, days since 1970-01-01;
 5. the values column by column as little-endian `float64`, with every NaN written as the one canonical NaN
