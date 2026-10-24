@@ -259,12 +259,20 @@ and `costs` of the record (`RunRecord.to_dict()`). **Not compared:** `code_versi
 | string (also both data hashes) | the same text |
 | `true` / `false` | the same boolean; a boolean is never equal to `1`, `1.0`, `0` or `0.0` |
 | `null` | only `null`; `null` against a number is a difference |
+| NaN, infinity | never equal to anything, not even to themselves; they cannot occur (below) |
 | integer against integer | the same integer (exact) |
 | integer against float, float against float | `abs(a - b) <= 1e-9 * max(1, abs(a), abs(b))` |
 | object against object, list against list | every key / index is equal; a key or index only in the stored record is `missing`, only in the fresh one `extra` |
 | any other pair (an object against a number, a string against a number, ...) | never: one difference at that path |
 
 A changed data hash is **"data changed"**, any other difference is **"metrics changed"**. Both are exit code 7.
+
+**NaN and infinity cannot occur.** `run.json` is canonical JSON written with `allow_nan=False`, so the journal refuses to
+store them, and a metric that is not defined is stored as `null` (the Sharpe ratio of a run on flat prices, for example,
+is `null` in the journal and `n/a` in the report, and `bt report` reproduces such a run: `null` equals `null`). If a fresh
+evaluation ever produced a NaN, building its record would raise like `bt run` would (exit code 1, a bug) before the
+comparison; the comparison itself treats a non-finite number as different from everything, so it can never report such a
+run as reproduced.
 
 **Paths and order.** A difference is named by its path: keys joined by `.` and list indices as `[i]`, starting with the key
 (`evaluation.strategy.metrics.sharpe`, `trades.n_trades`); a key that is not made of letters, digits and `_` is written as a
@@ -653,18 +661,19 @@ With another price instead: the provider returns the same frame except that the 
 instead of `146.41` (the `high` of that row follows, `150`). The frame of `A` then hashes to
 `84cff02fdbf6860d463ec79c2cebba456c5dac2a6331d47831eb2f9602ea01d7`, and the metrics move: the strategy's last equity is `8 * 150 =
 1200`, its total return `1200 / 1000 - 1 = 0.2` and the excess return over the benchmark `0.2 - (-0.21592) = 0.41592`.
-Exit code 7, stdout empty, stderr (the first two path lines are derived above; the three that follow are further metrics of
-`evaluation.relative` and `evaluation.strategy`, listed in the order of "Paths and order", and the count depends on how many
-metrics move, here 18):
+Exit code 7, stdout empty, stderr. N is the number of differences, 6 or more here: the two derived above and a number of
+further metrics, which this example does not derive (they are listed in the order of "Paths and order"; the three paths
+after the second are further entries of `evaluation.relative` and `evaluation.strategy`, and `N - 5` more follow):
 
 ```
-bt: error: run 20260115T103005Z-buy-and-hold-a-HHHHHHHH no longer reproduces: data changed (18 differences)
+bt: error: run 20260115T103005Z-buy-and-hold-a-HHHHHHHH no longer reproduces: data changed (N differences)
   evaluation.strategy.data_hash: stored 61669f6e7476623e1289ff7dad8c8b767f36be44961c05ec4def3f45c15dd090, now 84cff02fdbf6860d463ec79c2cebba456c5dac2a6331d47831eb2f9602ea01d7
   evaluation.relative.excess_return: stored 0.3872, now 0.41591999999999985
-  <three more paths>
-  ... and 13 more
+  (three more paths, each with its stored and fresh value)
+  ... and N-5 more
 hint: the stored run is untouched; use the cache the run was made with (--cache-dir) or log a new run with bt run
 ```
 
-(`0.41591999999999985` is `0.41592` with the rounding residual of binary floating point: it is printed with all its digits
-because the comparison works at the 1e-9 level.) No report folder is created.
+(The derivation gives `0.41592`; the digits of `0.41591999999999985` past the twelfth come from the program, from the
+rounding of binary floating point, not from the derivation. A float is printed with all its digits because the
+comparison works at the 1e-9 level.) No report folder is created.

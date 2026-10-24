@@ -14,6 +14,7 @@ from backtest_agent.journal import JournalFormatError, RunRecord
 from backtest_agent.journal.models import build_record
 from backtest_agent.metrics import Evaluation, MetricAssumptions, evaluate
 from backtest_agent.spec import SpecProblem, StrategySpec, UnknownSignalError
+from backtest_agent.spec.loader import problems_of
 
 
 def stored_spec(record: RunRecord) -> StrategySpec:
@@ -21,10 +22,7 @@ def stored_spec(record: RunRecord) -> StrategySpec:
     try:
         return StrategySpec.model_validate(record.spec)
     except ValidationError as error:
-        problems = [
-            SpecProblem(".".join(str(part) for part in err["loc"]) or "(root)", err["msg"]) for err in error.errors()
-        ]
-        raise StoredSpecError(record.run_id, problems) from None
+        raise StoredSpecError(record.run_id, problems_of(error, record.spec)) from None
     except UnknownSignalError as error:
         raise StoredSpecError(
             record.run_id, [SpecProblem("signal.id", str(error.args[0] if error.args else error))]

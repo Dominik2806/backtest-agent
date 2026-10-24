@@ -14,6 +14,7 @@ import pytest
 
 from backtest_agent import experiment
 from backtest_agent.cli import main
+from backtest_agent.cli import report as report_module
 from backtest_agent.data import DataUnavailableError
 from backtest_agent.journal.identity import variant_hash_of_dict
 from cli_helpers import at, run_cli, write_spec
@@ -93,7 +94,7 @@ def test_the_report_of_an_unchanged_second_run_is_byte_identical_and_the_journal
     assert len(list((workdir / "runs").iterdir())) == 4  # three run folders and the index: nothing was logged
 
 
-def test_the_first_run_of_a_run_without_report_gets_the_report_a_normal_run_writes(workdir: Path) -> None:
+def test_the_first_run_of_a_run_without_report_gets_the_report_a_normal_run_writes(workdir: Path, monkeypatch) -> None:
     run_id = logged_run("--no-report")
     assert not (workdir / "reports").exists()
     result = run_cli(["report", run_id], provider=provider())
@@ -101,9 +102,7 @@ def test_the_first_run_of_a_run_without_report_gets_the_report_a_normal_run_writ
     other = workdir / "other"
     other.mkdir()
     shutil.copy(workdir / "spec.yaml", other / "spec.yaml")
-    import os
-
-    os.chdir(other)
+    monkeypatch.chdir(other)
     again = run_cli(["run", "spec.yaml"], provider=provider(), clock=at(0))
     assert run_id_of(again.out) == run_id
     assert report_bytes(workdir, run_id) == report_bytes(other, run_id)
@@ -135,17 +134,79 @@ def test_other_prices_are_exit_7_data_changed_and_nothing_is_written(workdir: Pa
     assert result.code == 7
     assert result.out == ""
     lines = result.err.splitlines()
-    assert re.fullmatch(rf"bt: error: run {run_id} no longer reproduces: data changed \(\d+ differences\)", lines[0])
-    new_hash = re.fullmatch(
-        rf"  evaluation\.strategy\.data_hash: stored {HASH_A}, now ({HASH_A_LAST_CLOSE_150})", lines[1]
-    )
-    assert new_hash
-    assert len(lines) == 1 + 5 + 1 + 1  # five paths, "... and N more", the hint
-    assert re.fullmatch(r"  \.\.\. and \d+ more", lines[6])
+    first = re.fullmatch(rf"bt: error: run {run_id} no longer reproduces: data changed \((\d+) differences\)", lines[0])
+    assert first
+    count = int(first.group(1))
+    assert count >= 6  # the hash, the excess return and more metrics that move
+    assert lines[1] == f"  evaluation.strategy.data_hash: stored {HASH_A}, now {HASH_A_LAST_CLOSE_150}"
+    # the strategy ends at 8 * 150 = 1200 (return 0.2) against the benchmark's -0.21592: excess 0.41592 (docs/cli.md)
+    second = re.fullmatch(r"  evaluation\.relative\.excess_return: stored (\S+), now (\S+)", lines[2])
+    assert second
+    assert float(second.group(1)) == pytest.approx(0.3872, abs=1e-12)
+    assert float(second.group(2)) == pytest.approx(0.41592, abs=1e-12)
+    assert len(lines) == 1 + 5 + 1 + 1  # five paths, "... and N-5 more", the hint
+    assert lines[6] == f"  ... and {count - 5} more"
     assert lines[7] == (
         "hint: the stored run is untouched; use the cache the run was made with (--cache-dir) "
         "or log a new run with bt run"
     )
+    assert not (workdir / "reports").exists()
+
+
+def test_overwrite_with_other_prices_is_exit_7_and_leaves_the_old_report_folder_untouched(workdir: Path) -> None:
+    run_id = logged_run()
+    folder = workdir / "reports" / run_id
+    (folder / "notes.txt").write_text("mine", encoding="utf-8")
+    before = {path.name: path.read_bytes() for path in sorted(folder.iterdir())}
+    assert set(before) == {*REPORT_FILES, "notes.txt"}
+    result = run_cli(["report", run_id, "--overwrite"], provider=changed_provider())
+    assert result.code == 7
+    assert result.out == ""
+    after = {path.name: path.read_bytes() for path in sorted(folder.iterdir())}
+    assert after == before  # every file byte for byte, and nothing new
+    assert [path.name for path in (workdir / "reports").iterdir()] == [run_id]
+
+
+def test_a_run_with_undefined_metrics_is_reproduced_byte_for_byte(workdir: Path) -> None:
+    # flat prices, no costs: no variation, so Sharpe, Sortino and Calmar are undefined (null in the journal)
+    flat = price_frame({"A": [100.0] * 5, "B": [50.0] * 5}, {"A": [100.0] * 5, "B": [50.0] * 5})
+    write_spec(workdir, spec_for(costs=(0.0, 0.0, 0.0)), "flat.yaml")
+    ran = run_cli(["run", "flat.yaml"], provider=LiteralProvider(flat), clock=at(0))
+    assert ran.code == 0, ran.err
+    run_id = run_id_of(ran.out)
+    stored = json.loads((workdir / "runs" / run_id / "run.json").read_text(encoding="utf-8"))
+    metrics = stored["evaluation"]["strategy"]["metrics"]
+    assert metrics["sharpe"] is None and metrics["sortino"] is None and metrics["calmar"] is None
+    assert stored["evaluation"]["relative"]["information_ratio"] is None
+    original = report_bytes(workdir, run_id)
+    shutil.rmtree(workdir / "reports" / run_id)
+    result = run_cli(["report", run_id], provider=LiteralProvider(flat))
+    assert result.code == 0, result.err
+    assert report_bytes(workdir, run_id) == original
+
+
+class WithNan:
+    """An evaluation whose dictionary holds a NaN, as a bug of the metrics code could produce."""
+
+    def __init__(self, real) -> None:
+        self._real = real
+
+    def __getattr__(self, name: str):
+        return getattr(self._real, name)
+
+    def to_dict(self) -> dict:
+        data = self._real.to_dict()
+        data["strategy"]["metrics"]["sharpe"] = float("nan")
+        return data
+
+
+def test_a_nan_in_the_fresh_evaluation_is_exit_1_like_bt_run_and_writes_nothing(workdir: Path, monkeypatch) -> None:
+    run_id = logged_run("--no-report")
+    real = report_module.evaluate
+    monkeypatch.setattr(report_module, "evaluate", lambda *args, **kwargs: WithNan(real(*args, **kwargs)))
+    result = run_cli(["report", run_id], provider=provider())
+    assert result.code == 1
+    assert result.err.startswith("bt: error: unexpected error (ValueError)")
     assert not (workdir / "reports").exists()
 
 
@@ -314,6 +375,19 @@ def test_a_spec_that_no_longer_validates_is_exit_3(workdir: Path) -> None:
     assert lines[1].startswith("  - sizing.method: ")
     assert lines[2].startswith("hint: the run folder is untouched; the spec schema or a signal changed since the run")
     assert not (workdir / "reports").exists()
+
+
+def test_an_error_inside_a_list_of_the_stored_spec_names_its_index(workdir: Path) -> None:
+    run_id = logged_run("--no-report")
+
+    def edit(data: dict) -> None:
+        data["spec"]["universe"] = ["A", 5]
+        data["trial"]["variant_hash"] = variant_hash_of_dict(data["spec"])
+
+    edit_run_json(workdir, run_id, edit)
+    lines = run_cli(["report", run_id]).err.splitlines()
+    assert lines[0] == f"bt: error: the stored spec of run {run_id} no longer validates (1 problem):"
+    assert lines[1].startswith("  - universe[1]: ")  # the loader's path style, not universe.1
 
 
 def test_a_signal_that_is_gone_is_exit_3(workdir: Path) -> None:

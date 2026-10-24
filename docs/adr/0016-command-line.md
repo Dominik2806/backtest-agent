@@ -84,7 +84,8 @@ the exit-code table are in [cli.md](../cli.md).
   data with the stored `costs_applied` and metric assumptions, builds the record again and compares `spec`, `evaluation`,
   `trades` and `costs` with the stored ones (not `code_version`, `generated_at`, `run_number`, `trial_number`,
   `trial_count`). Data hashes must be equal; two integers are equal only if they are the same integer; an integer against a
-  float, and two floats, are equal if `abs(a - b) <= 1e-9 * max(1, |a|, |b|)`; `None` against a number is a difference; a
+  float, and two floats, are equal if `abs(a - b) <= 1e-9 * max(1, |a|, |b|)`; `None` against a number is a difference; NaN and
+  infinity cannot occur (canonical JSON refuses them, an undefined metric is `null`) and would equal nothing; a
   boolean is equal only to the same boolean (never to `1` or `1.0`); strings are exact (the first draft of this ADR said
   "strings and integers are exact", which left the integer against float case open: JSON gives `1` or `1.0` for the same
   number and the metrics code may change that representation without changing the value). A difference is code 7 and

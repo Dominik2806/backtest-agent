@@ -261,3 +261,32 @@ def test_a_change_is_data_if_any_hash_differs_else_metrics() -> None:
     assert change_kind([metric_diff, hash_diff]) == "data"
     assert change_kind([metric_diff]) == "metrics"
     assert change_kind([Difference("spec.name", "a", "b", "changed")]) == "metrics"
+
+
+NAN, INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize(
+    ("stored", "fresh"),
+    [
+        (NAN, NAN),  # not even to itself
+        (NAN, 1.0),
+        (1.0, NAN),
+        (NAN, 1),
+        (NAN, None),
+        (INF, INF),
+        (-INF, -INF),
+        (INF, -INF),
+        (INF, 1.0),
+        (1.0, INF),
+        (INF, 10**300),
+        (NAN, INF),
+    ],
+)
+def test_a_non_finite_number_is_equal_to_nothing_not_even_to_itself(stored: Any, fresh: Any) -> None:
+    # it cannot occur in a record (canonical JSON refuses it), so it must never be reported as reproduced
+    assert [d.kind for d in value_diffs(stored, fresh)] == ["changed"]
+
+
+def test_none_equals_none_which_is_how_an_undefined_metric_reproduces() -> None:
+    assert differences(record(evaluation={"sharpe": None}), record(evaluation={"sharpe": None})) == []

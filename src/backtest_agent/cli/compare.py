@@ -5,6 +5,7 @@ the rest of the CLI, so every rule is tested with literal dictionaries.
 """
 
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -90,7 +91,11 @@ def _compare(path: str, stored: Any, fresh: Any, found: list[Difference]) -> Non
 
 def _equal(a: Any, b: Any) -> bool:
     """Scalars: strings exact; ``None`` only with ``None``; a bool only with the same bool (``True`` is not ``1``);
-    two integers exact; any other pair of numbers within ``abs(a - b) <= 1e-9 * max(1, |a|, |b|)``."""
+    two integers exact; any other pair of numbers within ``abs(a - b) <= 1e-9 * max(1, |a|, |b|)``.
+
+    A record never holds NaN or infinity (the journal refuses to write them, an undefined metric is ``None``), so the
+    case cannot occur in a real comparison; if it does, a non-finite value is equal to nothing, not even to itself.
+    """
     if isinstance(a, bool) or isinstance(b, bool):
         return isinstance(a, bool) and isinstance(b, bool) and a == b
     if a is None or b is None:
@@ -100,5 +105,7 @@ def _equal(a: Any, b: Any) -> bool:
     if isinstance(a, int) and isinstance(b, int):
         return a == b
     if isinstance(a, int | float) and isinstance(b, int | float):
+        if not (math.isfinite(a) and math.isfinite(b)):
+            return False
         return abs(a - b) <= RELATIVE_TOLERANCE * max(1.0, abs(a), abs(b))
     return False
