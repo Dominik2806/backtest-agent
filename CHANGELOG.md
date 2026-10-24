@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Command line, part 1 of 2 (F-16, Phase 9): the `bt` command (`backtest_agent.cli:main`, also `python -m backtest_agent`),
+  standard library `argparse`, no new dependency. `bt run SPEC` runs a spec through `run_experiment` (evaluate, log, report)
+  and prints a summary whose numbers and Trials sentence come from the report's formatters (`--runs-dir`, `--reports-dir`,
+  `--cache-dir`, `--no-report`, `--no-costs`); `bt validate SPEC` checks a spec without data; `bt journal list`, `show` and
+  `rebuild` read the journal (the rebuild says how many runs were found and warns when runs are forgotten). Exit codes 0
+  to 7 and 130 with one-line errors and hints on stderr, a traceback only with `--debug`, every warning printed once
+  without a path, output safe on a cp1252 console, a provider guard that makes a network failure a data problem (exit code 4).
+  `main` takes the provider factory, the clock and the streams as arguments, so the tests run offline. `docs/cli.md` with a
+  hand-calculated example run, ADR 0016, a test that every relative link of the README and `docs/` resolves. `bt data fetch`,
+  `bt validate --data`, `bt report` and the README quickstart follow in part 2; release `v0.1.0` after that.
 - Experiment journal, part 2 of 2 (F-15, Phase 8): `run_experiment(spec, provider, runs_dir=..., generated_at=...,
   reports_dir=None)` evaluates, logs the run and, if a reports folder is given, writes the report with the same run id and
   the trial of the journal. A run id that exists gives "run id already exists; use a later generated_at"; a report folder

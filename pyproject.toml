@@ -14,6 +14,9 @@ dependencies = [
     "yfinance>=1.7.0",
 ]
 
+[project.scripts]
+bt = "backtest_agent.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8",
