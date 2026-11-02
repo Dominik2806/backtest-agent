@@ -226,10 +226,9 @@ def test_a_default_that_a_spec_cannot_hold_is_a_gate_error_not_a_pydantic_error(
         world.resolve(coded_spec())
     assert type(info.value) is GateError
     assert str(info.value) == CANNOT_HOLD.format(name, shown) + RULE
-    assert coded_modules() == [] and get_signal("x_signal").sha256 == sha_of(
-        source
-    )  # it loaded; its params did not fit
-    assert SIGNALS.snapshot().keys() >= before.keys()
+    assert coded_modules() == [] and SIGNALS.snapshot() == before  # nothing stays loaded
+    with pytest.raises(UnknownSignalError):
+        get_signal("x_signal")
 
 
 def test_defaults_of_the_kinds_a_spec_can_hold_are_accepted_and_written_out(world: World) -> None:

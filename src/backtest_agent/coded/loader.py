@@ -55,7 +55,9 @@ def resolve_coded(spec: StrategySpec, *, approvals_dir: Path | str, strategies_d
 
     Raises ``NotApprovedError`` (the maintainer has to approve something; exit code 8), ``RecordError`` (the approvals
     folder cannot supply what the spec needs, or it was changed; exit code 5 in stored mode), ``StaticCheckError``,
-    ``SpecError`` (the params do not fit the params model) or ``GateError`` (the code did not load).
+    ``SpecError`` (the params do not fit the params model) or ``GateError`` (the code did not load, or its params
+    model is not usable). **Whenever it raises, the registry is exactly what it was before the call**: a signal that
+    was loaded and then failed a later step (params, defaults, the final validation) is unloaded again.
     """
     coded = spec.signal.coded
     if coded is None:
@@ -71,18 +73,23 @@ def resolve_coded(spec: StrategySpec, *, approvals_dir: Path | str, strategies_d
     sha = _chosen_sha(entry, signal_id, coded.code_sha256, strategies_dir, refuse)
     data = _archived(approvals_dir, sha)
     check_source(data, signal_id)  # the archive was checked when it was approved; it is checked again before it runs
-    signal = _load(signal_id, sha, data)
-    params = _validated_params(signal, spec.signal.params)
-
-    resolved = spec.to_dict()
-    resolved["signal"]["params"] = params
-    resolved["signal"]["coded"]["code_sha256"] = sha
+    before = SIGNALS.snapshot()
     try:
-        result = StrategySpec.model_validate(resolved)
-        result.signal.params_model()  # the registered signal carries the hash the spec now pins
-    except (ValidationError, UnknownSignalError) as error:  # not expected; the gate still raises only its own errors
-        raise GateError(f"the resolved spec is not valid: {error}") from error
-    return result
+        signal = _load(signal_id, sha, data, before)
+        params = _validated_params(signal, spec.signal.params)
+
+        resolved = spec.to_dict()
+        resolved["signal"]["params"] = params
+        resolved["signal"]["coded"]["code_sha256"] = sha
+        try:
+            result = StrategySpec.model_validate(resolved)
+            result.signal.params_model()  # the registered signal carries the hash the spec now pins
+        except (ValidationError, UnknownSignalError) as error:  # not expected; only the gate's own errors leave
+            raise GateError(f"the resolved spec is not valid: {error}") from error
+        return result
+    except BaseException:
+        SIGNALS.restore(before)  # from the load to the end: a failure leaves no loaded code behind
+        raise
 
 
 def _approved_idea(approvals_dir: Path | str, signal_id: str, brief: str, refuse: type[GateError]) -> IdeaApproval:
@@ -161,9 +168,9 @@ def _archived(approvals_dir: Path | str, sha: str) -> bytes:
         raise RecordError(str(error)) from error
 
 
-def _load(signal_id: str, sha: str, data: bytes) -> Signal:
-    """Register the signal of ``data`` as ``signal_id``, marked with ``sha``; the registry is restored on failure."""
-    before = SIGNALS.snapshot()
+def _load(signal_id: str, sha: str, data: bytes, before: dict[str, Signal]) -> Signal:
+    """Register the signal of ``data`` as ``signal_id``, marked with ``sha``. ``before`` is the registry on entry; the
+    caller restores it if this or any later step fails."""
     if signal_id in before:
         existing = before[signal_id]
         if existing.sha256 is None:
@@ -171,20 +178,16 @@ def _load(signal_id: str, sha: str, data: bytes) -> Signal:
         if existing.sha256 == sha:
             return existing  # loaded before in this process: reuse it, do not execute again
         SIGNALS.unregister(signal_id)  # the gate's own entry of another version
-    try:
-        _execute(signal_id, sha, data)
-        after = SIGNALS.snapshot()
-        kept = {key: value for key, value in before.items() if key != signal_id}
-        if {key: after.get(key) for key in kept} != kept:
-            raise GateError("the code changed the registry beyond registering " + repr(signal_id))
-        added = set(after) - set(kept)
-        if added != {signal_id}:
-            registered = ", ".join(sorted(added)) or "nothing"
-            raise GateError(f"the code must register exactly one signal, {signal_id!r}; it registered {registered}")
-        return SIGNALS.set_sha256(signal_id, sha)
-    except BaseException:
-        SIGNALS.restore(before)
-        raise
+    _execute(signal_id, sha, data)
+    after = SIGNALS.snapshot()
+    kept = {key: value for key, value in before.items() if key != signal_id}
+    if {key: after.get(key) for key in kept} != kept:
+        raise GateError("the code changed the registry beyond registering " + repr(signal_id))
+    added = set(after) - set(kept)
+    if added != {signal_id}:
+        registered = ", ".join(sorted(added)) or "nothing"
+        raise GateError(f"the code must register exactly one signal, {signal_id!r}; it registered {registered}")
+    return SIGNALS.set_sha256(signal_id, sha)
 
 
 def _execute(signal_id: str, sha: str, data: bytes) -> None:
