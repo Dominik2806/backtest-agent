@@ -37,3 +37,12 @@ class ApprovalFormatError(ApprovalError):
 
 class GateError(Exception):
     """The approval gate refuses to load a coded signal; the message says why (nothing was compiled or run)."""
+
+
+class NotApprovedError(GateError):
+    """A person has to approve something (the idea or the code) before this can run; exit code 8 of ``bt run``."""
+
+
+class RecordError(GateError):
+    """The approvals folder cannot supply what the spec needs, or it was changed (a record or an archive is missing or
+    does not match its hash); in stored mode (``bt report``) this is a record that cannot be reproduced, exit code 5."""
