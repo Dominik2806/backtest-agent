@@ -10,6 +10,7 @@ import pytest
 from backtest_agent.coded.errors import Finding, StaticCheckError
 from backtest_agent.coded.static import (
     ALLOWED_DECORATORS,
+    ALLOWED_TO_ATTRIBUTES,
     BANNED_ATTRIBUTES,
     BANNED_NAMES,
     MAX_SOURCE_BYTES,
@@ -351,7 +352,7 @@ def test_global_nonlocal_and_async_code_are_refused() -> None:
 def test_a_byte_order_mark_a_nul_byte_and_invalid_utf8_are_refused() -> None:
     good = build([])
     assert [(f.line, f.rule) for f in find_problems(b"\xef\xbb\xbf" + good, "sig")] == [(0, "encoding")]
-    assert [(f.line, f.rule) for f in find_problems(good + b"\x00", "sig")] == [(0, "encoding")]
+    assert [(f.line, f.rule) for f in find_problems(good + b"\x00", "sig")] == [(7, "character")]  # see below
     bad = find_problems(good + b"\n# \xff\n", "sig")
     assert [(f.line, f.rule) for f in bad] == [(0, "encoding")]
     assert bad[0].message == "the source is not UTF-8 (invalid start byte at byte " + str(len(good) + 3) + ")"
@@ -407,3 +408,88 @@ def test_names_that_are_not_two_underscores_around_a_word_are_not_dunder(name: s
 @pytest.mark.parametrize("name", ["__a__", "__init__", "_____", "__x1__"])
 def test_two_underscores_around_at_least_one_character_are_dunder(name: str) -> None:
     assert rules(build(["def f():", f"    return {name}"])) == at((1, "dunder"))
+
+
+# --- characters: Unicode categories Cc, Cf, Zl, Zp anywhere in the source (comments and strings included) ---
+
+ALL_ALLOWED_TO = sorted(ALLOWED_TO_ATTRIBUTES)
+
+
+@pytest.mark.parametrize(
+    ("label", "line", "message"),
+    [
+        ("Cf, right-to-left override in a comment", "# a‮b", "the character U+202E (Cf) is not allowed"),
+        ("Cf, zero-width space in a string", "TEXT = 'a​b'", "the character U+200B (Cf) is not allowed"),
+        ("Cf, byte order mark inside the file", "# a﻿b", "the character U+FEFF (Cf) is not allowed"),
+        ("Zl, line separator in a comment", "# a b", "the character U+2028 (Zl) is not allowed"),
+        ("Zp, paragraph separator in a string", "TEXT = 'a b'", "the character U+2029 (Zp) is not allowed"),
+        ("Cc, bell in a comment", "# a\x07b", "the character U+0007 (Cc) is not allowed"),
+        ("Cc, C1 control", "# a\x85b", "the character U+0085 (Cc) is not allowed"),
+        ("Cc, a lone CR in a comment", "# a\rb", "the character U+000D (Cc) is not allowed"),
+    ],
+)
+def test_characters_of_the_categories_cc_cf_zl_zp_are_refused_anywhere(label: str, line: str, message: str) -> None:
+    found = find_problems(build([line]), "sig")
+    assert [(f.line, f.rule, f.message) for f in found if f.rule == "character"] == [(FIRST, "character", message)]
+
+
+def test_a_nul_is_refused_as_a_character_and_the_file_is_not_parsed() -> None:
+    found = find_problems(build(["# a\x00b"]), "sig")
+    assert [(f.line, f.rule, f.message) for f in found] == [
+        (FIRST, "character", "the character U+0000 (Cc) is not allowed")
+    ]
+
+
+def test_crlf_line_ends_are_fine_but_a_lone_cr_is_not() -> None:
+    crlf = build(["# comment", "LIMIT = 1"]).replace(b"\n", b"\r\n")
+    assert find_problems(crlf, "sig") == ()
+    lone = build(["# comment", "LIMIT = 1"]).replace(b"# comment", b"# com\rment")
+    # Python itself ends the comment at a lone CR, so the rest of the line is reported as code as well
+    assert (FIRST, "character") in {(f.line, f.rule) for f in find_problems(lone, "sig")}
+
+
+def test_a_line_break_and_a_tab_are_allowed_and_so_are_non_ascii_letters() -> None:
+    ok = build(["# café über 中文 αβ tab\there", "NAME = 'naïve Ñ'"])
+    assert find_problems(ok, "sig") == ()
+
+
+def test_other_rules_are_still_reported_next_to_a_character_problem() -> None:
+    found = rules(build(["import os  # a‮b"]))
+    assert found == at((0, "import"), (0, "character"))
+
+
+# --- to_* attributes: fail closed, with an allowlist ---
+
+
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        "to_csv", "to_parquet", "to_pickle", "to_json", "to_sql", "to_excel", "to_hdf", "to_feather", "to_orc",
+        "to_stata", "to_xml", "to_latex", "to_markdown", "to_html", "to_clipboard", "to_string", "to_gbq",
+        "to_something_new", "to_",
+    ],
+)  # fmt: skip
+def test_every_to_attribute_outside_the_allowlist_is_refused(attribute: str) -> None:
+    assert rules(build(["def f(df):", f"    return df.{attribute}"])) == at((1, "banned-attribute"))
+
+
+@pytest.mark.parametrize("attribute", ALL_ALLOWED_TO)
+def test_every_listed_to_attribute_is_allowed(attribute: str) -> None:
+    assert rules(build(["def f(df):", f"    return df.{attribute}"])) == set()
+
+
+def test_the_allowlist_of_to_attributes_is_exactly_this() -> None:
+    assert ALLOWED_TO_ATTRIBUTES == {
+        "to_numpy", "to_list", "to_frame", "to_dict", "to_series", "to_datetime", "to_numeric", "to_timedelta",
+        "to_period", "to_timestamp", "to_pydatetime",
+    }  # fmt: skip
+
+
+def test_to_attributes_are_refused_as_imported_names_too_but_allowed_ones_import() -> None:
+    assert rules(build(["from pandas import to_pickle"])) == at((0, "banned-attribute"))
+    assert rules(build(["from pandas import to_datetime, to_numeric"])) == set()
+
+
+def test_parse_file_and_parse_raw_are_banned_attributes() -> None:
+    assert {"parse_file", "parse_raw"} <= BANNED_ATTRIBUTES
+    assert rules(build(["def f(m):", "    return m.parse_file('x'), m.parse_raw('y')"])) == at((1, "banned-attribute"))

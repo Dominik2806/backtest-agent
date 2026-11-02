@@ -63,24 +63,37 @@ def test_a_coded_spec_round_trips_through_its_dict() -> None:
     assert StrategySpec.model_validate(spec.to_dict()) == spec
 
 
-def test_the_params_model_of_an_unloaded_coded_signal_says_so() -> None:
+class RsiParams(SignalParams):
+    window: int = 14
+    entry_below: float = 30.0
+
+    def warmup_rows(self) -> int:
+        return self.window
+
+
+def test_an_unresolved_coded_spec_never_finds_its_signal_even_if_one_is_registered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(SIGNALS._signals, "rsi_pullback", Signal("rsi_pullback", RsiParams, lambda p, q: p))
     spec = parse_spec(to_yaml(coded()))
-    with pytest.raises(UnknownSignalError, match=r"the coded signal 'rsi_pullback' is not loaded; it has to pass"):
+    assert spec.signal.coded is not None and spec.signal.coded.code_sha256 is None
+    with pytest.raises(UnknownSignalError, match=r"the coded signal 'rsi_pullback' is not resolved; it has to pass"):
         spec.signal.params_model()
-    with pytest.raises(UnknownSignalError, match="is not loaded"):
+    with pytest.raises(UnknownSignalError, match="is not resolved"):
         spec.warmup_rows  # noqa: B018 - the property raises
 
 
-def test_once_a_signal_is_registered_under_the_id_the_params_model_is_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    class RsiParams(SignalParams):
-        window: int = 14
-        entry_below: float = 30.0
-
-        def warmup_rows(self) -> int:
-            return self.window
-
+def test_with_a_sha_the_registered_signal_is_found_and_without_one_registered_it_is_not_loaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pinned = coded(
+        {"id": "rsi_pullback", "params": {"window": 14}, "coded": {"brief": BRIEF, "code_sha256": "ab" * 32}}
+    )
+    spec = parse_spec(to_yaml(pinned))
+    with pytest.raises(UnknownSignalError, match="is not loaded"):
+        spec.signal.params_model()
     monkeypatch.setitem(SIGNALS._signals, "rsi_pullback", Signal("rsi_pullback", RsiParams, lambda p, q: p))
-    assert parse_spec(to_yaml(coded())).warmup_rows == 14
+    assert spec.warmup_rows == 14
 
 
 def test_a_unknown_id_without_a_coded_block_is_still_an_error() -> None:
@@ -157,13 +170,54 @@ def test_crlf_in_the_brief_becomes_lf_and_nothing_else_is_changed() -> None:
         ("", "the brief must not be empty"),
         (" \n\t ", "the brief must not be empty"),
         ("x" * 2001, "the brief must have at most 2000 characters, got 2001"),
-        ("a\x07b", "the brief must not contain control characters"),
-        ("a\x00b", "the brief must not contain control characters"),
+        ("   ", "the brief must not be empty"),  # only Unicode spaces (category Zs) is empty too
     ],
 )
 def test_bad_briefs_are_refused(brief: str, message: str) -> None:
     data = coded({"id": "x_signal", "params": {}, "coded": {"brief": brief}})
     assert message in problems(data)["signal.coded.brief"]
+
+
+FORBIDDEN_MESSAGE = (
+    "the brief must not contain control, format or line-separator characters "
+    "(Unicode categories Cc, Cf, Zl, Zp; a line break and a tab are allowed)"
+)
+
+
+@pytest.mark.parametrize(
+    "character",
+    ["\x00", "\x07", "\x1b", "\x7f", "\x85", "\r", "​", "‎", "‮", "⁦", "﻿", " ", " "],
+    ids=lambda c: f"U+{ord(c):04X}",
+)
+def test_characters_of_the_categories_cc_cf_zl_zp_are_refused_in_a_brief(character: str) -> None:
+    # "\r" here is a lone CR: the CR of a CRLF is removed by the normalisation first.
+    data = coded({"id": "x_signal", "params": {}, "coded": {"brief": f"ab{character}cd"}})
+    assert problems(data) == {"signal.coded.brief": FORBIDDEN_MESSAGE}
+
+
+def test_other_unicode_is_fine_in_a_brief() -> None:
+    brief = "café über 中文 αβ\ttab\nline  nbsp  em space"
+    spec = parse_spec(to_yaml(coded({"id": "x_signal", "params": {}, "coded": {"brief": brief}})))
+    assert spec.signal.coded.brief == brief  # type: ignore[union-attr]
+
+
+def test_the_limit_of_2000_characters_counts_after_crlf_becomes_lf() -> None:
+    inside = "x" * 1999 + "\r\n"  # 2001 characters as written, 2000 after the normalisation
+    spec = parse_spec(to_yaml(coded({"id": "x_signal", "params": {}, "coded": {"brief": inside}})))
+    assert len(spec.signal.coded.brief) == 2000  # type: ignore[union-attr]
+    outside = "x" * 2000 + "\r\n"  # 2002 as written, 2001 after
+    data = coded({"id": "x_signal", "params": {}, "coded": {"brief": outside}})
+    assert problems(data) == {"signal.coded.brief": "the brief must have at most 2000 characters, got 2001"}
+    many = "\r\n" * 1000  # 2000 as written, 1000 after, and not empty
+    assert parse_spec(to_yaml(coded({"id": "x_signal", "params": {}, "coded": {"brief": many + "x"}})))
+
+
+def test_an_invalid_coded_block_gives_one_error_and_no_second_one_about_the_id() -> None:
+    # The id is not registered, but the coded block is the problem, so only the brief is reported.
+    data = coded({"id": "not_registered_anywhere", "params": {"w": 1}, "coded": {"brief": "  "}})
+    assert problems(data) == {"signal.coded.brief": "the brief must not be empty"}
+    data = coded({"id": "not_registered_anywhere", "params": {1: 2}, "coded": {"brief": "ok"}})
+    assert list(problems(data)) == ["signal.params[1].[key]"]  # the key of the params is the only error
 
 
 def test_a_brief_of_exactly_2000_characters_and_with_tabs_and_newlines_is_valid() -> None:
@@ -190,10 +244,6 @@ def test_a_brief_of_exactly_2000_characters_and_with_tabs_and_newlines_is_valid(
         ("sma_crossover", "'sma_crossover' is the id of a built-in signal"),
         ("momentum_12_1", "'momentum_12_1' is the id of a built-in signal"),
         ("buy_and_hold", "'buy_and_hold' is the id of a built-in signal"),
-        ("con", "'con' is a reserved file name on Windows"),
-        ("nul", "'nul' is a reserved file name on Windows"),
-        ("com1", "'com1' is a reserved file name on Windows"),
-        ("lpt9", "'lpt9' is a reserved file name on Windows"),
     ],
 )
 def test_bad_ids_of_a_coded_signal_are_refused(signal_id: str, message: str) -> None:
@@ -252,3 +302,28 @@ def test_the_reserved_builtin_ids_are_exactly_the_registered_built_ins() -> None
     from backtest_agent.spec.coded_spec import BUILTIN_SIGNAL_IDS
 
     assert BUILTIN_SIGNAL_IDS == {"sma_crossover", "momentum_12_1", "buy_and_hold"} == set(list_signals())
+
+
+DEVICE_NAMES = ["con", "prn", "aux", "nul"] + [f"com{n}" for n in range(1, 10)] + [f"lpt{n}" for n in range(1, 10)]
+
+
+def test_there_are_22_reserved_device_names() -> None:
+    assert len(DEVICE_NAMES) == len(set(DEVICE_NAMES)) == 22
+
+
+@pytest.mark.parametrize("name", DEVICE_NAMES)
+def test_every_windows_device_name_is_refused_as_an_id(name: str) -> None:
+    data = coded({"id": name, "params": {}, "coded": {"brief": "B"}})
+    assert problems(data) == {"signal.id": f"{name!r} is a reserved file name on Windows; choose another id"}
+
+
+@pytest.mark.parametrize("name", ["console", "com10", "lpt0", "com0", "aux1", "nul_", "my_con", "prn2"])
+def test_names_that_only_look_like_device_names_are_fine(name: str) -> None:
+    assert parse_spec(to_yaml(coded({"id": name, "params": {}, "coded": {"brief": "B"}}))).signal.id == name
+
+
+def test_the_check_of_the_param_names_does_not_rely_on_the_model() -> None:
+    from backtest_agent.spec.coded_spec import check_scalar_params
+
+    with pytest.raises(ValueError, match="the parameter names of a coded signal must be text, got 1"):
+        check_scalar_params({1: "a"})  # type: ignore[dict-item]

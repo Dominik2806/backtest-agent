@@ -108,7 +108,9 @@ class SignalSpec(_Model):
     @field_validator("id")
     @classmethod
     def _registered(cls, signal_id: str, info: ValidationInfo) -> str:
-        if info.data.get("coded") is not None:
+        if "coded" not in info.data:  # a coded block was given but is invalid; it is reported, the id is not judged
+            return signal_id
+        if info.data["coded"] is not None:
             problem = coded_id_problem(signal_id)
             if problem is not None:
                 raise ValueError(problem)
@@ -125,7 +127,9 @@ class SignalSpec(_Model):
         signal_id = info.data.get("id")
         if signal_id is None:  # the id is invalid and already reported
             return params
-        if info.data.get("coded") is not None:
+        if "coded" not in info.data:  # see _registered
+            return params
+        if info.data["coded"] is not None:
             check_scalar_params(params)  # the params model of the code validates them once the gate has loaded it
             return params
         # A ValidationError of the params model is merged by Pydantic with the paths signal.params.<field>.
@@ -141,7 +145,16 @@ class SignalSpec(_Model):
         return data
 
     def params_model(self) -> SignalParams:
-        """The validated params instance of the signal."""
+        """The validated params instance of the signal.
+
+        A coded signal is only available once the gate has resolved it: a spec without ``coded.code_sha256`` raises
+        ``UnknownSignalError`` whatever the registry holds, so an unresolved spec can never run. With the sha the lookup
+        is allowed (the loader checks that the registered signal carries that sha).
+        """
+        if self.coded is not None and self.coded.code_sha256 is None:
+            raise UnknownSignalError(
+                f"the coded signal {self.id!r} is not resolved; it has to pass the approval gate first"
+            )
         try:
             return get_signal(self.id).parse_params(self.params)
         except UnknownSignalError:

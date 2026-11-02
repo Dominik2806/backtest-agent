@@ -21,9 +21,11 @@ Rules (the ``rule`` of a finding in brackets):
 """
 
 import ast
+import unicodedata
 from collections.abc import Callable
 
 from backtest_agent.coded.errors import Finding, StaticCheckError
+from backtest_agent.spec.coded_spec import forbidden_character, normalise_newlines
 
 MAX_SOURCE_BYTES = 64 * 1024
 
@@ -43,13 +45,18 @@ BANNED_ATTRIBUTES = frozenset(
     {
         # strings that are evaluated
         "eval", "query",
-        # reading and writing files, in numpy and pandas
+        # reading and writing files (every to_* attribute except ALLOWED_TO_ATTRIBUTES is banned as well)
         "DataSource", "fromfile", "fromregex", "genfromtxt", "load", "loadtxt", "memmap", "open_memmap", "save",
         "savetxt", "savez", "savez_compressed", "tofile",
-        "to_clipboard", "to_csv", "to_excel", "to_feather", "to_hdf", "to_html", "to_json", "to_latex", "to_markdown",
-        "to_orc", "to_parquet", "to_pickle", "to_sql", "to_stata", "to_xml",
+        "parse_file", "parse_raw",
         # ways into the file system, the network and C code
         "ctypeslib", "distutils", "f2py", "io",
+    }
+)  # fmt: skip
+ALLOWED_TO_ATTRIBUTES = frozenset(
+    {
+        "to_datetime", "to_dict", "to_frame", "to_list", "to_numeric", "to_numpy", "to_period", "to_pydatetime",
+        "to_series", "to_timedelta", "to_timestamp",
     }
 )  # fmt: skip
 ALLOWED_DECORATORS = frozenset(
@@ -71,8 +78,6 @@ def find_problems(source: bytes, signal_id: str) -> tuple[Finding, ...]:
         add(None, "size", f"the source has {len(source)} bytes; the limit is {MAX_SOURCE_BYTES}")
     if source.startswith(b"\xef\xbb\xbf"):
         add(None, "encoding", "the source starts with a byte order mark; save it as UTF-8 without BOM")
-    if b"\x00" in source:
-        add(None, "encoding", "the source contains a NUL byte")
     try:
         text = source.decode("utf-8")
     except UnicodeDecodeError as error:
@@ -80,6 +85,15 @@ def find_problems(source: bytes, signal_id: str) -> tuple[Finding, ...]:
         return tuple(sorted(findings))
     if findings:
         return tuple(sorted(findings))
+    text = normalise_newlines(text)  # the CR of a CRLF is not an error; a lone CR is
+    for number, line in enumerate(text.split(chr(10)), start=1):
+        for column, character in enumerate(line):
+            if forbidden_character(character):
+                category = unicodedata.category(character)
+                message = f"the character U+{ord(character):04X} ({category}) is not allowed"
+                findings.append(Finding(number, column, "character", message))
+    if chr(0) in text:
+        return tuple(sorted(findings))  # Python cannot parse a NUL byte; the finding above is the answer
     try:
         tree = ast.parse(text)
     except SyntaxError as error:
@@ -106,6 +120,8 @@ def _is_dunder(name: str) -> bool:
 
 
 def _banned_attribute(name: str) -> bool:
+    if name.startswith("to_"):
+        return name not in ALLOWED_TO_ATTRIBUTES  # fail closed: every to_* may write unless it is listed
     return name in BANNED_ATTRIBUTES or name.startswith("read_")
 
 

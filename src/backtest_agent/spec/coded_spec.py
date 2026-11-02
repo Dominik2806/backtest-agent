@@ -7,6 +7,7 @@ the id) and, once a run is made, the sha256 of the code that ran. Nothing in thi
 
 import math
 import re
+import unicodedata
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
@@ -20,7 +21,17 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _DEVICE_NAMES = frozenset(
     {"con", "prn", "aux", "nul"} | {f"com{n}" for n in range(1, 10)} | {f"lpt{n}" for n in range(1, 10)}
 )
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+FORBIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})  # control, format, line and paragraph separator
+_ALLOWED_CONTROL = frozenset({chr(10), chr(9)})  # a line break and a tab
+
+
+def forbidden_character(character: str) -> bool:
+    """True for a character of the Unicode categories Cc, Cf, Zl or Zp, except a line break and a tab.
+
+    These are control characters, invisible format characters (zero-width and right-to-left marks) and the Unicode line
+    and paragraph separators: nothing a brief or a source file needs, and a way to hide text from a reader.
+    """
+    return character not in _ALLOWED_CONTROL and unicodedata.category(character) in FORBIDDEN_CATEGORIES
 
 
 def normalise_newlines(text: str) -> str:
@@ -61,6 +72,8 @@ def check_scalar_params(params: dict[str, Any]) -> None:
         return isinstance(value, float) and math.isfinite(value)
 
     for name, value in params.items():
+        if not isinstance(name, str):
+            raise ValueError(f"the parameter names of a coded signal must be text, got {name!r}")
         if scalar(value):
             continue
         if isinstance(value, list) and all(scalar(item) for item in value):
@@ -87,8 +100,11 @@ class CodedSpec(BaseModel):
             raise ValueError("the brief must not be empty")
         if len(brief) > MAX_BRIEF_LENGTH:
             raise ValueError(f"the brief must have at most {MAX_BRIEF_LENGTH} characters, got {len(brief)}")
-        if _CONTROL.search(brief):
-            raise ValueError("the brief must not contain control characters (a line break and a tab are allowed)")
+        if any(forbidden_character(character) for character in brief):
+            raise ValueError(
+                "the brief must not contain control, format or line-separator characters "
+                "(Unicode categories Cc, Cf, Zl, Zp; a line break and a tab are allowed)"
+            )
         return brief
 
     @field_validator("code_sha256")
