@@ -2,11 +2,16 @@
 
 import re
 from datetime import UTC, datetime
+from fnmatch import fnmatchcase
 from pathlib import Path
+
+import pytest
+import yaml
 
 from backtest_agent.coded.approvals import approve_code, approve_idea, code_sha256, idea_sha256, normalise_source
 from backtest_agent.coded.static import ALLOWED_TO_ATTRIBUTES, BANNED_ATTRIBUTES, BANNED_NAMES, MAX_SOURCE_BYTES
 from backtest_agent.spec.coded_spec import MAX_BRIEF_LENGTH, MAX_ID_LENGTH
+from backtest_agent.spec.schema import SignalSpec
 
 DOC = (Path(__file__).resolve().parents[1] / "docs" / "coded-signals.md").read_text(encoding="utf-8")
 
@@ -56,19 +61,53 @@ def test_the_numbers_and_lists_of_the_document_are_the_ones_of_the_code() -> Non
         assert f"`{name}`" in DOC, name
     for name in ALLOWED_TO_ATTRIBUTES:
         assert f"`{name}`" in DOC, name
-    mentioned = {
-        "eval",
-        "query",
-        "load",
-        "loadtxt",
-        "genfromtxt",
-        "fromfile",
-        "parse_file",
-        "parse_raw",
-        "io",
-        "ctypeslib",
-    }
-    assert mentioned <= BANNED_ATTRIBUTES
-    for name in mentioned | {"f2py", "distutils", "set_option", "seed", "seterrcall", "set_printoptions", "memmap"}:
+
+
+WILDCARDS = ["save*", "read_*"]  # the patterns the document uses for a family of banned attributes
+
+
+def documented(name: str, text: str) -> bool:
+    """True if ``name`` is in backticks in ``text`` or matches a wildcard that is in backticks there."""
+    if f"`{name}`" in text:
+        return True
+    return any(fnmatchcase(name, pattern) and f"`{pattern}`" in text for pattern in WILDCARDS)
+
+
+def test_every_banned_attribute_is_in_the_document_or_matches_one_of_its_wildcards() -> None:
+    missing = sorted(name for name in BANNED_ATTRIBUTES if not documented(name, DOC))
+    assert missing == []
+    assert all(f"`{pattern}`" in DOC for pattern in WILDCARDS)
+
+
+def test_the_check_notices_a_name_that_is_removed_from_the_document() -> None:
+    for name in sorted(BANNED_ATTRIBUTES):
+        if any(fnmatchcase(name, pattern) for pattern in WILDCARDS):
+            continue  # covered by its wildcard
         assert f"`{name}`" in DOC, name
-        assert name in BANNED_ATTRIBUTES, name
+        without = DOC.replace(f"`{name}`", name)
+        assert not documented(name, without), name
+
+
+def test_the_wildcards_cover_what_they_say() -> None:
+    covered = sorted(name for name in BANNED_ATTRIBUTES if any(fnmatchcase(name, pattern) for pattern in WILDCARDS))
+    assert covered == ["save", "savetxt", "savez", "savez_compressed"]  # the read_* family has no listed member
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def yaml_blocks_with_coded(document: str) -> list[str]:
+    found = re.findall(r"```yaml\n(.*?)```", document, flags=re.DOTALL)
+    return [block for block in found if "coded:" in block]
+
+
+@pytest.mark.parametrize("name", ["coded-signals.md", "strategy-spec.md"])
+def test_every_coded_yaml_example_of_the_documents_is_a_valid_signal_spec(name: str) -> None:
+    text = (ROOT / "docs" / name).read_text(encoding="utf-8")
+    found = yaml_blocks_with_coded(text)
+    assert len(found) >= 1, f"{name} has no yaml block with a coded: block"
+    for block in found:
+        data = yaml.safe_load(block)
+        spec = SignalSpec.model_validate(data["signal"])
+        assert spec.coded is not None and spec.coded.brief.strip()
+        assert spec.coded.code_sha256 is None  # a spec file does not write the sha

@@ -32,12 +32,17 @@ def files() -> list[Path]:
 
 
 def tracked_files() -> list[Path]:
-    """Every text file that git tracks (root files, .github, .claude, ...); empty if git is not installed."""
+    """Every text file that git tracks (root files, .github, .claude, ...); empty if git is missing or fails."""
     if shutil.which("git") is None:
         return []
-    done = subprocess.run(
-        ["git", "-c", "core.quotepath=off", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True, check=True
-    )
+    try:
+        done = subprocess.run(
+            ["git", "-c", "core.quotepath=off", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True
+        )
+    except OSError:
+        return []
+    if done.returncode != 0:  # not a repository (a source archive, for example)
+        return []
     names = [name for name in done.stdout.split(chr(0)) if name]
     return sorted(p for p in (ROOT / name for name in names) if p.suffix in TRACKED_SUFFIXES and p.is_file())
 
@@ -64,14 +69,15 @@ def test_no_invisible_character_in(path: Path) -> None:
     assert invisible(path.read_text(encoding="utf-8")) == []
 
 
-@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 def test_the_tracked_files_include_the_root_and_the_workflows() -> None:
-    names = {p.relative_to(ROOT).as_posix() for p in tracked_files()}
+    files = tracked_files()
+    if not files:
+        pytest.skip("git is not installed or this is not a git repository")
+    names = {p.relative_to(ROOT).as_posix() for p in files}
     assert {"README.md", "CLAUDE.md", "pyproject.toml", "CHANGELOG.md"} <= names
     assert any(name.startswith(".github/") for name in names)
 
 
-@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 @pytest.mark.parametrize("path", tracked_files(), ids=lambda p: "tracked:" + p.relative_to(ROOT).as_posix())
 def test_no_invisible_character_in_tracked(path: Path) -> None:
     assert invisible(path.read_text(encoding="utf-8")) == []
@@ -90,3 +96,27 @@ def test_the_detector_finds_each_category_and_ignores_the_allowed_ones() -> None
         (3, "U+FEFF (Cf)"),
     ]
     assert invisible("plain\r\ncafé   中文\tx\n") == []  # CRLF, accents, NBSP (Zs), CJK, tab
+
+
+# --- tracked_files() never fails at collection time ---
+
+
+def test_tracked_files_is_empty_when_git_is_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert tracked_files() == []
+
+
+def test_tracked_files_is_empty_when_git_cannot_be_started(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(*args, **kwargs):
+        raise OSError("no git")
+
+    monkeypatch.setattr(subprocess, "run", refuse)
+    assert tracked_files() == []
+
+
+def test_tracked_files_is_empty_when_this_is_not_a_git_repository(monkeypatch: pytest.MonkeyPatch) -> None:
+    def failing(command, **kwargs):
+        return subprocess.CompletedProcess(command, 128, stdout="", stderr="fatal: not a git repository")
+
+    monkeypatch.setattr(subprocess, "run", failing)
+    assert tracked_files() == []

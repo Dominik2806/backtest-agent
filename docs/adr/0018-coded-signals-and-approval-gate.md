@@ -79,7 +79,8 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
     approved for the matching idea and exactly that archived hash runs; otherwise the run is refused with exit code 8,
     `code not approved: the file has sha <first 8 hex>`. If the spec also pins a hash that differs from the file's, the run is
     refused with exit code 8, `the spec pins <8 hex> but strategies/signals/<id>.py has sha <8 hex>`, even if the file's hash
-    is approved. If the file does not exist, the pin is used, or else the latest approved hash of the matching idea.
+    is approved. If the file does not exist, the pin is used (it must be listed in the matching idea entry, as in the stored mode), or else the
+    latest approved hash of the matching idea.
   - Before any of that, the idea must be approved: an id without a record, or a brief that differs from every approved one,
     is refused. A refusal happens before any file is compiled.
 - **The registered signal carries the hash it was loaded from.** `Signal` gets a field `sha256: str | None = None` (`None` for

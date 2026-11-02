@@ -164,8 +164,8 @@ default arguments, decorators, class bodies and comprehensions run when the modu
 - no use of `eval`, `exec`, `compile`, `open`, `__import__`, `getattr`, `setattr`, `delattr`, `globals`, `locals`, `vars`,
   `input`, `breakpoint`, `help`, `exit`, `quit`; no name or attribute that starts and ends with two underscores;
 - no attribute that evaluates a string (`eval`, `query`), reads (`read_*`, `load`, `loadtxt`, `genfromtxt`, `fromfile`,
-  `parse_file`, `parse_raw`), writes (every `to_*` except `to_numpy`, `to_list`, `to_frame`, `to_dict`, `to_series`,
-  `to_datetime`, `to_numeric`, `to_timedelta`, `to_period`, `to_timestamp`, `to_pydatetime`; `save*`, `tofile`, `memmap`),
+  `fromregex`, `DataSource`, `parse_file`, `parse_raw`), writes (every `to_*` except `to_numpy`, `to_list`, `to_frame`, `to_dict`, `to_series`,
+  `to_datetime`, `to_numeric`, `to_timedelta`, `to_period`, `to_timestamp`, `to_pydatetime`; `save*`, `tofile`, `memmap`, `open_memmap`),
   reaches the file system or C code (`io`, `ctypeslib`, `f2py`, `distutils`) or changes process-wide state at import time
   (`set_option`, `reset_option`, `option_context`, `options`, `seed`, `seterr`, `seterrcall`, `set_printoptions`);
 - no `global`, `nonlocal` or async code; the top level holds a docstring, imports, classes, functions and assignments of
