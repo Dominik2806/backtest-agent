@@ -230,3 +230,50 @@ def test_the_engine_refuses_a_fixture_without_a_hash_and_an_unresolved_spec() ->
     with pytest.raises(UnknownSignalError, match="is not resolved"):
         run_backtest(coded_spec(None), provider)
     assert provider.calls == []
+
+
+# --- one place where a spec finds its signal ---
+
+
+def test_resolve_signal_gives_the_registered_signal_of_a_plain_spec_and_of_a_loaded_coded_spec() -> None:
+    assert make_spec().signal.resolve_signal() is get_signal("sma_crossover")
+    put(SHA_A)
+    assert coded_spec(SHA_A).signal.resolve_signal() is get_signal("x_signal")
+
+
+def test_resolve_signal_refuses_what_params_model_refuses_with_the_same_message() -> None:
+    cases = [
+        (coded_spec(SHA_A), None),  # nothing registered
+        (coded_spec(None), SHA_A),  # not resolved
+        (coded_spec(SHA_B), SHA_A),  # another version
+        (coded_spec(SHA_A), "no sha"),  # a fixture
+    ]
+    for spec, registered in cases:
+        if registered == "no sha":
+            put(None)
+        elif registered is not None:
+            put(registered)
+        else:
+            SIGNALS.restore({k: v for k, v in SIGNALS.snapshot().items() if k != "x_signal"})
+        with pytest.raises(UnknownSignalError) as from_resolve:
+            spec.signal.resolve_signal()
+        with pytest.raises(UnknownSignalError) as from_params:
+            spec.signal.params_model()
+        assert str(from_resolve.value) == str(from_params.value)
+
+
+def test_the_runner_asks_for_the_signal_itself_so_a_wrongly_marked_one_cannot_run_even_without_the_warm_up_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backtest_agent.engine import history
+
+    provider = FakeProvider(symbols=("AAA", "BBB"))
+    spec_a = coded_spec(SHA_A)
+    put(SHA_A)
+    window = warmup_window(spec_a)  # computed while the right version is loaded
+    put(SHA_B)  # another version is loaded now; the spec still pins version A
+    # Bypass the pin check of warmup_window (it reads spec.warmup_rows): the runner must still refuse on its own.
+    monkeypatch.setattr(history, "warmup_window", lambda spec: window)
+    with pytest.raises(UnknownSignalError, match="the registered signal has sha bbbbbbbb, the spec pins sha aaaaaaaa"):
+        run_backtest(spec_a, provider)
+    assert len(provider.calls) == 1  # the data was loaded: only the runner's own lookup refused

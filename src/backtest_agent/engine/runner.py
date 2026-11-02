@@ -16,7 +16,7 @@ from backtest_agent.engine.result import BacktestResult, WarmupInfo
 from backtest_agent.engine.simulation import simulate_signals
 from backtest_agent.engine.sizing import target_weights
 from backtest_agent.spec.schema import RiskFlag, StrategySpec
-from backtest_agent.spec.signals import close_frame, get_signal
+from backtest_agent.spec.signals import close_frame
 
 
 def run_backtest(
@@ -51,7 +51,7 @@ def run_backtest(
             f"there is no bar on or after period.start {period.start} (last available: {frame.index[-1].date()})"
         )
 
-    signals = get_signal(spec.signal.id).generate(frame, spec.signal.params)
+    signals = spec.signal.resolve_signal().generate(frame, spec.signal.params)
     targets = target_weights(signals, spec.sizing)
     warmup = _warmup_info(spec, closes, targets, first_pos, required, rows_needed, buffer_days, fetch_start)
 
