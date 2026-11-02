@@ -12,6 +12,7 @@ import yaml
 from backtest_agent.coded.cases import (
     MAX_CASES,
     MAX_FILE_BYTES,
+    MAX_FLOW_DEPTH,
     MAX_ROWS,
     MAX_SYMBOLS,
     cases_path,
@@ -210,7 +211,7 @@ def test_a_missing_file_and_a_folder_are_cases_errors(tmp_path) -> None:
         read_cases(cases_path(tmp_path, "up_day"), "up_day")
     assert str(info.value) == "up_day.cases.yaml is missing; the signal coder writes the examples of 'up_day' in it"
     (tmp_path / "up_day.cases.yaml").mkdir()
-    with pytest.raises(CasesError, match="up_day.cases.yaml cannot be read"):
+    with pytest.raises(CasesError, match=r"^up_day.cases.yaml cannot be read \(not a regular file\)$"):
         read_cases(cases_path(tmp_path, "up_day"), "up_day")
 
 
@@ -302,3 +303,46 @@ def test_a_huge_file_is_refused_by_its_size_before_it_is_read(tmp_path, monkeypa
     with pytest.raises(CasesError) as info:
         read_cases(path, "up_day")
     assert str(info.value) == "up_day.cases.yaml has 524288 bytes; the limit is 262144"
+
+
+# --- input that is too deep for the YAML parser ---
+
+TOO_DEEP = ["(yaml): too deeply nested"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["[" * 100000, "{a: " * 50000, "[" * 21, "[" * 10 + "{" * 11, "cases: " + "[" * 100000 + "]" * 100000],
+    ids=["100000 brackets", "50000 braces", "21 brackets", "10 and 11 mixed", "closed"],
+)
+def test_nesting_beyond_the_limit_is_refused_at_once_not_after_minutes(text: str) -> None:
+    # PyYAML needs quadratic time for a long run of opening brackets (13 s for 16000, minutes for 100000): the file is
+    # refused by a count before the parser sees it, so this test returns immediately.
+    assert len(text.encode()) <= MAX_FILE_BYTES
+    assert problems(text) == ["cases.yaml is not valid (1 problem):", "  - " + TOO_DEEP[0]]
+
+
+def test_nesting_up_to_the_limit_is_still_read() -> None:
+    assert MAX_FLOW_DEPTH == 20
+    with pytest.raises(CasesError) as info:  # 20 deep is read; it is only not a cases file
+        parse("[" * 20 + "]" * 20)
+    assert info.value.args[0].splitlines()[1] == "  - (root): the file must be a mapping with a list of cases"
+
+
+def test_brackets_that_are_closed_again_do_not_add_up() -> None:
+    from backtest_agent.coded.cases import _too_deep
+
+    assert _too_deep("[1]," * 5000) is False  # many brackets, each closed at once: the depth never passes 1
+    assert _too_deep("]" * 50 + "[" * 20) is False  # a closing bracket without an opening one does not go below 0
+    assert _too_deep("[" * 21) is True and _too_deep("[" * 20) is False
+
+
+@pytest.mark.parametrize("error", [RecursionError("maximum recursion depth exceeded"), MemoryError()])
+def test_a_recursion_or_memory_error_of_the_yaml_library_is_a_cases_error(
+    error: BaseException, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr("backtest_agent.coded.cases.yaml.load", failing)
+    assert problems(GOOD) == ["cases.yaml is not valid (1 problem):", "  - " + TOO_DEEP[0]]

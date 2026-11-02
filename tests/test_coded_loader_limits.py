@@ -283,6 +283,7 @@ def test_a_default_that_the_model_itself_does_not_accept_is_a_gate_error(world: 
         ('raise RuntimeError("bad")', "RuntimeError: bad"),
         ('raise KeyError("scale")', "KeyError: 'scale'"),
         ("return 1 / 0", "ZeroDivisionError: division by zero"),
+        ("raise SystemExit(3)", "SystemExit: 3"),
     ],
 )
 def test_a_validator_that_runs_on_a_value_of_the_spec_and_raises_something_else_is_a_gate_error(
@@ -294,6 +295,15 @@ def test_a_validator_that_runs_on_a_value_of_the_spec_and_raises_something_else_
     with pytest.raises(GateError) as info:
         world.resolve(coded_spec(params={"scale": 0.5}))  # the value is given, so the validator runs in the first pass
     assert str(info.value) == f"the params model of 'x_signal' failed: {message}"
+
+
+def test_a_validator_that_exits_only_on_the_default_is_a_gate_error_too(world: World) -> None:
+    source = params_source("scale: float = 1.0", validator=True, body="raise SystemExit(3)")
+    world.put_file("x_signal", source)
+    world.approve_both("x_signal", source)
+    with pytest.raises(GateError) as info:
+        world.resolve(coded_spec())  # no value is given: only the second pass validates the default
+    assert str(info.value) == "the params model of 'x_signal' failed: SystemExit: 3"
 
 
 def test_a_params_error_is_still_a_spec_error(world: World) -> None:

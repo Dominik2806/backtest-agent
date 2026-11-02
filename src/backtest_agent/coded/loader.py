@@ -249,7 +249,9 @@ def _validated_params(signal: Signal, params: dict) -> dict:
                 message = str(item["msg"]).removeprefix("Value error, ")
             problems.append(SpecProblem(path, message))
         raise SpecError(problems) from None
-    except Exception as error:  # a validator of the code that raises something other than a ValueError
+    except (KeyboardInterrupt, GeneratorExit):
+        raise
+    except BaseException as error:  # a validator of the code that raises something other than a ValueError
         raise GateError(f"the params model of {signal.id!r} failed: {type(error).__name__}: {error}") from error
     for name, value in dumped.items():
         try:
@@ -265,6 +267,8 @@ def _validated_params(signal: Signal, params: dict) -> dict:
     except ValidationError as error:
         reasons = "; ".join(f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors())
         raise GateError(f"the params model of the code does not accept its own defaults: {reasons}") from None
-    except Exception as error:
+    except (KeyboardInterrupt, GeneratorExit):
+        raise
+    except BaseException as error:
         raise GateError(f"the params model of {signal.id!r} failed: {type(error).__name__}: {error}") from error
     return dumped

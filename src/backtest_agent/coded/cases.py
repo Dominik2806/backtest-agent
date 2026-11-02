@@ -23,6 +23,7 @@ Rows are consecutive Monday-to-Friday days from 2024-01-02; open, high and low e
 """
 
 import math
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any
@@ -42,6 +43,7 @@ MAX_SYMBOLS = 10
 MAX_ROWS = 400
 TOLERANCE = 1e-9
 MAX_DIFFERENCES = 10
+MAX_FLOW_DEPTH = 20  # a legitimate file nests at most 5 deep; PyYAML takes quadratic time on a long run of brackets
 _FIELDS = ("open", "high", "low", "close", "volume")
 
 Price = Annotated[float, Field(gt=0, allow_inf_nan=False, strict=True)]
@@ -112,9 +114,11 @@ def cases_path(strategies_dir: Path | str, signal_id: str) -> Path:
 def read_cases(path: Path, signal_id: str) -> Cases:
     """Read and validate a cases file; ``CasesError`` if it is missing, too large or not valid."""
     try:
-        size = path.stat().st_size
-        if size > MAX_FILE_BYTES:
-            raise CasesError(f"{path.name} has {size} bytes; the limit is {MAX_FILE_BYTES}")
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode):
+            raise CasesError(f"{path.name} cannot be read (not a regular file)")
+        if info.st_size > MAX_FILE_BYTES:
+            raise CasesError(f"{path.name} has {info.st_size} bytes; the limit is {MAX_FILE_BYTES}")
         with path.open("rb") as handle:
             data = handle.read(MAX_FILE_BYTES + 1)
     except FileNotFoundError:
@@ -156,7 +160,9 @@ def run_cases(signal: Signal, cases: Cases) -> int:
     problems: list[str] = []
     try:
         params = signal.parse_params(cases.params)
-    except Exception as error:
+    except (KeyboardInterrupt, GeneratorExit):
+        raise
+    except BaseException as error:  # a validator of the code may raise anything, SystemExit included
         raise CasesError(
             f"{signal.id}: the params of the cases are not valid for the signal ({_short(error)})"
         ) from None
@@ -165,7 +171,9 @@ def run_cases(signal: Signal, cases: Cases) -> int:
         frame = _frame(case)
         try:
             output = signal.generate(frame, params)
-        except Exception as error:  # any failure of the code is a failed case
+        except (KeyboardInterrupt, GeneratorExit):
+            raise
+        except BaseException as error:  # any failure of the code is a failed case, SystemExit included
             problems.append(f"{where}: {type(error).__name__}: {_short(error)}")
             continue
         for symbol, wanted in case.expected.items():
@@ -216,11 +224,29 @@ def _mapping(loader: _Loader, node: yaml.MappingNode, deep: bool = False) -> dic
 _Loader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
 
 
+def _too_deep(text: str) -> bool:
+    """True if brackets or braces are nested deeper than ``MAX_FLOW_DEPTH`` anywhere (text in quotes is not told apart:
+    a name with twenty open brackets is not a name worth reading)."""
+    depth = 0
+    for character in text:
+        if character in "[{":
+            depth += 1
+            if depth > MAX_FLOW_DEPTH:
+                return True
+        elif character in "]}" and depth:
+            depth -= 1
+    return False
+
+
 def _load(text: str, name: str) -> Any:
+    if _too_deep(text):
+        raise _invalid(name, ["(yaml): too deeply nested"])
     try:
         if any(isinstance(event, yaml.AliasEvent) for event in yaml.parse(text, Loader=yaml.SafeLoader)):
             raise _invalid(name, ["(yaml): aliases are not allowed"])
         return yaml.load(text, Loader=_Loader)  # noqa: S506 - a SafeLoader subclass
+    except (RecursionError, MemoryError):
+        raise _invalid(name, ["(yaml): too deeply nested"]) from None
     except yaml.YAMLError as error:
         mark = getattr(error, "problem_mark", None)
         where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""

@@ -78,10 +78,26 @@ class Signal:
         """
         validate_standard_frame(prices)
         parsed = self.parse_params(params)
-        signals = self.function(prices.copy(deep=False), parsed)
+        signals = self._guarded(lambda: self.function(prices.copy(deep=False), parsed))
         validate_signal_output(prices, signals)
-        validate_signal_zeros(prices, signals, parsed.warmup_rows())
+        validate_signal_zeros(prices, signals, self._guarded(parsed.warmup_rows))
         return signals
+
+    def _guarded(self, call: Callable[[], Any]) -> Any:
+        """Run code of this signal. For a signal that the gate loaded (``sha256`` is set) anything it raises, a
+        ``SystemExit`` included, becomes a ``SignalContractError`` with the cause chained, so code written by an agent
+        cannot end the process; ``KeyboardInterrupt`` and ``GeneratorExit`` pass. Built-in signals and fixtures
+        (``sha256`` is ``None``) are not guarded: their errors propagate as they always did."""
+        if self.sha256 is None:
+            return call()
+        try:
+            return call()
+        except SignalContractError:
+            raise
+        except (KeyboardInterrupt, GeneratorExit):
+            raise
+        except BaseException as error:
+            raise SignalContractError(f"{self.id}: the signal raised {type(error).__name__}: {error}") from error
 
 
 class SignalRegistry:

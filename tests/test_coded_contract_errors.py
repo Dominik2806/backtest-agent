@@ -144,14 +144,27 @@ def test_the_honesty_check_names_the_signal_and_the_frame_if_it_is_given_one() -
         check_warmup_is_honest(signal, Plain(), FRAMES["calendars"], frame="calendars")
 
 
-def test_an_exception_in_the_honesty_check_alone_is_wrapped_too() -> None:
+@pytest.mark.parametrize(
+    ("error", "shown"),
+    [(OSError("disk"), "OSError: disk"), (SystemExit(3), "SystemExit: 3")],
+    ids=["OSError", "SystemExit"],
+)
+def test_an_exception_in_the_honesty_check_alone_is_wrapped_too(error: BaseException, shown: str) -> None:
     def boom(prices: pd.DataFrame, params: Plain) -> pd.DataFrame:
-        raise OSError("disk")
+        raise error
 
     signal = Signal("fixture", Plain, boom)
     with pytest.raises(SignalContractError) as info:
         check_warmup_is_honest(signal, Plain(), FRAMES["plain"])
-    assert str(info.value) == "fixture: OSError: disk"
+    assert str(info.value) == f"fixture: {shown}"
+
+
+def test_keyboard_interrupt_passes_through_the_honesty_check_alone() -> None:
+    def interrupted(prices: pd.DataFrame, params: Plain) -> pd.DataFrame:
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        check_warmup_is_honest(Signal("fixture", Plain, interrupted), Plain(), FRAMES["plain"])
 
 
 # --- the check before a run ---

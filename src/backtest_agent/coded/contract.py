@@ -69,7 +69,9 @@ def check_signal_contract(signal: Signal, params: SignalParams, frames: dict[str
             _check_frame(signal, params, prices, honest=name in _HONESTY_FRAMES)
         except SignalContractError as error:
             raise SignalContractError(f"{where}: {error}") from error
-        except Exception as error:
+        except (KeyboardInterrupt, GeneratorExit):
+            raise
+        except BaseException as error:  # also SystemExit: a coded signal must not be able to end the process
             raise SignalContractError(f"{where}: {type(error).__name__}: {error}") from error
 
 
@@ -100,7 +102,9 @@ def check_warmup_is_honest(
         _check_honest(signal, params, prices)
     except SignalContractError as error:
         raise SignalContractError(f"{where}: {error}") from error
-    except Exception as error:
+    except (KeyboardInterrupt, GeneratorExit):
+        raise
+    except BaseException as error:  # also SystemExit
         raise SignalContractError(f"{where}: {type(error).__name__}: {error}") from error
 
 
