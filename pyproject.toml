@@ -1,6 +1,6 @@
 [project]
 name = "backtest-agent"
-version = "0.0.0"
+version = "0.1.0"
 description = "AI-assisted backtesting of trading strategies on a deterministic, tested engine."
 readme = "README.md"
 license = { text = "MIT" }
