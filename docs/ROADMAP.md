@@ -378,6 +378,38 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   now a re-export that still raises `AssertionError`, so no caller and no assertion changed) and `tests/test_journal_failures.py`
   (1 line, line 216: a literal U+FEFF inside `"\ufeff{}"` became the escape, same value and same test id). The second change
   was needed because the new guard test forbids invisible characters in tracked files.
+- Phase 10 part 2b: the gate. `coded/loader.py` (`resolve_coded`), the registry marker `Signal.sha256`, `SignalSpec.resolve_signal()`,
+  `coded/cases.py` (the `cases.yaml` format), the check before a run (`coded/contract.py: check_before_run`), the policy
+  that a coded signal cannot end the process, `docs/coded-signals.md` and ADR 0018 are extended; `bt approve`, `bt signal check`
+  and the agents remain. Deviations from the plan and from the first text of ADR 0018:
+  - **The check before a run has no sampling.** The ADR planned a deterministic sampling above a budget of three seconds. The
+    measurement (250 calls on 120-row frames: 0.27 to 0.8 s) showed it is not needed, and a switch that depends on the clock
+    would make the outcome depend on the machine; the ADR is changed (the rule is a property of the signal: about 10 ms per call
+    reaches three seconds). The cache of checked code is keyed by (hash, params), not by the hash alone, because the check
+    depends on the params.
+  - **The engine changed by two lines.** The plan said the engine stays untouched. `engine/runner.py` now asks
+    `spec.signal.resolve_signal()` instead of `get_signal(spec.signal.id)`, so that the runner does not rely on `warmup_window`
+    having checked the pin first; for every spec without a `coded` block the behaviour is identical (a test bypasses
+    `warmup_window` and shows the runner refuses a wrongly marked signal on its own).
+  - **Additions beyond the plan, found while testing:** the resolved spec has the defaults of the params model written out
+    (omitting a default and writing it are the same variant); a default that a spec cannot hold (`None`, tuple, dict, nested
+    list, NaN) and a model that does not accept its own defaults are a `GateError`; the working file is `stat`-ed and bounded
+    (a regular file of at most 128 KiB); `resolve_coded` unloads the code again whenever it raises; `NotApprovedError`,
+    `RecordError` and `CasesError` were added so that the commands can map exit codes 8, 5 and 9 without parsing text;
+    `cases.yaml` brackets are counted before the parser (PyYAML takes 13 s for 16000 opening brackets, minutes for 100000);
+    anything a coded signal raises, `SystemExit` included, is a contract error (`Signal.generate` guards a signal that
+    carries a hash; built-ins and fixtures behave as before).
+  - **Existing files changed in part 2b** (everything else of the part is new): `src/backtest_agent/spec/signals.py` (53 added,
+    4 deleted: `Signal.sha256`, the registry methods `snapshot`, `restore`, `unregister`, `set_sha256`, the guard of a loaded
+    signal); `src/backtest_agent/spec/schema.py` (24/9: `resolve_signal`, and `params_model` through it);
+    `src/backtest_agent/engine/runner.py` (2/2); `src/backtest_agent/coded/contract.py` and `coded/errors.py` (files of part
+    2a: the errors of the check carry the frame name and anything the code raises is reported; new exceptions). Three
+    **existing test files** changed: `tests/test_coded_spec.py` (3 added, 1 deleted: the fixture signal that was registered
+    without a hash now carries `sha256`, because a spec that pins a hash only finds a signal that carries the same hash);
+    `tests/conftest.py` (1 added: it registers the fixtures `world` and `static_check_off` of the new `tests/coded_helpers.py`);
+    `tests/test_coded_contract.py` (3 added, 3 deleted: two pinned messages now start with the frame name, for example `fixture
+    on the plain frame: the value on ... changes ...`, because the errors of `Signal.generate` and of the honesty check are
+    reported with the frame).
 
 ---
 

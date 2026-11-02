@@ -12,6 +12,7 @@ from backtest_agent.coded.approvals import approve_code, approve_idea, code_sha2
 from backtest_agent.coded.static import ALLOWED_TO_ATTRIBUTES, BANNED_ATTRIBUTES, BANNED_NAMES, MAX_SOURCE_BYTES
 from backtest_agent.spec.coded_spec import MAX_BRIEF_LENGTH, MAX_ID_LENGTH
 from backtest_agent.spec.schema import SignalSpec
+from backtest_agent.spec.signals import Signal, SignalParams, per_symbol_signal
 
 DOC = (Path(__file__).resolve().parents[1] / "docs" / "coded-signals.md").read_text(encoding="utf-8")
 
@@ -111,3 +112,74 @@ def test_every_coded_yaml_example_of_the_documents_is_a_valid_signal_spec(name: 
         spec = SignalSpec.model_validate(data["signal"])
         assert spec.coded is not None and spec.coded.brief.strip()
         assert spec.coded.code_sha256 is None  # a spec file does not write the sha
+
+
+# --- the gate, the check before a run and cases.yaml ---
+
+
+class UpParams(SignalParams):
+    threshold: float = 0.0
+
+    def warmup_rows(self) -> int:
+        return 1
+
+
+def up_day(prices, params):
+    """1.0 where the close is above the previous close of the symbol."""
+    return per_symbol_signal(prices, lambda close: (close - close.shift(1) > params.threshold).astype("float64"))
+
+
+def test_the_worked_example_of_cases_yaml_is_parsed_and_holds_for_the_signal_it_describes() -> None:
+    from backtest_agent.coded.cases import parse_cases, run_cases
+
+    found = [b for b in re.findall(r"```yaml\n(.*?)```", DOC, flags=re.DOTALL) if "cases:" in b and "coded:" not in b]
+    assert len(found) == 1
+    cases = parse_cases(found[0].encode("utf-8"), "up_day")
+    assert [c.name for c in cases.cases] == ["rises, falls and rises"]
+    assert run_cases(Signal("up_day", UpParams, up_day), cases) == 1
+
+
+def test_the_limits_and_numbers_of_the_gate_in_the_document_are_the_ones_of_the_code() -> None:
+    from backtest_agent.coded.cases import MAX_CASES, MAX_FILE_BYTES, MAX_FLOW_DEPTH, MAX_ROWS, MAX_SYMBOLS
+    from backtest_agent.coded.contract import PRE_RUN_ROWS
+    from backtest_agent.coded.loader import FILE_LIMIT
+
+    assert (MAX_CASES, MAX_SYMBOLS, MAX_ROWS, MAX_FILE_BYTES, MAX_FLOW_DEPTH) == (50, 10, 400, 256 * 1024, 20)
+    assert (PRE_RUN_ROWS, FILE_LIMIT) == (120, 128 * 1024)
+    for text in [
+        "1 to 50 cases",
+        "1 to 10 symbols",
+        "1 to 400",
+        "at most 256 KiB",
+        "nested at most 20 deep",
+        "synthetic frames\nof 120 rows",
+        "frames of 300 rows",
+        "at most 128 KiB",
+        "at most one byte more than the\nlimit is read",
+    ]:
+        assert text in DOC, text
+
+
+def test_the_messages_of_the_pin_versus_file_table_are_the_ones_of_the_loader() -> None:
+    loader = (Path(__file__).resolve().parents[1] / "src" / "backtest_agent" / "coded" / "loader.py").read_text("utf-8")
+    for message in [
+        "code not approved: the file has sha",
+        "code not approved: no code is approved for the idea",
+        "the spec pins",
+        "cannot be read (not a regular file)",
+        "is larger than the limit; approved code is at most",
+    ]:
+        assert message in loader, message
+    for fragment in [
+        "code not approved: the file has sha <first 8 hex>",
+        "the spec pins <8 hex> but strategies/signals/<id>.py has sha <8 hex>",
+        "cannot be read (not a regular file)",
+        "is larger than the limit; approved code is at most 64 KiB",
+        "code not approved: no code is approved for the idea",
+    ]:
+        assert fragment in DOC, fragment
+
+
+def test_the_documented_rules_for_params_models_are_listed_in_the_document() -> None:
+    for refused in ["no `None` default", "no tuple", "no dict", "no nested list", "no NaN or infinity"]:
+        assert refused in DOC, refused
