@@ -75,7 +75,8 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
   signals and the `sha256` marker of a `Signal` are used only by the loader and the module that defines the registry. The
   loader reads the archived bytes once, checks their hash and the static check again, and executes those bytes
   (`types.ModuleType` and `exec`, compiled with `dont_inherit=True`, no `.pyc`, the module is not put in `sys.modules`).
-- **`resolve_coded(spec, *, approvals_dir, strategies_dir: Path | None)` has an explicit folder parameter.** The mode is not
+- **`resolve_coded(spec, *, approvals_dir: Path | str, strategies_dir: Path | str | None)` has an explicit folder
+  parameter.** The mode is not
   inferred from the pin.
   - `None` is the stored mode (`bt report`): `strategies/signals` is never read, the spec must pin `code_sha256` (otherwise
     the record cannot be reproduced), and the pin must be listed in the matching idea entry.
@@ -91,7 +92,8 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
   - The errors are `NotApprovedError` (a person has to approve something; exit code 8), `RecordError` (the approvals folder
     cannot supply what the spec needs or was changed; exit code 5 in stored mode), `StaticCheckError` and `SignalContractError`
     and `CasesError` (exit code 9), `SpecError` (the params do not fit; exit code 3) and `GateError` (the code did not load,
-    or its params model is not usable). `resolve_coded` raises nothing else except `KeyboardInterrupt`. The mapping to exit
+    or its params model is not usable). `resolve_coded` raises nothing else except `KeyboardInterrupt` and `GeneratorExit`; `tests/test_coded_gate_errors.py` has
+    one row for every documented failure and checks the exact class and the exit code planned for it. The mapping to exit
     codes is built with the commands; until then `bt run` prints a `SignalContractError` as an unexpected error, exit code 1.
 - **One place where a spec finds its signal.** `Signal` has a field `sha256: str | None = None` (`None` for built-ins and
   fixtures); the loader registers through the normal decorator and then marks the entry. `SignalSpec.resolve_signal()` is
@@ -113,15 +115,18 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
   default and writing it are the same variant). They must be numbers, text, true or false, or lists of those: a `None`, a
   tuple, a dict, a nested list or a NaN as default is a `GateError` that names the field, and the model must accept its own
   defaults. A validator of the code that raises something other than a `ValueError` is a `GateError`, not a raw exception.
-- **Whatever the code raises is an error of the gate, never the end of the process.** `KeyboardInterrupt` and
-  `GeneratorExit` pass through everywhere. Every other `BaseException`, `SystemExit` included, becomes a `GateError` when
-  the code is loaded, a `SignalContractError` ("`<Type>: <text>`") in the contract check, a failed case in `cases.yaml`, and
-  a `SignalContractError` in `Signal.generate` for a signal that carries a hash. Built-in signals and fixtures are not
-  guarded and behave as before.
+- **What the code raises, where the gate calls it, is an error of the gate.** `KeyboardInterrupt` and `GeneratorExit` pass
+  through everywhere. Every other `BaseException`, `SystemExit` included, becomes a `GateError` when the code is loaded or
+  when its params model is used at the gate, a `SignalContractError` ("`<Type>: <text>`") in the contract and honesty
+  checks, a failed case in `cases.yaml`, and a `SignalContractError` in `Signal.generate` (the params model, the function
+  and `warmup_rows`) for a signal that carries a hash. Built-in signals and fixtures are not guarded and behave as before.
+  The guard does **not** cover code that behaves differently after the gate has passed it (state), reached through
+  `params.warmup_rows()` in `warmup_window` and through a params model that the engine uses directly (known gap 5). So the
+  claim is not that a coded signal cannot end the process, but that a `SystemExit` (or any other error) that the code
+  raises while it is loaded, checked or called through `Signal.generate` is a contract error.
 - **The check before a run has no sampling and no time rule.** It runs on synthetic frames of 120 rows, never on real data,
   and makes every check on every row (purity, determinism, the output rules, the zero rows and the truncation test of an
-  honest `warmup_rows`). Measured on the development machine, 250 signal calls take 0.35 to 0.8 s (0.27 to 0.37 s for the
-  built-in styles, 0.75 to 0.79 s for a heavy signal with seven rolling statistics); on the 300-row frames of `bt signal
+  honest `warmup_rows`). Measured on the development machine, 250 signal calls take 0.27 to 0.8 s (0.27 to 0.37 s for signals like the built-in ones, 0.75 to 0.79 s for a heavy one with seven rolling statistics); on the 300-row frames of `bt signal
   check` 610 calls take 0.9 to 1.9 s. The budget of three seconds is therefore a property of the signal, not a switch: a
   signal slower than about 10 ms per call exceeds it on its own. A switch to sampling that depends on the clock would make
   the outcome depend on the machine, and no timer can interrupt a function that is running (known gap 4). The first draft
@@ -129,9 +134,7 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
   The same code with the same params is checked once per process: the cache key is the pair (hash, params), because the
   check depends on the params; a failed check is not remembered.
 - **`cases.yaml`** (`coded/cases.py`): the examples of a coded signal as data, read with the safe YAML loader without
-  aliases, duplicate keys or hidden characters, at most 256 KiB, 50 cases, 10 symbols and 400 rows, with brackets nested at
-  most 20 deep (PyYAML needs quadratic time for a long run of opening brackets, so the depth is counted before the parser
-  sees the text). The file must be a regular file. A difference, a case in which the code raises, or an invalid file is a
+  aliases, duplicate keys or hidden characters, at most 256 KiB, 50 cases, 10 symbols and 400 rows, with at most 20 brackets open at once, counted over the whole text, quotes and comments included, so 21 unclosed brackets anywhere are refused (PyYAML needs quadratic time for a long run of opening brackets, so they are counted before the parser sees the text). The file must be a regular file. A difference, a case in which the code raises, or an invalid file is a
   `CasesError`. Only `bt signal check` runs the examples.
 - **Exit codes** (defined only in `cli/errors.py`): 8 for a gate refusal and a missing confirmation of `bt approve --code`
   (which requires `--sha` with the first 8 hex of the hash it printed), 9 for a failed static check, contract check or
@@ -150,6 +153,12 @@ The static check and the gate reduce risk; they do not remove it. These are know
    (a module attribute, the random state of a library) stays changed after a failed load.
 4. **There is no time or memory limit.** An infinite loop or a huge allocation in the candidate code hangs or crashes the
    process. The budget of the pre-run check cannot interrupt a function that is running.
+5. **State-dependent behaviour after the gate.** The gate checks the code at one moment, on synthetic frames, and guards
+   the places where it calls the code. Code that behaves differently after the gate has passed it (it keeps state: a
+   counter, a cache, a flag) is not covered where it is reached outside `Signal.generate`: through `params.warmup_rows()`
+   in `warmup_window` and through a params model that the engine uses directly. A `SystemExit` or another error raised
+   there is not turned into a contract error, and the same state can make a run differ from the check; the review of the
+   code before it is approved, and the look-ahead test (Phase 15), are what remain.
 
 Beyond these: the approvals are not tamper-proof (a process with write access to `approvals/` can write a record, like the
 journal), the check is not a sandbox (the person who reads the code before approving it is the defence), and the look-ahead

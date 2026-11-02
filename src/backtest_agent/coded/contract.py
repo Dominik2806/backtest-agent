@@ -71,7 +71,7 @@ def check_signal_contract(signal: Signal, params: SignalParams, frames: dict[str
             raise SignalContractError(f"{where}: {error}") from error
         except (KeyboardInterrupt, GeneratorExit):
             raise
-        except BaseException as error:  # also SystemExit: a coded signal must not be able to end the process
+        except BaseException as error:  # also SystemExit: reported as a contract error
             raise SignalContractError(f"{where}: {type(error).__name__}: {error}") from error
 
 

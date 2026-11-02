@@ -243,9 +243,15 @@ was done to the working file since.
 ### What the code may do when it is loaded and called
 
 `KeyboardInterrupt` and `GeneratorExit` always pass through. Anything else the code raises, **`SystemExit` included**, is an
-error of the gate: a `GateError` when the code is loaded, a `SignalContractError` (`<id> on the <frame> frame: <Type>:
-<text>`) in the check before a run, a failed case in `cases.yaml`, and a `SignalContractError` from `Signal.generate` for a
-signal that carries a hash. Built-in signals and fixtures are not guarded. So a coded signal cannot end the process.
+error of the gate where the gate calls the code: a `GateError` when the code is loaded or when its params model is used at the
+gate, a `SignalContractError` (`<id> on the <frame> frame: <Type>: <text>`) in the contract and honesty checks, a failed case in
+`cases.yaml`, and a `SignalContractError` from `Signal.generate` (the params model, the function and `warmup_rows`) for a signal
+that carries a hash. Built-in signals and fixtures are not guarded.
+
+So the claim is: a `SystemExit` (or any other error) that the code raises while it is loaded, checked or called through
+`Signal.generate` is a contract error. It is **not** a claim that a coded signal cannot end the process. The guard does not
+cover code that behaves differently after the gate has passed it (state), reached through `params.warmup_rows()` in
+`warmup_window` and through a params model that the engine uses directly (known gap 5 of the ADR).
 
 ### Errors and the exit codes planned for `bt`
 
@@ -280,8 +286,7 @@ history, a single symbol), and its declared `warmup_rows` is honest, which also 
 Every error names the signal and the frame, for example `rsi_pullback on the calendars frame: ...`.
 
 There is **no sampling and no time rule**: every check runs on every row, so the same code and params give the same answer
-on every machine. Measured on the development machine, the check makes 250 calls of the function and takes 0.27 to 0.37 s
-for signals like the built-in ones and 0.75 to 0.79 s for a heavy signal (seven rolling statistics); `bt signal check` uses
+on every machine. Measured on the development machine, the check makes 250 calls of the function and takes 0.27 to 0.8 s (0.27 to 0.37 s for signals like the built-in ones, 0.75 to 0.79 s for a heavy one with seven rolling statistics); `bt signal check` uses
 frames of 300 rows (610 calls, 0.9 to 1.9 s) and the examples of `cases.yaml`. A signal that needs more than about 10 ms
 per call exceeds three seconds in the check on its own; nothing can interrupt a function that is running (known gap 4). The
 same code with the same params is checked once per process (the cache key is the pair hash and params); a failed check is
@@ -314,8 +319,7 @@ Calculated by hand: AAA row 0 is its first trading row (warm-up of one row: 0); 
   params of a coded spec; `cases` holds 1 to 50 cases with a `name`, `prices` and `expected` of 1 to 10 symbols and 1 to 400
   rows each, the same number of rows everywhere, prices above 0 and finite, exposures between 0 and 1.
 - The file is read with the safe YAML loader: no aliases, no key given twice, no hidden characters (the categories of the
-  rule above), at most 256 KiB, brackets nested at most 20 deep, and it must be a regular file. The depth is counted before
-  the parser sees the text, because PyYAML needs quadratic time for a long run of opening brackets.
+  rule above), at most 256 KiB, at most 20 brackets open at once, counted over the whole text, quotes and comments included, so 21 unclosed brackets anywhere are refused, and it must be a regular file. They are counted before the parser sees the text, because PyYAML needs quadratic time for a long run of opening brackets.
 - The examples run through `Signal.generate`, so the output rules and the zero rows hold in them too. A difference is
   listed with the case, the symbol, the row, the date and both values (at most ten, then `... and N more`); a case in which
   the code raises is a failed case; two values are equal within 1e-9.
@@ -325,8 +329,7 @@ Calculated by hand: AAA row 0 is its first trading row (warm-up of one row: 0); 
 
 `bt validate` reads a spec without importing anything. For a spec with a `coded` block it will print a `Signal:` line from
 the approval record alone (it never loads code): `Signal:     coded, idea not approved`, `Signal:     coded, idea approved,
-code not approved`, or `Signal:     coded, idea and code approved (sha <8 hex>)`, and it exits 0 in all three cases. Today it
-exits with code 3 and the message above, because it cannot show the warm-up of a signal that is not loaded.
+code not approved`, or `Signal:     coded, idea and code approved (sha <8 hex>)`, and it exits 0 in all three cases. Today it exits with code 3 and prints `bt: error: the coded signal 'x' is not resolved; it has to pass the approval gate first`, because it cannot show the warm-up of a signal that is not loaded.
 
 ## Not built yet
 

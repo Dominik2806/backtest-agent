@@ -149,3 +149,17 @@ def test_a_resolution_that_works_changes_nothing_about_this(world: World) -> Non
     resolved = world.resolve(coded_spec(CANARY_ID))
     assert get_signal(CANARY_ID).sha256 == resolved.signal.coded.code_sha256  # type: ignore[union-attr]
     assert world.marker_lines() == ["imported"]
+
+
+def test_a_keyboard_interrupt_while_the_code_is_loaded_passes_through_and_the_registry_is_restored(
+    world: World,
+) -> None:
+    source = canary_with_params("window: int = 3") + b"\nraise KeyboardInterrupt  # after the signal was registered\n"
+    world.put_file(CANARY_ID, source)
+    world.approve_both(CANARY_ID, source)
+    before = SIGNALS.snapshot()
+    with pytest.raises(KeyboardInterrupt):
+        world.resolve(coded_spec(CANARY_ID))
+    assert SIGNALS.snapshot() == before
+    with pytest.raises(UnknownSignalError):
+        get_signal(CANARY_ID)

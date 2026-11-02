@@ -1,14 +1,17 @@
-"""A coded signal cannot end the process: SystemExit and every other exception become contract errors.
+"""A SystemExit (or any other error) that the code of a coded signal raises is a contract error where it is called.
 
-(ADR 0018.) Policy: KeyboardInterrupt and GeneratorExit pass through; every other BaseException that the code of a coded
-signal raises is a SignalContractError (or a failed case) with its type and text. In ``Signal.generate`` that holds for
-signals that the gate loaded (``sha256`` is set); built-in signals and fixtures behave as they always did.
+(ADR 0018.) Policy: KeyboardInterrupt and GeneratorExit pass through; every other BaseException that the code of a
+coded signal raises is a SignalContractError (or a failed case) with its type and text. In ``Signal.generate`` that
+holds for signals that the gate loaded (``sha256`` is set); built-in signals and fixtures behave as they always did.
+Code that is reached anywhere else (``params.warmup_rows()`` in ``warmup_window``, a params model that the engine uses
+directly) is not covered; it is known gap 5 of the ADR.
 """
 
 from datetime import date
 
 import pandas as pd
 import pytest
+from pydantic import field_validator
 
 from backtest_agent.coded.cases import Cases, parse_cases, run_cases
 from backtest_agent.coded.contract import check_before_run
@@ -103,6 +106,49 @@ def test_a_warmup_rows_that_raises_is_guarded_too() -> None:
     with pytest.raises(SignalContractError) as info:
         loaded(zeros, params=Odd).generate(PRICES)
     assert str(info.value) == "x_signal: the signal raised SystemExit: 5"
+
+
+def params_that_exit_on_the_second_validation(code: int) -> type[SignalParams]:
+    """A params model whose validator is fine the first time (the gate) and raises SystemExit the second time."""
+    calls: list[int] = []
+
+    class Moody(SignalParams):
+        value: int = 0
+
+        @field_validator("value")
+        @classmethod
+        def _check(cls, value: int) -> int:
+            calls.append(1)
+            if len(calls) >= 2:
+                raise SystemExit(code)
+            return value
+
+    return Moody
+
+
+def test_a_params_model_that_changes_after_the_gate_is_guarded_in_generate_for_a_loaded_signal() -> None:
+    moody = params_that_exit_on_the_second_validation(7)
+    signal = loaded(zeros, params=moody)
+    assert signal.parse_params({"value": 1}).value == 1  # the first call, as the gate makes it
+    with pytest.raises(SignalContractError) as info:
+        signal.generate(PRICES, {"value": 1})  # the second call, now through generate
+    assert str(info.value) == "x_signal: the signal raised SystemExit: 7"
+    assert isinstance(info.value.__cause__, SystemExit)
+
+
+def test_the_same_params_model_in_a_signal_without_a_hash_propagates_the_exit_unchanged() -> None:
+    moody = params_that_exit_on_the_second_validation(7)
+    signal = loaded(zeros, sha=None, params=moody)
+    signal.parse_params({"value": 1})
+    with pytest.raises(SystemExit) as info:
+        signal.generate(PRICES, {"value": 1})
+    assert info.value.code == 7
+
+
+def test_a_wrong_params_mapping_of_a_loaded_signal_is_a_contract_error_too() -> None:
+    # parse_params is inside the guard, so a pydantic error there is reported like any other error of the signal.
+    with pytest.raises(SignalContractError, match=r"^x_signal: the signal raised ValidationError: "):
+        loaded(zeros).generate(PRICES, {"unknown": 1})
 
 
 def test_the_guard_does_not_change_a_signal_that_works() -> None:

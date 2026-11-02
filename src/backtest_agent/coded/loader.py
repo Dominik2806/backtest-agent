@@ -219,7 +219,7 @@ def _execute(signal_id: str, sha: str, data: bytes) -> None:
         exec(code, module.__dict__)
     except (KeyboardInterrupt, GeneratorExit):
         raise
-    except BaseException as error:  # also SystemExit: the code must not be able to end the process
+    except BaseException as error:  # also SystemExit raised while the code is loaded
         raise GateError(
             f"the code of {signal_id!r} failed when it was loaded: {type(error).__name__}: {error}"
         ) from error

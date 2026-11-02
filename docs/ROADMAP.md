@@ -379,8 +379,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   (1 line, line 216: a literal U+FEFF inside `"\ufeff{}"` became the escape, same value and same test id). The second change
   was needed because the new guard test forbids invisible characters in tracked files.
 - Phase 10 part 2b: the gate. `coded/loader.py` (`resolve_coded`), the registry marker `Signal.sha256`, `SignalSpec.resolve_signal()`,
-  `coded/cases.py` (the `cases.yaml` format), the check before a run (`coded/contract.py: check_before_run`), the policy
-  that a coded signal cannot end the process, `docs/coded-signals.md` and ADR 0018 are extended; `bt approve`, `bt signal check`
+  `coded/cases.py` (the `cases.yaml` format), the check before a run (`coded/contract.py: check_before_run`), the policy for what a coded signal raises while it is loaded, checked or called through `Signal.generate`, `docs/coded-signals.md` and ADR 0018 are extended; `bt approve`, `bt signal check`
   and the agents remain. Deviations from the plan and from the first text of ADR 0018:
   - **The check before a run has no sampling.** The ADR planned a deterministic sampling above a budget of three seconds. The
     measurement (250 calls on 120-row frames: 0.27 to 0.8 s) showed it is not needed, and a switch that depends on the clock
@@ -396,20 +395,27 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
     list, NaN) and a model that does not accept its own defaults are a `GateError`; the working file is `stat`-ed and bounded
     (a regular file of at most 128 KiB); `resolve_coded` unloads the code again whenever it raises; `NotApprovedError`,
     `RecordError` and `CasesError` were added so that the commands can map exit codes 8, 5 and 9 without parsing text;
-    `cases.yaml` brackets are counted before the parser (PyYAML takes 13 s for 16000 opening brackets, minutes for 100000);
-    anything a coded signal raises, `SystemExit` included, is a contract error (`Signal.generate` guards a signal that
-    carries a hash; built-ins and fixtures behave as before).
-  - **Existing files changed in part 2b** (everything else of the part is new): `src/backtest_agent/spec/signals.py` (53 added,
-    4 deleted: `Signal.sha256`, the registry methods `snapshot`, `restore`, `unregister`, `set_sha256`, the guard of a loaded
-    signal); `src/backtest_agent/spec/schema.py` (24/9: `resolve_signal`, and `params_model` through it);
-    `src/backtest_agent/engine/runner.py` (2/2); `src/backtest_agent/coded/contract.py` and `coded/errors.py` (files of part
-    2a: the errors of the check carry the frame name and anything the code raises is reported; new exceptions). Three
-    **existing test files** changed: `tests/test_coded_spec.py` (3 added, 1 deleted: the fixture signal that was registered
-    without a hash now carries `sha256`, because a spec that pins a hash only finds a signal that carries the same hash);
-    `tests/conftest.py` (1 added: it registers the fixtures `world` and `static_check_off` of the new `tests/coded_helpers.py`);
-    `tests/test_coded_contract.py` (3 added, 3 deleted: two pinned messages now start with the frame name, for example `fixture
-    on the plain frame: the value on ... changes ...`, because the errors of `Signal.generate` and of the honesty check are
-    reported with the frame).
+    `cases.yaml` brackets are counted before the parser, at most 20 open at once over the whole text (PyYAML takes 13 s for 16000 opening brackets, minutes for 100000);
+    a `SystemExit` (or any other error) that the code raises while it is loaded, checked or called through
+    `Signal.generate` is a contract error (`Signal.generate` guards a signal that carries a hash; built-ins and fixtures
+    behave as before; code reached through `params.warmup_rows()` in `warmup_window` or a params model used by the engine
+    directly is not covered, known gap 5 of the ADR).
+  - **Every file that existed before part 2b and was changed** (all other files of the part are new). Lines added/deleted, as
+    `git diff main...HEAD --numstat` reports them:
+    - source: `src/backtest_agent/spec/signals.py` (+56/-5: `Signal.sha256`, the registry methods `snapshot`,
+      `restore`, `unregister`, `set_sha256`, the guard of a loaded signal); `src/backtest_agent/spec/schema.py` (+24/-9:
+      `resolve_signal`, and `params_model` through it); `src/backtest_agent/engine/runner.py` (+2/-2);
+      `src/backtest_agent/coded/contract.py` (+64/-15: the errors of the check carry the frame name, anything the code
+      raises is reported, `check_before_run`); `src/backtest_agent/coded/errors.py` (+18/-0: new exceptions);
+    - four existing tests: `tests/test_coded_spec.py` (+3/-1: the fixture signal that was registered without a hash now
+      carries `sha256`, because a spec that pins a hash only finds a signal that carries the same hash); `tests/conftest.py`
+      (+1/-0: it registers the fixtures `world` and `static_check_off` of the new `tests/coded_helpers.py`);
+      `tests/test_coded_contract.py` (+3/-3: two pinned messages now start with the frame name, for example
+      `fixture on the plain frame: the value on ... changes ...`, because the errors of `Signal.generate` and of the honesty
+      check are reported with the frame); `tests/test_coded_docs.py` (+101/-10: tests for the gate, the check before a run
+      and the cases example were added);
+    - documents: `CHANGELOG.md` (+23/-0), `CLAUDE.md` (+20/-5), `docs/ROADMAP.md` (+38/-0),
+      `docs/adr/0018-coded-signals-and-approval-gate.md` (+81/-33), `docs/coded-signals.md` (+151/-9).
 
 ---
 

@@ -346,3 +346,13 @@ def test_a_recursion_or_memory_error_of_the_yaml_library_is_a_cases_error(
 
     monkeypatch.setattr("backtest_agent.coded.cases.yaml.load", failing)
     assert problems(GOOD) == ["cases.yaml is not valid (1 problem):", "  - " + TOO_DEEP[0]]
+
+
+def test_the_count_covers_the_whole_text_so_brackets_in_a_comment_count_too() -> None:
+    # This pins the documented behaviour (docs/coded-signals.md): "at most 20 brackets open at once, counted over the
+    # whole text, quotes and comments included". 21 unclosed brackets in a comment are refused like any others; the
+    # scan is a cheap guard against a parser that needs quadratic time, not a reader of YAML.
+    comment = "# [" * 21
+    assert problems(comment) == ["cases.yaml is not valid (1 problem):", "  - " + TOO_DEEP[0]]
+    assert problems(GOOD + comment) == ["cases.yaml is not valid (1 problem):", "  - " + TOO_DEEP[0]]
+    parse(GOOD + "# [" * 20)  # 20 open brackets in a comment are still read

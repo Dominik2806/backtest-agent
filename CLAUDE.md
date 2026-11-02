@@ -97,8 +97,9 @@ rows), `coded/cases.py` (`cases.yaml`, the examples of a coded signal as data), 
 is the one place where a spec finds its signal (the pin check); `Signal.sha256` is the hash of the code a registered signal
 was loaded from. Rules: `resolve_coded` raises only `NotApprovedError` (exit 8), `RecordError` (5 in stored mode),
 `StaticCheckError`/`SignalContractError`/`CasesError` (9), `SpecError` (3) and `GateError`, and the registry is exactly what it
-was whenever it raises; a coded signal that raises anything but `KeyboardInterrupt`/`GeneratorExit` (`SystemExit` included)
-is a contract error, never the end of the process; the params model of a coded signal has defaults that are numbers, text,
+was whenever it raises; what a coded signal raises (`SystemExit` included, not `KeyboardInterrupt`/`GeneratorExit`) while it is
+loaded, checked or called through `Signal.generate` is a contract error (code reached anywhere else, such as
+`params.warmup_rows()` in `warmup_window`, is not covered: known gap 5 of the ADR); the params model of a coded signal has defaults that are numbers, text,
 true or false, or lists of those (no `None`, tuple or dict) and accepts them. The commands that map these errors to exit codes
 come with `bt approve` and `bt signal check`. Tests that register or load a signal use the fixtures of `tests/coded_helpers.py`
 (the registry is restored, no module of a coded signal may appear in `sys.modules`, canary marker files are written under

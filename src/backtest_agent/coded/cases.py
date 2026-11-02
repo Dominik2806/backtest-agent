@@ -225,8 +225,8 @@ _Loader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping
 
 
 def _too_deep(text: str) -> bool:
-    """True if brackets or braces are nested deeper than ``MAX_FLOW_DEPTH`` anywhere (text in quotes is not told apart:
-    a name with twenty open brackets is not a name worth reading)."""
+    """True if more than ``MAX_FLOW_DEPTH`` brackets or braces are open at once, counted over the whole text: quotes and
+    comments are not told apart, so 21 unclosed brackets anywhere are refused."""
     depth = 0
     for character in text:
         if character in "[{":

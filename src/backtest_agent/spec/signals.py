@@ -77,7 +77,7 @@ class Signal:
         caller's frame. ``ValueError`` for a non-standard input, ``SignalContractError`` for a bad output.
         """
         validate_standard_frame(prices)
-        parsed = self.parse_params(params)
+        parsed = self._guarded(lambda: self.parse_params(params))
         signals = self._guarded(lambda: self.function(prices.copy(deep=False), parsed))
         validate_signal_output(prices, signals)
         validate_signal_zeros(prices, signals, self._guarded(parsed.warmup_rows))
@@ -85,9 +85,11 @@ class Signal:
 
     def _guarded(self, call: Callable[[], Any]) -> Any:
         """Run code of this signal. For a signal that the gate loaded (``sha256`` is set) anything it raises, a
-        ``SystemExit`` included, becomes a ``SignalContractError`` with the cause chained, so code written by an agent
-        cannot end the process; ``KeyboardInterrupt`` and ``GeneratorExit`` pass. Built-in signals and fixtures
-        (``sha256`` is ``None``) are not guarded: their errors propagate as they always did."""
+        ``SystemExit`` included, becomes a ``SignalContractError`` with the cause chained; ``KeyboardInterrupt`` and
+        ``GeneratorExit`` pass. This covers what ``generate`` calls (the params model, the function, ``warmup_rows``);
+        code that is reached anywhere else (``params.warmup_rows()`` in ``warmup_window``, a params model that the
+        engine uses directly) is not covered. Built-in signals and fixtures (``sha256`` is ``None``) are not guarded:
+        their errors propagate as they always did."""
         if self.sha256 is None:
             return call()
         try:
