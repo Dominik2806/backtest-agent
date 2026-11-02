@@ -5,9 +5,11 @@ reader. A test that needs one writes it as an escape (backslash, u and four hex 
 break, a tab and the CR of a CRLF are allowed.
 """
 
+import os
 import shutil
 import subprocess
 import unicodedata
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -47,6 +49,22 @@ def tracked_files() -> list[Path]:
     return sorted(p for p in (ROOT / name for name in names) if p.suffix in TRACKED_SUFFIXES and p.is_file())
 
 
+def require_tracked_files(files: list[Path], environ: Mapping[str, str]) -> None:
+    """Decide what an empty list of tracked files means.
+
+    In CI (the variable ``CI`` is set and not empty) it is a failure, because the guard for the root files, ``.github``
+    and ``.claude`` would be off without anyone noticing. Elsewhere it is a skip (no git, or not a repository).
+    """
+    if files:
+        return
+    if environ.get("CI"):
+        pytest.fail(
+            "git did not list the tracked files in CI: the invisible-character guard for root files, .github and "
+            ".claude would be off; check git safe.directory"
+        )
+    pytest.skip("git is not installed or this is not a git repository")
+
+
 def invisible(text: str) -> list[tuple[int, str]]:
     """(line, 'U+XXXX (category)') of every forbidden character; the CR of a CRLF does not count."""
     found = []
@@ -69,13 +87,16 @@ def test_no_invisible_character_in(path: Path) -> None:
     assert invisible(path.read_text(encoding="utf-8")) == []
 
 
-def test_the_tracked_files_include_the_root_and_the_workflows() -> None:
-    files = tracked_files()
-    if not files:
-        pytest.skip("git is not installed or this is not a git repository")
+def check_listing(files: list[Path], environ: Mapping[str, str]) -> None:
+    """An empty list fails in CI and skips elsewhere; a list must include the root files and the workflows."""
+    require_tracked_files(files, environ)
     names = {p.relative_to(ROOT).as_posix() for p in files}
     assert {"README.md", "CLAUDE.md", "pyproject.toml", "CHANGELOG.md"} <= names
     assert any(name.startswith(".github/") for name in names)
+
+
+def test_the_tracked_files_include_the_root_and_the_workflows() -> None:
+    check_listing(tracked_files(), os.environ)
 
 
 @pytest.mark.parametrize("path", tracked_files(), ids=lambda p: "tracked:" + p.relative_to(ROOT).as_posix())
@@ -116,7 +137,79 @@ def test_tracked_files_is_empty_when_git_cannot_be_started(monkeypatch: pytest.M
 
 def test_tracked_files_is_empty_when_this_is_not_a_git_repository(monkeypatch: pytest.MonkeyPatch) -> None:
     def failing(command, **kwargs):
-        return subprocess.CompletedProcess(command, 128, stdout="", stderr="fatal: not a git repository")
+        # git failed (128) although stdout has a name: a failed command's output is never used
+        return subprocess.CompletedProcess(
+            command, 128, stdout="README.md" + chr(0), stderr="fatal: not a git repository"
+        )
 
     monkeypatch.setattr(subprocess, "run", failing)
     assert tracked_files() == []
+
+
+# --- an empty list of tracked files is a failure in CI and a skip elsewhere ---
+
+CI_MESSAGE = (
+    "git did not list the tracked files in CI: the invisible-character guard for root files, .github and .claude "
+    "would be off; check git safe.directory"
+)
+SKIP_MESSAGE = "git is not installed or this is not a git repository"
+LISTING = [
+    ROOT / name for name in ("README.md", "CLAUDE.md", "pyproject.toml", "CHANGELOG.md", ".github/workflows/ci.yml")
+]
+
+
+def outcome(files: list[Path], environ: dict[str, str]) -> tuple[str, str]:
+    """What ``check_listing`` does: ``("fail", message)``, ``("skip", message)`` or ``("ok", "")``.
+
+    A skipped test is not a failed one, so a test that only expects an exception could not tell a skip from a failure.
+    """
+    try:
+        check_listing(files, environ)
+    except pytest.fail.Exception as error:
+        return "fail", str(error)
+    except pytest.skip.Exception as error:
+        return "skip", str(error)
+    return "ok", ""
+
+
+@pytest.mark.parametrize("environ", [{"CI": "true"}, {"CI": "1"}, {"CI": "false", "OTHER": "x"}])
+def test_an_empty_list_fails_when_ci_is_set(environ: dict[str, str]) -> None:
+    assert outcome([], environ) == ("fail", CI_MESSAGE)
+
+
+@pytest.mark.parametrize("environ", [{}, {"CI": ""}, {"OTHER": "x"}])
+def test_an_empty_list_skips_when_ci_is_unset_or_empty(environ: dict[str, str]) -> None:
+    assert outcome([], environ) == ("skip", SKIP_MESSAGE)
+
+
+@pytest.mark.parametrize("environ", [{}, {"CI": "true"}, {"CI": ""}])
+def test_a_complete_list_is_accepted_whatever_the_environment(environ: dict[str, str]) -> None:
+    assert outcome(LISTING, environ) == ("ok", "")
+
+
+def test_a_list_without_the_workflows_or_the_root_files_is_an_assertion_error() -> None:
+    with pytest.raises(AssertionError):
+        check_listing(LISTING[:-1], {})  # no .github file
+    with pytest.raises(AssertionError):
+        check_listing(LISTING[1:], {"CI": "true"})  # no README.md
+
+
+def run_root_test() -> tuple[str, str]:
+    """Call the test of the root files and report what it did, so a skip cannot pass for a failure."""
+    try:
+        test_the_tracked_files_include_the_root_and_the_workflows()
+    except pytest.fail.Exception as error:
+        return "fail", str(error)
+    except pytest.skip.Exception as error:
+        return "skip", str(error)
+    return "ok", ""
+
+
+def test_the_listing_test_reads_the_real_environment_and_the_real_listing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(globals(), "tracked_files", lambda: [])  # as if git listed nothing
+    monkeypatch.setenv("CI", "1")
+    assert run_root_test() == ("fail", CI_MESSAGE)
+    monkeypatch.setenv("CI", "")
+    assert run_root_test() == ("skip", SKIP_MESSAGE)
+    monkeypatch.delenv("CI")
+    assert run_root_test() == ("skip", SKIP_MESSAGE)
