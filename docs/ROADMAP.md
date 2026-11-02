@@ -415,7 +415,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
       check are reported with the frame); `tests/test_coded_docs.py` (+101/-10: tests for the gate, the check before a run
       and the cases example were added);
     - documents: `CHANGELOG.md` (+23/-0), `CLAUDE.md` (+20/-5), `docs/ROADMAP.md` (+38/-0),
-      `docs/adr/0018-coded-signals-and-approval-gate.md` (+81/-33), `docs/coded-signals.md` (+151/-9).
+      `docs/adr/0018-coded-signals-and-approval-gate.md` (+84/-33), `docs/coded-signals.md` (+153/-9).
 
 ---
 

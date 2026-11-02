@@ -1,12 +1,14 @@
 """Every documented failure of ``resolve_coded`` raises exactly the documented class, and nothing else (ADR 0018).
 
 One row per failure. The class is compared with ``type(error) is ...``, so a subclass or a raw exception of another
-kind fails the row. For the classes that the commands will map, the table also pins the exit code planned for ``bt``:
-``NotApprovedError`` 8, ``RecordError`` 5 (stored mode), ``StaticCheckError`` and ``SignalContractError`` 9,
-``SpecError`` 3; a ``GateError`` has no code of its own yet. After each failure the registry is what it was.
+kind fails the row, and after each failure the registry is what it was. The exit codes that ``bt`` will give these
+classes are not tested here; they are tested with the commands. The gate never runs ``cases.yaml``: ``CasesError`` is
+raised by ``bt signal check``, and a test checks that the loader imports nothing from ``coded.cases``.
 """
 
+import ast
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -25,14 +27,7 @@ from coded_helpers import (
 )
 from runner_helpers import make_spec
 
-PLANNED_EXIT_CODE = {
-    NotApprovedError: 8,
-    RecordError: 5,
-    StaticCheckError: 9,
-    SignalContractError: 9,
-    SpecError: 3,
-    GateError: None,
-}
+GATE_CLASSES = {NotApprovedError, RecordError, StaticCheckError, SignalContractError, SpecError, GateError}
 V1, V2 = good_source(factor="0.0"), good_source(factor="0.5")
 Thunk = Callable[[], object]
 
@@ -296,15 +291,36 @@ def test_every_failure_of_resolve_coded_is_exactly_the_documented_class(
     assert SIGNALS.snapshot() == before
 
 
-def test_the_planned_exit_codes_of_the_classes_are_the_documented_ones() -> None:
-    assert PLANNED_EXIT_CODE[NotApprovedError] == 8 and PLANNED_EXIT_CODE[RecordError] == 5
-    assert PLANNED_EXIT_CODE[StaticCheckError] == PLANNED_EXIT_CODE[SignalContractError] == 9
-    assert PLANNED_EXIT_CODE[SpecError] == 3
-
-
 def test_the_rows_cover_every_class_the_gate_can_raise() -> None:
-    assert {expected for _, expected in ROWS} == set(PLANNED_EXIT_CODE)  # no class is left without a row
+    assert {expected for _, expected in ROWS} == GATE_CLASSES  # no class is left without a row
 
 
 def test_the_classes_of_the_gate_are_what_the_documents_say() -> None:
     assert issubclass(NotApprovedError, GateError) and issubclass(RecordError, GateError)
+
+
+def test_the_gate_does_not_run_the_examples_so_the_loader_imports_nothing_from_cases() -> None:
+    loader = Path(__file__).resolve().parents[1] / "src" / "backtest_agent" / "coded" / "loader.py"
+    imported: list[str] = []
+    for node in ast.walk(ast.parse(loader.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            imported += [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            imported.append(module)
+            imported += [f"{module}.{alias.name}" for alias in node.names]
+    assert imported, "the scan found no import at all"
+    assert not [name for name in imported if name.split(".")[:3] == ["backtest_agent", "coded", "cases"]], imported
+    assert "backtest_agent.coded.errors.CasesError" not in imported
+    assert "CasesError" not in loader.read_text(encoding="utf-8")
+
+
+def test_the_scan_of_the_imports_would_see_an_import_of_cases() -> None:
+    source = "from backtest_agent.coded.cases import run_cases\nimport backtest_agent.coded.cases\n"
+    imported = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom):
+            imported.append(node.module or "")
+        elif isinstance(node, ast.Import):
+            imported += [alias.name for alias in node.names]
+    assert [name.split(".")[:3] for name in imported] == [["backtest_agent", "coded", "cases"]] * 2

@@ -255,12 +255,14 @@ cover code that behaves differently after the gate has passed it (state), reache
 
 ### Errors and the exit codes planned for `bt`
 
-`resolve_coded` raises `NotApprovedError` (something has to be approved: exit code **8**), `RecordError` (the approvals
-folder cannot supply what the spec needs or was changed: exit code **5** in stored mode), `StaticCheckError`,
-`SignalContractError` and `CasesError` (the code is not acceptable: exit code **9**), `SpecError` (the params do not fit
-the params model of the code: exit code 3) and `GateError` (the code did not load or its params model is not usable). It
-raises nothing else. The commands that map these to exit codes (`bt approve`, `bt signal check`, and the changes of `bt
-run` and `bt report`) are not built yet; until then `bt run` shows a `SignalContractError` as an unexpected error, exit
+The gate, `resolve_coded`, raises `NotApprovedError` (something has to be approved: planned exit code **8**),
+`RecordError` (the approvals folder cannot supply what the spec needs or was changed: planned exit code **5** in stored
+mode), `StaticCheckError` and `SignalContractError` (the code is not acceptable: planned exit code **9**), `SpecError` (the
+params do not fit the params model of the code: exit code 3) and `GateError` (the code did not load or its params model is
+not usable). It raises nothing else, and it does not run `cases.yaml`: `bt signal check` does, and it also raises
+`CasesError` (planned exit code 9, like `StaticCheckError` and `SignalContractError`). The commands that map these to exit
+codes (`bt approve`, `bt signal check`, and the changes of `bt run` and `bt report`) are not built yet; the mapping is
+tested with them; until then `bt run` shows a `SignalContractError` as an unexpected error, exit
 code 1, and a coded spec that was not resolved is exit code 3 (`the coded signal 'x' is not resolved; it has to pass the
 approval gate first`).
 

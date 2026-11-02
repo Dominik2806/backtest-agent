@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carries a hash), `tests/conftest.py` (+1/-0; the fixtures of the gate tests), `tests/test_coded_contract.py`
   (+3/-3; two pinned messages start with the frame name), `tests/test_coded_docs.py` (+101/-10; tests for the gate
   were added); and the documents `CHANGELOG.md` (+23/-0), `CLAUDE.md` (+20/-5), `docs/ROADMAP.md` (+38/-0),
-  `docs/adr/0018-coded-signals-and-approval-gate.md` (+81/-33), `docs/coded-signals.md` (+151/-9).
+  `docs/adr/0018-coded-signals-and-approval-gate.md` (+84/-33), `docs/coded-signals.md` (+153/-9).
 - Phase 10 part 2a: `Signal.generate` refuses a `warmup_rows` that is not a Python `int` of at least 0 (before, a negative
   value indexed the trading rows from the end). Two existing test files changed: `tests/signal_contract.py` (now a re-export
   of the package module, still raising `AssertionError`) and one line of `tests/test_journal_failures.py` (a literal byte order
