@@ -58,6 +58,12 @@ All prices are adjusted for splits **and** dividends (yfinance `auto_adjust=True
 - Volume is adjusted for splits only, not for dividends.
 - Adjusted prices are not the prices that were quoted on a given day. Historical values are rescaled whenever a new
   split or dividend happens, so do not compare them with an old chart or use them for absolute price levels.
+- **Measured.** On 2026-11-02 two fetches of `strategies/sma_crossover.yaml`, two minutes apart, into empty caches gave
+  different data hashes for the strategy and for the benchmark. GLD (no dividends) was identical. SPY, QQQ and TLT
+  differed in open, high, low and close on about 84 to 90 percent of the rows, by at most about 2e-6 relative (about
+  0.0002 in price); volume, dates and NaN positions were identical. This is consistent with revised dividend adjustment
+  factors. A run can therefore only be reproduced from the cache it was made with; a fresh fetch makes `bt report` exit
+  with code 7 and "data changed".
 
 ## Cache
 
