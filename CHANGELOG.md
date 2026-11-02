@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-02
+
 ### Added
 
 - Command line, part 3 of 3 (F-16, Phase 9): `bt report RUN_ID` re-evaluates the stored spec of a logged run on the
@@ -36,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/data.md` now states the field and the `first_dates` of every issue code, the counting rule of `starts_late` and
   `ends_early` and the generation order of the issues (pinned by tests); `docs/cli.md` has a worked example of both
   commands with data hashes computed independently with `hashlib`. No new dependency. `bt report` and the README
-  quickstart follow in part 3.
+  quickstart came in part 3.
 - Command line, part 1 of 3 (F-16, Phase 9): the `bt` command (`backtest_agent.cli:main`, also `python -m backtest_agent`),
   standard library `argparse`, no new dependency. `bt run SPEC` runs a spec through `run_experiment` (evaluate, log, report)
   and prints a summary whose numbers and Trials sentence come from the report's formatters (`--runs-dir`, `--reports-dir`,
@@ -46,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a path, output safe on a cp1252 console, a provider guard that makes a network failure a data problem (exit code 4).
   `main` takes the provider factory, the clock and the streams as arguments, so the tests run offline. `docs/cli.md` with a
   hand-calculated example run, ADR 0016, a test that every relative link of the README and `docs/` resolves. `bt data fetch` and
-  `bt validate --data` follow in part 2, `bt report` and the README quickstart in part 3; release `v0.1.0` after that.
+  `bt validate --data` came in part 2, `bt report` and the README quickstart in part 3.
 - Experiment journal, part 2 of 2 (F-15, Phase 8): `run_experiment(spec, provider, runs_dir=..., generated_at=...,
   reports_dir=None)` evaluates, logs the run and, if a reports folder is given, writes the report with the same run id and
   the trial of the journal. A run id that exists gives "run id already exists; use a later generated_at"; a report folder
@@ -175,4 +177,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Template placeholders filled in `README.md`, `CLAUDE.md` (F-03), `CONTRIBUTING.md`, `LICENSE`, `docs/RELEASING.md`
   and the issue template; line endings are forced to LF in `.gitattributes`
 
-[Unreleased]: https://github.com/Dominik2806/backtest-agent/commits/main
+[Unreleased]: https://github.com/Dominik2806/backtest-agent/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Dominik2806/backtest-agent/releases/tag/v0.1.0
