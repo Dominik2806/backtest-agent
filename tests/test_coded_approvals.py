@@ -347,14 +347,16 @@ def test_a_record_that_is_not_valid_is_refused_with_the_file_and_the_field(raw: 
 
 
 def test_duplicates_are_refused() -> None:
-    entry = '{"approved_at":"2026-11-02T10:00:00Z","code":[],"idea_sha256":"' + IDEA_B + '"}'
-    twice = f'{{"ideas":[{entry},{entry}],"schema_version":1,"signal_id":"x_signal"}}'
+    def record(ideas: list[dict]) -> bytes:
+        return json.dumps({"ideas": ideas, "schema_version": 1, "signal_id": "x_signal"}).encode()
+
+    entry = {"approved_at": "2026-11-02T10:00:00Z", "code": [], "idea_sha256": IDEA_B}
     with pytest.raises(ApprovalFormatError, match=r"x_signal.json: ideas\[1\].idea_sha256 appears twice"):
-        parse_record(twice.encode(), "x_signal", "x_signal.json")
-    code = '{"approved_at":"2026-11-02T11:00:00Z","sha256":"' + S1 + '"}'
-    entry = '{"approved_at":"2026-11-02T10:00:00Z","code":[' + code + "," + code + '],"idea_sha256":"' + IDEA_B + '"}'
+        parse_record(record([entry, entry]), "x_signal", "x_signal.json")
+    code = {"approved_at": "2026-11-02T11:00:00Z", "sha256": S1}
+    twice_code = {"approved_at": "2026-11-02T10:00:00Z", "code": [code, code], "idea_sha256": IDEA_B}
     with pytest.raises(ApprovalFormatError, match=r"ideas\[0\].code\[1\].sha256 appears twice"):
-        parse_record(f'{{"ideas":[{entry}],"schema_version":1,"signal_id":"x_signal"}}'.encode(), "x_signal", "n")
+        parse_record(record([twice_code]), "x_signal", "x_signal.json")
 
 
 def test_a_file_that_cannot_be_parsed_is_reported_by_read_record(tmp_path: Path) -> None:
