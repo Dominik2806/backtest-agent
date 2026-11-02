@@ -328,11 +328,12 @@ Journal:    <runs dir>/<run id>/run.json (unchanged)
 Report:     <reports dir>/<run id>/report.md and report.html
 ```
 
-**Caveats.** Keep the cache folder of the original run and pass it with `--cache-dir`. `--cache-dir` must be the cache of the run: a deleted cache, or a provider that revised an adjusted price since,
-gives exit code 7 by design (the data hash differs; the run in the journal stays valid and untouched). A run whose period ends
-today or later is never cached ([data.md](data.md)), so `bt report` fetches it live and can see other data than the run did.
-With no cache and no network the provider fails: exit code 4 and nothing is written. `bt report` is also the answer to exit
-code 6 (the run was logged but its report failed): it writes that report without logging the run twice.
+**Caveats.** `--cache-dir` must be the cache of the run, so keep the cache folder of every run you may want to reproduce: a
+deleted cache, or a provider that revised an adjusted price since, gives exit code 7 by design (the data hash differs; the
+run in the journal stays valid and untouched). A run whose period ends today or later is never cached ([data.md](data.md)),
+so `bt report` fetches it live and can see other data than the run did. With no cache and no network the provider fails: exit
+code 4 and nothing is written. `bt report` is also the answer to exit code 6 (the run was logged but its report failed): it
+writes that report without logging the run twice.
 
 ## Exit codes
 
