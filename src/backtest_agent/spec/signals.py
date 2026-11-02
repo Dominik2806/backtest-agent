@@ -66,8 +66,10 @@ class Signal:
         caller's frame. ``ValueError`` for a non-standard input, ``SignalContractError`` for a bad output.
         """
         validate_standard_frame(prices)
-        signals = self.function(prices.copy(deep=False), self.parse_params(params))
+        parsed = self.parse_params(params)
+        signals = self.function(prices.copy(deep=False), parsed)
         validate_signal_output(prices, signals)
+        validate_signal_zeros(prices, signals, parsed.warmup_rows())
         return signals
 
 
@@ -186,3 +188,27 @@ def validate_signal_output(prices: pd.DataFrame, signals: pd.DataFrame) -> None:
                 problems.append(f"{int(mask.sum())} value(s) {label}; {where}")
     if problems:
         raise SignalContractError("signal output violates the contract: " + "; ".join(problems))
+
+
+def validate_signal_zeros(prices: pd.DataFrame, signals: pd.DataFrame, warmup_rows: int) -> None:
+    """Raise ``SignalContractError`` if a symbol has exposure before its (W+1)-th trading row, W = ``warmup_rows``.
+
+    A trading row of a symbol is a row where its close is not NaN. Every row before the (W+1)-th trading row must be
+    0.0: with W = 0 that is "0.0 before the first trading row"; a symbol with at most W trading rows must be 0.0
+    throughout. ``signals`` must already have passed ``validate_signal_output`` (same index, same flat columns).
+    Vectorised, O(rows x symbols). Not part of ``validate_signal_output``, which stays a pure shape-and-range check.
+    """
+    closes = close_frame(prices)
+    problems: list[str] = []
+    for symbol in closes.columns:
+        trading = np.flatnonzero(closes[symbol].notna().to_numpy())
+        end = int(trading[warmup_rows]) if len(trading) > warmup_rows else len(closes)
+        early = signals[symbol].to_numpy()[:end] != 0.0
+        if early.any():
+            first = signals.index[int(np.argmax(early))].date()
+            problems.append(f"{symbol!r}: {int(early.sum())} value(s) non-zero, first at {first}")
+    if problems:
+        raise SignalContractError(
+            "signal output violates the contract: exposure must be 0.0 before a symbol's trading row "
+            f"{warmup_rows + 1} (warmup_rows is {warmup_rows}); " + "; ".join(problems)
+        )
