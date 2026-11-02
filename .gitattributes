@@ -21,3 +21,8 @@ LICENSE        text eol=lf
 *.png    binary
 *.jpg    binary
 *.gif    binary
+
+# Approved code and approval records are hashed byte for byte. An archive file whose bytes change on checkout (CRLF on
+# Windows) would no longer match its hash, so these are LF in the working tree on every system.
+approvals/**              text eol=lf
+strategies/signals/*.py   text eol=lf
