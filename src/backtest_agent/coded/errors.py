@@ -33,3 +33,7 @@ class ApprovalError(Exception):
 
 class ApprovalFormatError(ApprovalError):
     """A file in ``approvals/`` is not a valid approval record; the message names the file and the field."""
+
+
+class GateError(Exception):
+    """The approval gate refuses to load a coded signal; the message says why (nothing was compiled or run)."""

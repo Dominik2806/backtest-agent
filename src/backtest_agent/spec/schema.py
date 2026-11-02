@@ -148,21 +148,31 @@ class SignalSpec(_Model):
         """The validated params instance of the signal.
 
         A coded signal is only available once the gate has resolved it: a spec without ``coded.code_sha256`` raises
-        ``UnknownSignalError`` whatever the registry holds, so an unresolved spec can never run. With the sha the lookup
-        is allowed (the loader checks that the registered signal carries that sha).
+        ``UnknownSignalError`` whatever the registry holds, so an unresolved spec can never run. With the sha, the
+        registered signal must carry the same ``sha256`` (the hash of the code it was loaded from), otherwise the signal
+        is "not loaded": nothing is registered, or what is registered is another version, a built-in or a fixture.
         """
-        if self.coded is not None and self.coded.code_sha256 is None:
+        coded = self.coded
+        if coded is None:
+            return get_signal(self.id).parse_params(self.params)
+        pinned = coded.code_sha256
+        if pinned is None:
             raise UnknownSignalError(
                 f"the coded signal {self.id!r} is not resolved; it has to pass the approval gate first"
             )
         try:
-            return get_signal(self.id).parse_params(self.params)
+            signal = get_signal(self.id)
         except UnknownSignalError:
-            if self.coded is None:
-                raise
             raise UnknownSignalError(
                 f"the coded signal {self.id!r} is not loaded; it has to pass the approval gate first"
             ) from None
+        if signal.sha256 != pinned:
+            has = "no sha (it was not loaded by the gate)" if signal.sha256 is None else f"sha {signal.sha256[:8]}"
+            raise UnknownSignalError(
+                f"the coded signal {self.id!r} is not loaded: the registered signal has {has}, "
+                f"the spec pins sha {pinned[:8]}"
+            )
+        return signal.parse_params(self.params)
 
 
 class ExecutionSpec(_Model):
