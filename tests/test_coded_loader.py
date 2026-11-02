@@ -3,12 +3,10 @@
 Sources are the small ones of ``coded_helpers``. The hashes in the messages are taken with ``hashlib`` (``sha_of``).
 """
 
-from datetime import UTC, datetime
-
 import pytest
 
 from backtest_agent.coded import approvals
-from backtest_agent.coded.errors import GateError, NotApprovedError, RecordError, StaticCheckError
+from backtest_agent.coded.errors import GateError, NotApprovedError, RecordError
 from backtest_agent.coded.loader import resolve_coded
 from backtest_agent.data import FakeProvider
 from backtest_agent.engine import run_backtest
@@ -356,13 +354,3 @@ class TestRegistration:
         world.approve_both(CANARY_ID, source)
         with pytest.raises(GateError, match="failed when it was loaded: SyntaxError: "):
             world.resolve(coded_spec(CANARY_ID))
-
-
-def test_the_static_check_of_the_archive_runs_before_the_code_is_loaded_without_the_switch(world: World) -> None:
-    # Without static_check_off the real check is in force: a source that it refuses cannot even be approved.
-    source = canary_source()
-    world.put_file(CANARY_ID, source)
-    world.approve_idea(CANARY_ID)
-    with pytest.raises(StaticCheckError):
-        world.approve_code(CANARY_ID, source)
-    assert datetime(2026, 11, 2, tzinfo=UTC) and world.marker_lines() == []

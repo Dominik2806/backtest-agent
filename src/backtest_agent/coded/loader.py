@@ -24,6 +24,8 @@ the registry is exactly what it was before the call. Nothing else the code chang
 """
 
 import difflib
+import os
+import stat
 import types
 from pathlib import Path
 
@@ -37,11 +39,15 @@ from backtest_agent.coded.approvals import (
     read_record,
 )
 from backtest_agent.coded.errors import ApprovalError, GateError, NotApprovedError, RecordError
-from backtest_agent.coded.static import check_source
-from backtest_agent.spec.coded_spec import coded_id_problem
-from backtest_agent.spec.errors import SpecError, SpecProblem
+from backtest_agent.coded.static import MAX_SOURCE_BYTES, check_source
+from backtest_agent.spec.coded_spec import check_scalar_params, coded_id_problem
+from backtest_agent.spec.errors import SpecError, SpecProblem, UnknownSignalError
 from backtest_agent.spec.schema import StrategySpec
 from backtest_agent.spec.signals import SIGNALS, Signal
+
+#: The most bytes of the working file that are read. Approved code has at most MAX_SOURCE_BYTES after CRLF became LF,
+#: and a file that only uses CRLF is at most twice that long, so a longer file cannot be approved code.
+FILE_LIMIT = 2 * MAX_SOURCE_BYTES
 
 
 def resolve_coded(spec: StrategySpec, *, approvals_dir: Path | str, strategies_dir: Path | str | None) -> StrategySpec:
@@ -71,8 +77,11 @@ def resolve_coded(spec: StrategySpec, *, approvals_dir: Path | str, strategies_d
     resolved = spec.to_dict()
     resolved["signal"]["params"] = params
     resolved["signal"]["coded"]["code_sha256"] = sha
-    result = StrategySpec.model_validate(resolved)
-    result.signal.params_model()  # the registered signal carries the hash the spec now pins
+    try:
+        result = StrategySpec.model_validate(resolved)
+        result.signal.params_model()  # the registered signal carries the hash the spec now pins
+    except (ValidationError, UnknownSignalError) as error:  # not expected; the gate still raises only its own errors
+        raise GateError(f"the resolved spec is not valid: {error}") from error
     return result
 
 
@@ -106,11 +115,8 @@ def _chosen_sha(
 
     shown = f"strategies/signals/{signal_id}.py"
     path = Path(strategies_dir) / f"{signal_id}.py"
-    if path.exists():
-        try:
-            file_sha = code_sha256(path.read_bytes())  # only hashed, never executed
-        except OSError as error:
-            raise NotApprovedError(f"{shown} cannot be read ({error.strerror or error})") from None
+    if os.path.lexists(path):
+        file_sha = code_sha256(_read_working_file(path, shown))  # only hashed, never executed
         if pinned is not None and pinned != file_sha:
             raise NotApprovedError(f"the spec pins {pinned[:8]} but {shown} has sha {file_sha[:8]}")
         if not entry.has_code(file_sha):
@@ -122,6 +128,24 @@ def _chosen_sha(
     if latest is None:
         raise NotApprovedError(f"code not approved: no code is approved for the idea of {signal_id!r}")
     return latest.sha256
+
+
+def _read_working_file(path: Path, shown: str) -> bytes:
+    """The bytes of the editable file: a regular file of at most ``FILE_LIMIT`` bytes, else ``NotApprovedError``."""
+    too_large = f"{shown} is larger than the limit; approved code is at most {MAX_SOURCE_BYTES // 1024} KiB"
+    try:
+        info = path.stat()
+        if not stat.S_ISREG(info.st_mode):
+            raise NotApprovedError(f"{shown} cannot be read (not a regular file)")
+        if info.st_size > FILE_LIMIT:
+            raise NotApprovedError(too_large)
+        with path.open("rb") as handle:
+            data = handle.read(FILE_LIMIT + 1)  # one byte more than the limit shows a file that grew since the stat
+    except OSError as error:
+        raise NotApprovedError(f"{shown} cannot be read ({error.strerror or error})") from None
+    if len(data) > FILE_LIMIT:
+        raise NotApprovedError(too_large)
+    return data
 
 
 def _listed(entry: IdeaApproval, sha: str, refuse: type[GateError]) -> str:
@@ -166,7 +190,7 @@ def _load(signal_id: str, sha: str, data: bytes) -> Signal:
 def _execute(signal_id: str, sha: str, data: bytes) -> None:
     module = types.ModuleType(f"coded_signal_{signal_id}")  # not put in sys.modules
     try:
-        code = compile(data.decode("utf-8"), f"<coded signal {signal_id} {sha[:8]}>", "exec")
+        code = compile(data.decode("utf-8"), f"<coded signal {signal_id} {sha[:8]}>", "exec", dont_inherit=True)
         exec(code, module.__dict__)
     except (KeyboardInterrupt, GeneratorExit):
         raise
@@ -177,9 +201,13 @@ def _execute(signal_id: str, sha: str, data: bytes) -> None:
 
 
 def _validated_params(signal: Signal, params: dict) -> dict:
-    """The params with their defaults, validated by the params model of the code; ``SpecError`` if they do not fit."""
+    """The params with their defaults, validated by the params model of the code.
+
+    ``SpecError`` if they do not fit the model, ``GateError`` if the model itself fails or has a default that a spec
+    cannot hold (the spec rule for params of a coded signal: numbers, text, true or false, or lists of those).
+    """
     try:
-        return signal.params_model.model_validate(params).model_dump()
+        dumped = signal.params_model.model_validate(params).model_dump()
     except ValidationError as error:
         known = list(signal.params_model.model_fields)
         problems = []
@@ -196,3 +224,22 @@ def _validated_params(signal: Signal, params: dict) -> dict:
                 message = str(item["msg"]).removeprefix("Value error, ")
             problems.append(SpecProblem(path, message))
         raise SpecError(problems) from None
+    except Exception as error:  # a validator of the code that raises something other than a ValueError
+        raise GateError(f"the params model of {signal.id!r} failed: {type(error).__name__}: {error}") from error
+    for name, value in dumped.items():
+        try:
+            check_scalar_params({name: value})
+        except ValueError:
+            raise GateError(
+                f"the params model of the code has a default that a spec cannot hold: {name!r} is {value!r}; "
+                "defaults must be numbers, text, true or false, or lists of those"
+            ) from None
+    # The spec stores these values, and every run validates them again: the model must accept its own defaults.
+    try:
+        signal.params_model.model_validate(dumped)
+    except ValidationError as error:
+        reasons = "; ".join(f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors())
+        raise GateError(f"the params model of the code does not accept its own defaults: {reasons}") from None
+    except Exception as error:
+        raise GateError(f"the params model of {signal.id!r} failed: {type(error).__name__}: {error}") from error
+    return dumped

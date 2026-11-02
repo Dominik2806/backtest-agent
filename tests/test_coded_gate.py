@@ -25,7 +25,6 @@ from cli_helpers import run_cli
 from coded_helpers import (
     CANARY_ID,
     World,
-    at,
     canary_source,
     coded_modules,
     coded_spec,
@@ -231,7 +230,3 @@ def test_the_real_static_check_refuses_the_canary_at_the_approval(world: World, 
         world.approve_code(CANARY_ID, canary_source())
     assert str(info.value).splitlines()[0] == "the signal source breaks 3 rules of the static check:"
     assert world.marker_lines() == [] and not (world.approvals / "code").exists()
-
-
-def test_at_is_used_for_the_clock_of_the_helpers() -> None:
-    assert at(10).isoformat() == "2026-11-02T10:00:00+00:00"
