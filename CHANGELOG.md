@@ -14,8 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Before, only the reusable contract test checked it, and only for registered signals; a violating signal was accepted and
   could stop the engine with a message about a symbol that never had a price. Only a signal output that has a non-zero value
   there is affected (it raises `SignalContractError`); `validate_signal_output`, the engine and all built-in signals are
-  unchanged. Measured on the cached example frames: `Signal.generate` takes 2.44 to 2.78 ms (sma_crossover), 2.19 to 2.72 ms
-  (momentum_12_1) and 1.09 to 1.43 ms (buy_and_hold) before and after. No new dependency.
+  unchanged. Measured on the cached example frames: `Signal.generate` takes 2.44 ms before and 2.78 ms after (sma_crossover), 2.19 and 2.72 ms
+  (momentum_12_1), 1.09 and 1.43 ms (buy_and_hold). No new dependency.
 
 ## [0.1.0] - 2026-11-02
 

@@ -353,10 +353,9 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   data)` (7 lines, no behaviour change): `parse_spec` and `bt report` share the mapping of a pydantic error to a field
   path, so a list index reads `legs[0].x`. `tests/test_cli_network.py` only gained a test; no existing line of any test
   changed in part 3. The phase shipped in three pull requests (see the first Phase 9 entry).
-- Phase 10: the phase ships in four sequential pull requests: part 1 `feature/signal-runtime-contract` (the runtime zero
-  rows, ADR 0017), part 2 `feature/coded-signals-gate` (the approval gate and coded signals as a library), part 3
-  `feature/coded-signals-cli` (`bt approve`, `bt signal check`), part 4 `feature/agents-architect-coder` (the two subagents,
-  the hook, `docs/agents.md`).
+- Phase 10: the phase ships in several sequential pull requests: part 1 (the runtime zero rows, ADR 0017), then the
+  coded-signal spec, static check and approvals, then the gate and loader, then `bt approve` and `bt signal check`, then the
+  agents.
 - Phase 10 part 1: `Signal.generate` enforces at run time that a symbol's exposure is 0.0 before its (W+1)-th trading row
   (ADR 0017). The roadmap did not list it; it is needed because an agent-written signal is not covered by the contract test.
   No existing test or source line changed except `Signal.generate` (3 lines) and the new `validate_signal_zeros`.

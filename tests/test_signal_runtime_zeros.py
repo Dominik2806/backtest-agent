@@ -107,6 +107,24 @@ def test_a_symbol_with_at_most_w_trading_rows_must_be_zero_throughout() -> None:
         validate_signal_zeros(prices, bad, 2)
 
 
+def test_a_symbol_with_exactly_w_trading_rows_must_be_zero_throughout() -> None:
+    # B has trading rows 4 and 5 only; W = 2 means its third trading row never comes, so all 6 rows must be 0.0.
+    prices = frame({"A": [10, 11, 12, 13, 14, 15], "B": [NAN, NAN, NAN, NAN, 20, 21]})
+    validate_signal_zeros(prices, values(prices, A=[0, 0, 1, 1, 1, 1], B=[0, 0, 0, 0, 0, 0]), 2)
+    with pytest.raises(SignalContractError, match=r"'B': 2 value\(s\) non-zero, first at 2024-01-08"):
+        validate_signal_zeros(prices, values(prices, A=[0, 0, 1, 1, 1, 1], B=[0, 0, 0, 0, 1, 1]), 2)
+
+
+def test_a_direct_call_flags_any_non_zero_value_not_only_positive_ones() -> None:
+    # Through Signal.generate a value below 0 is already refused by validate_signal_output (the range check runs first),
+    # so "!= 0.0" and "> 0.0" cannot be told apart there. Called directly, the function must still flag it.
+    prices = frame({"A": [10, 11, 12], "B": [NAN, 20, 21]})
+    with pytest.raises(SignalContractError, match=r"'B': 1 value\(s\) non-zero, first at 2024-01-02"):
+        validate_signal_zeros(prices, values(prices, A=[1, 1, 1], B=[-0.5, 1, 1]), 0)
+    with pytest.raises(SignalContractError, match=r"'B': 1 value\(s\) non-zero, first at 2024-01-02"):
+        validate_signal_zeros(prices, values(prices, A=[1, 1, 1], B=[float("nan"), 1, 1]), 0)
+
+
 def test_a_symbol_that_never_trades_must_be_zero_throughout() -> None:
     prices = frame({"A": [10, 11, 12], "B": [NAN, NAN, NAN]})
     validate_signal_zeros(prices, values(prices, A=[1, 1, 1], B=[0, 0, 0]), 0)
