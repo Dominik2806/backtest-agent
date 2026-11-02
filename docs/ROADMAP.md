@@ -359,6 +359,25 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 - Phase 10 part 1: `Signal.generate` enforces at run time that a symbol's exposure is 0.0 before its (W+1)-th trading row
   (ADR 0017). The roadmap did not list it; it is needed because an agent-written signal is not covered by the contract test.
   No existing test or source line changed except `Signal.generate` (3 lines) and the new `validate_signal_zeros`.
+- Phase 10 part 2a: the roadmap put the approval gate in Phase 12 and said the coder writes tests under `tests/`. The gate
+  mechanism is built in Phase 10, because code written by an agent must not be loadable before a person approved it, and the
+  coder's examples are data (`cases.yaml`), not pytest files, because a pytest file would import agent code in every test run
+  and in CI. Part 2a delivers the library only and executes no coded signal: the `signal.coded` block (the classes are in the
+  new module `spec/coded_spec.py`, not in `spec/schema.py`), `coded/static.py`, `coded/approvals.py`, `coded/contract.py`,
+  [ADR 0018](adr/0018-coded-signals-and-approval-gate.md) and `docs/coded-signals.md`. Beyond the roadmap text, approvals are
+  an append-only history with an exclusive lock file, the approval covers the idea `{signal_id, brief}` and the code hash but
+  not the params, and approved bytes are archived (the archive is what runs). `approvals/` and `strategies/signals/` are
+  tracked (public), LF, and excluded from ruff. No new dependency.
+- Phase 10 part 2a, existing files changed (the rest of part 2a is new files): `src/backtest_agent/spec/schema.py` (the
+  `SignalSpec` block: `coded` field, id and params rules, a serializer that leaves `coded` out when unused so `to_dict()` and the
+  pinned variant-hash digest are unchanged); `src/backtest_agent/spec/signals.py` (+4 lines: `validate_signal_zeros` refuses a
+  `warmup_rows` that is not a Python `int` of at least 0; a negative value used to index the trading rows from the end, a
+  defect of part 1); `pyproject.toml` (ruff `extend-exclude`); `.gitattributes` (+5) and `.gitignore` (+3); `docs/strategy-spec.md`,
+  `CLAUDE.md`, `CHANGELOG.md` and the ADR index. Two existing **test** files changed:
+  `tests/signal_contract.py` (19 lines added, 78 removed: the checks moved into `backtest_agent.coded.contract`; the file is
+  now a re-export that still raises `AssertionError`, so no caller and no assertion changed) and `tests/test_journal_failures.py`
+  (1 line, line 216: a literal U+FEFF inside `"\ufeff{}"` became the escape, same value and same test id). The second change
+  was needed because the new guard test forbids invisible characters in tracked files.
 
 ---
 

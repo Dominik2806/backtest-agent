@@ -202,9 +202,14 @@ the command line, Phase 9), so the
 strategy and the benchmark are compared over the same period. This is **not** the Phase 15 look-ahead test; it only
 checks that the declared warm-up is honest.
 
+`warmup_rows()` must return a **Python `int`** of at least 0. `True`, `1.5`, `2.0`, a string and a NumPy integer such as
+`np.int64(2)` are refused by `Signal.generate` with `warmup_rows must be an integer of at least 0, got ...`; write
+`int(...)` if the number comes from NumPy.
+
 ### The reusable contract test
 
-`tests/signal_contract.py` holds the checks every registered signal must pass, and
+`tests/signal_contract.py` re-exports the checks every registered signal must pass (they live in
+`backtest_agent.coded.contract` since Phase 10), and
 `tests/test_signal_contract.py` runs them for every id in the registry, with default and small-window params, on
 fake-provider data: a plain frame, a frame with different calendars (holidays, a symbol starting late, one ending
 early), a history shorter than the warm-up and a single symbol. It checks index and columns, `float64`, the range, no
@@ -215,8 +220,9 @@ history before that date. A new signal is covered as soon as it is registered.
 ## Built-in signals
 
 Built-in signals live in the package (`spec/builtin_signals.py`) and are registered when `backtest_agent.spec` is
-imported. Signals written by agents will live in `strategies/` (Phase 10 restricts the coder to that folder); the
-discovery of those files is built in Phase 10, and it must only load files the approved spec names (see ADR 0006).
+imported. Signals written by agents are **coded signals**: they live in `strategies/signals/` and are named by a `coded`
+block in the spec (below); nothing loads them before a person approved them (see [coded-signals.md](coded-signals.md),
+[ADR 0018](adr/0018-coded-signals-and-approval-gate.md) and ADR 0006).
 
 | Id | Parameters (default) | Signal | Warm-up |
 |---|---|---|---|
@@ -226,3 +232,28 @@ discovery of those files is built in Phase 10, and it must only load files the a
 
 `momentum_12_1` counts its windows in trading days (12 months is about 252 days, one month about 21), which is
 simple, vectorized and has no calendar edge cases. `skip_days` must be smaller than `lookback_days`.
+
+## The `coded` block (Phase 10)
+
+A signal that an agent writes after the idea was approved is named by an optional block inside `signal`:
+
+```yaml
+signal:
+  id: rsi_pullback
+  params: {window: 14, entry_below: 30}
+  coded:
+    brief: >
+      Hold a symbol while its 14-row RSI is below entry_below. window is the RSI length; needs window rows of history.
+```
+
+- The id is lowercase letters, digits and underscores (at most 64 characters), not the id of a built-in signal and not a
+  name that Windows reserves for devices. The brief has 1 to 2000 characters with at least one that is not white space, and
+  no control, format or line-separator character (Unicode categories Cc, Cf, Zl, Zp, except a line break and a tab); CRLF
+  becomes LF. `coded.code_sha256` (64 lowercase hex characters) is set when the gate resolves the spec; a spec file does not
+  write it.
+- A spec with the block is valid before its code exists: the id is not looked up in the registry and the params must be
+  numbers, text, true or false, or lists of those. Until the gate has resolved it, `params_model()` and `warmup_rows` raise
+  `UnknownSignalError`, whatever the registry holds, so an unresolved spec cannot run.
+- Without the block, `to_dict()` is exactly what it was before (the variant hash does not change); with it, the brief and the
+  sha are part of the variant hash, so rewriting the code is a new variant of the same family.
+- Full rules, the hashes and the approval records: [coded-signals.md](coded-signals.md).
