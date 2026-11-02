@@ -2,7 +2,7 @@
 
 - **Status:** Accepted and built. Phase 9 was delivered in three parts: part 1 `run`, `validate` (spec only) and
   `journal list|show|rebuild`; part 2 `data fetch` and `validate --data`; part 3 `report` and the quickstart. The
-  release order below is still to be followed.
+  release order below applies to v0.1.0.
 
 ## Context
 

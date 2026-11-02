@@ -324,7 +324,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   (`feature/cli`): the `bt` skeleton, `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes,
   `docs/cli.md`, ADR 0016. Part 2 (`feature/cli-data`): the shared window and loader helpers of the engine, `data fetch`,
   `validate --data`. Part 3 (`feature/cli-report`): `report`, the README quickstart, status **Done**. The release `v0.1.0`
-  follows in its own pull request after part 3, then the fresh-clone check, then the tag.
+  follows the release order of ADR 0016 (release pull request, fresh-clone check, tag).
 - Phase 9: the CLI uses `argparse` from the standard library instead of the `typer` named in the tech stack (no new
   dependency), and is a package `src/backtest_agent/cli/` instead of one module `cli.py` (parser, commands, rendering, error
   mapping and provider guard are separate jobs). Beyond the roadmap text, `bt journal rebuild` exists (the stale-index error
@@ -597,7 +597,7 @@ Done when:
 
 **Branch:** `feature/cli` (part 1), `feature/cli-data` (part 2), `feature/cli-report` (part 3, rebased onto `main` after part 2 was merged) · **Goal:** the whole backtester runs from one command, without any agent.
 
-**Status:** Done. Part 1 (`feature/cli`, delivered): `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, [ADR 0016](adr/0016-command-line.md). Part 2 (`feature/cli-data`, delivered): `warmup_window` and `load_history` (engine, behaviour-only), `data fetch`, `validate --data`. Part 3 (`feature/cli-report`, delivered): `report`, the README quickstart and the test that every `bt` line of the documentation parses; `v0.1.0` is released after it (`chore/release-v0.1.0`, see [ADR 0016](adr/0016-command-line.md)).
+**Status:** Done. Part 1 (`feature/cli`, delivered): `run`, `validate` (spec only), `journal list|show|rebuild`, exit codes, `docs/cli.md`, [ADR 0016](adr/0016-command-line.md). Part 2 (`feature/cli-data`, delivered): `warmup_window` and `load_history` (engine, behaviour-only), `data fetch`, `validate --data`. Part 3 (`feature/cli-report`, delivered): `report`, the README quickstart and the test that every `bt` line of the documentation parses; `v0.1.0` follows the release order of [ADR 0016](adr/0016-command-line.md) (release pull request, fresh-clone check, tag).
 
 Tasks:
 
@@ -607,12 +607,12 @@ Tasks:
   universe and for the benchmark, runs the signals on it and trims the results to the period, so the strategy and the
   benchmark are compared over the same period. If the provider has less history than the warm-up needs, the run says so.
 - README quickstart and usage examples.
-- After the merge, release `v0.1.0` as described in [RELEASING.md](RELEASING.md).
+- Release `v0.1.0` as described in [RELEASING.md](RELEASING.md), in the order of [ADR 0016](adr/0016-command-line.md).
 
 Done when:
 
 - On a fresh clone, `uv sync` followed by `uv run bt run strategies/sma_crossover.yaml` produces a report.
-- The release `v0.1.0` is published.
+- The release order of ADR 0016 is followed: release pull request merged, fresh-clone check, tag.
 
 ## Phase 10: Strategy architect and signal coder
 
