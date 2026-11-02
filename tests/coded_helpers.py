@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from backtest_agent.coded.approvals import approve_code, approve_idea
-from backtest_agent.coded.loader import resolve_coded
+from backtest_agent.coded.loader import clear_checked, resolve_coded
 from backtest_agent.spec import SIGNALS, StrategySpec
 from runner_helpers import make_spec
 
@@ -158,7 +158,9 @@ def coded_modules() -> list[str]:
 def registry_and_modules_are_restored() -> Iterator[None]:
     """Every test starts and ends with the registry it found, and no module of a coded signal is ever created."""
     before = SIGNALS.snapshot()
+    clear_checked()
     assert coded_modules() == []
     yield
     SIGNALS.restore(before)
+    clear_checked()
     assert coded_modules() == []

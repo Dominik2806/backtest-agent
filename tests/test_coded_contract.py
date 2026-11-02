@@ -155,8 +155,8 @@ def test_exposure_before_a_symbols_first_trading_row_is_caught() -> None:
     with pytest.raises(SignalContractError) as info:
         run(always_on, Plain())
     assert str(info.value) == (
-        "signal output violates the contract: exposure must be 0.0 before a symbol's trading row 1 "
-        "(warmup_rows is 0); 'CCC': 5 value(s) non-zero, first at 2024-01-02"
+        "fixture on the calendars frame: signal output violates the contract: exposure must be 0.0 before a "
+        "symbol's trading row 1 (warmup_rows is 0); 'CCC': 5 value(s) non-zero, first at 2024-01-02"
     )
 
 
@@ -173,7 +173,7 @@ def test_a_warmup_that_is_declared_longer_than_the_zeros_is_caught() -> None:
 def test_a_warmup_that_is_declared_shorter_than_the_history_used_is_caught() -> None:
     with pytest.raises(SignalContractError) as info:
         run(above_mean, Dishonest(window=5, declared=0))  # needs window - 1 = 4 rows of history, the params say 0
-    assert str(info.value).startswith("fixture: the value on 20")
+    assert str(info.value).startswith("fixture on the plain frame: the value on 20")
     assert str(info.value).endswith(
         " changes when only 0 rows of history are given; the declared warmup_rows is too small, "
         "or the function uses data from after the date"

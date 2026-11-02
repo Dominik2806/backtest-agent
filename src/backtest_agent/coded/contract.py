@@ -56,28 +56,55 @@ def contract_frames(rows: int = 300) -> dict[str, pd.DataFrame]:
 
 
 def check_signal_contract(signal: Signal, params: SignalParams, frames: dict[str, pd.DataFrame]) -> None:
-    """Purity, determinism, the output rules and an honest warm-up on every frame; raises ``SignalContractError``."""
+    """Purity, determinism, the output rules and an honest warm-up on every frame; raises ``SignalContractError``.
+
+    Every error names the signal and the frame (``"<id> on the <frame> frame: ..."``). That includes the errors that
+    ``Signal.generate`` raises for a bad output, and anything else the function raises (``"<id> on the <frame>
+    frame: <ExceptionType>: <text>"``): code written by an agent can fail in any way, and the result is always a
+    contract error.
+    """
     for name, prices in frames.items():
         where = f"{signal.id} on the {name} frame"
-        snapshot = prices.copy(deep=True)
-        raw = signal.function(prices, params)  # the real function on the real frame: it must not modify it
-        if not prices.equals(snapshot):
-            raise SignalContractError(f"{where}: the function modified its input frame")
-        generated = signal.generate(prices, params)  # the output rules and the zero rows, as the engine calls it
-        if not generated.equals(raw):
-            raise SignalContractError(f"{where}: the function is not deterministic (a second call gave another answer)")
-        if name in _HONESTY_FRAMES:
-            check_warmup_is_honest(signal, params, prices)
+        try:
+            _check_frame(signal, params, prices, honest=name in _HONESTY_FRAMES)
+        except SignalContractError as error:
+            raise SignalContractError(f"{where}: {error}") from error
+        except Exception as error:
+            raise SignalContractError(f"{where}: {type(error).__name__}: {error}") from error
 
 
-def check_warmup_is_honest(signal: Signal, params: SignalParams, prices: pd.DataFrame) -> None:
+def _check_frame(signal: Signal, params: SignalParams, prices: pd.DataFrame, *, honest: bool) -> None:
+    snapshot = prices.copy(deep=True)
+    raw = signal.function(prices, params)  # the real function on the real frame: it must not modify it
+    if not prices.equals(snapshot):
+        raise SignalContractError("the function modified its input frame")
+    generated = signal.generate(prices, params)  # the output rules and the zero rows, as the engine calls it
+    if not generated.equals(raw):
+        raise SignalContractError("the function is not deterministic (a second call gave another answer)")
+    if honest:
+        _check_honest(signal, params, prices)
+
+
+def check_warmup_is_honest(
+    signal: Signal, params: SignalParams, prices: pd.DataFrame, frame: str | None = None
+) -> None:
     """The declared ``warmup_rows`` is true; raises ``SignalContractError`` otherwise.
 
     That the output is 0.0 on the first ``warmup_rows`` trading rows of every symbol is enforced by ``generate``
     itself (``validate_signal_zeros``). Here: on every date the value equals the value computed from only
     ``warmup_rows`` trading rows of history before that date (for every symbol, plus the date itself) instead of the
-    full history.
+    full history. The error names the signal, and the frame if ``frame`` is given.
     """
+    where = signal.id if frame is None else f"{signal.id} on the {frame} frame"
+    try:
+        _check_honest(signal, params, prices)
+    except SignalContractError as error:
+        raise SignalContractError(f"{where}: {error}") from error
+    except Exception as error:
+        raise SignalContractError(f"{where}: {type(error).__name__}: {error}") from error
+
+
+def _check_honest(signal: Signal, params: SignalParams, prices: pd.DataFrame) -> None:
     full = signal.generate(prices, params)  # also refuses a warmup_rows that is not an integer of at least 0
     w = params.warmup_rows()
     closes = close_frame(prices)
@@ -90,8 +117,26 @@ def check_warmup_is_honest(signal: Signal, params: SignalParams, prices: pd.Data
             if last >= 0:
                 start = min(start, int(positions[max(0, last - w)]))
         truncated = signal.function(prices.iloc[start : i + 1].copy(deep=False), params)
+        if not isinstance(truncated, pd.DataFrame) or truncated.shape[1] != full.shape[1]:
+            raise SignalContractError(
+                f"the function does not return a frame with one column per symbol when it is given only {w} rows of "
+                f"history before {prices.index[i].date()}"
+            )
         if not np.array_equal(truncated.iloc[-1].to_numpy(), full.iloc[i].to_numpy()):
             raise SignalContractError(
-                f"{signal.id}: the value on {prices.index[i].date()} changes when only {w} rows of history are given; "
+                f"the value on {prices.index[i].date()} changes when only {w} rows of history are given; "
                 "the declared warmup_rows is too small, or the function uses data from after the date"
             )
+
+
+#: Rows of the synthetic frames that the check before a run uses (``bt signal check`` uses the 300 of
+#: ``contract_frames``).
+PRE_RUN_ROWS = 120
+
+
+def check_before_run(signal: Signal, params: SignalParams) -> None:
+    """The contract check that the gate makes before a coded signal runs: all checks, on frames of ``PRE_RUN_ROWS``.
+
+    No row is skipped and nothing depends on time, so the same code and params give the same answer on every machine.
+    """
+    check_signal_contract(signal, params, contract_frames(PRE_RUN_ROWS))

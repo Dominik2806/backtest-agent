@@ -10,7 +10,8 @@ approved the idea and the code, loads exactly the archived bytes of the approved
 4. the archive ``approvals/code/<sha>.py`` is read once, its hash and the static check are checked again;
 5. only now the bytes are compiled and executed, in a module that is not put in ``sys.modules``; exactly one new
    registry entry with the id must appear, and it is marked with the hash it was loaded from;
-6. the params are validated by the params model of the code and returned with their defaults, as for every signal.
+6. the params are validated by the params model of the code and returned with their defaults, as for every signal;
+   the contract check runs on synthetic frames (``check_before_run``) with those params.
 
 ``strategies_dir`` says where the editable code is. ``None`` is the stored mode (``bt report``): that folder is never
 read and the spec must pin ``code_sha256``. A folder is the run mode (``bt run``): ``<id>.py`` in it is only read as
@@ -38,6 +39,7 @@ from backtest_agent.coded.approvals import (
     read_archived_code,
     read_record,
 )
+from backtest_agent.coded.contract import check_before_run
 from backtest_agent.coded.errors import ApprovalError, GateError, NotApprovedError, RecordError
 from backtest_agent.coded.static import MAX_SOURCE_BYTES, check_source
 from backtest_agent.spec.coded_spec import check_scalar_params, coded_id_problem
@@ -55,8 +57,9 @@ def resolve_coded(spec: StrategySpec, *, approvals_dir: Path | str, strategies_d
 
     Raises ``NotApprovedError`` (the maintainer has to approve something; exit code 8), ``RecordError`` (the approvals
     folder cannot supply what the spec needs, or it was changed; exit code 5 in stored mode), ``StaticCheckError``,
-    ``SpecError`` (the params do not fit the params model) or ``GateError`` (the code did not load, or its params
-    model is not usable). **Whenever it raises, the registry is exactly what it was before the call**: a signal that
+    ``SpecError`` (the params do not fit the params model), ``SignalContractError`` (the code fails the contract check
+    on synthetic frames, see ``coded/contract.py``) or ``GateError`` (the code did not load, or its params model is not
+    usable). **Whenever it raises, the registry is exactly what it was before the call**: a signal that
     was loaded and then failed a later step (params, defaults, the final validation) is unloaded again.
     """
     coded = spec.signal.coded
@@ -77,6 +80,7 @@ def resolve_coded(spec: StrategySpec, *, approvals_dir: Path | str, strategies_d
     try:
         signal = _load(signal_id, sha, data, before)
         params = _validated_params(signal, spec.signal.params)
+        _check_contract_once(signal, params, sha)
 
         resolved = spec.to_dict()
         resolved["signal"]["params"] = params
@@ -90,6 +94,24 @@ def resolve_coded(spec: StrategySpec, *, approvals_dir: Path | str, strategies_d
     except BaseException:
         SIGNALS.restore(before)  # from the load to the end: a failure leaves no loaded code behind
         raise
+
+
+#: What passed the check before a run in this process: the hash of the code and the params it was checked with. The same
+#: code with the same params is not checked again (the check costs a fraction of a second to a second).
+_CHECKED: set[tuple[str, str]] = set()
+
+
+def clear_checked() -> None:
+    """Forget what passed the check before a run (for tests; a real process never needs it)."""
+    _CHECKED.clear()
+
+
+def _check_contract_once(signal: Signal, params: dict, sha: str) -> None:
+    key = (sha, repr(sorted(params.items())))
+    if key in _CHECKED:
+        return
+    check_before_run(signal, signal.parse_params(params))  # raises SignalContractError; nothing is remembered then
+    _CHECKED.add(key)
 
 
 def _approved_idea(approvals_dir: Path | str, signal_id: str, brief: str, refuse: type[GateError]) -> IdeaApproval:
