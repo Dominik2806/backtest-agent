@@ -7,8 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Phase 10 part 2a (F-18), coded signals as a library; nothing executes a coded signal yet. `signal.coded` is an optional block
+  `{brief, code_sha256}` of the spec: a spec with it is valid before its code exists (no registry lookup, scalar params), an
+  unresolved one never runs, and a spec without it serializes exactly as before (the variant hash is unchanged). The id is
+  file-safe, not a built-in id and not one of the 22 Windows device names; the brief refuses control, format and
+  line-separator characters (Unicode categories Cc, Cf, Zl, Zp). `coded/static.py` is a static check of the source over the
+  whole syntax tree (imports, banned names and attributes, dunder names, every `to_*` outside a short allowlist, hidden
+  characters, top level, one `@register_signal`); a tripwire, not a sandbox. `coded/approvals.py` keeps an append-only
+  approval history in `approvals/<id>.json` (idea = `{signal_id, brief}`, code = sha256 of the LF form), archives approved
+  bytes under `approvals/code/<sha256>.py` and takes an exclusive `approvals/.lock`. `coded/contract.py` is the contract check
+  of `tests/signal_contract.py` moved into the package. Ruff excludes `approvals` and `strategies/signals`; `.gitattributes`
+  keeps them LF; a test scans every tracked text file for invisible characters. `docs/coded-signals.md` and
+  [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md) (with the known gaps) describe it. No new dependency.
+
 ### Changed
 
+- Phase 10 part 2a: `Signal.generate` refuses a `warmup_rows` that is not a Python `int` of at least 0 (before, a negative
+  value indexed the trading rows from the end). Two existing test files changed: `tests/signal_contract.py` (now a re-export
+  of the package module, still raising `AssertionError`) and one line of `tests/test_journal_failures.py` (a literal byte order
+  mark became an escape, same value).
 - Phase 10, part 1: `Signal.generate` now also checks, at run time and for every signal, that a symbol's exposure is 0.0
   before its (W+1)-th trading row, W being `warmup_rows` (`validate_signal_zeros`, [ADR 0017](docs/adr/0017-signal-runtime-contract.md)).
   Before, only the reusable contract test checked it, and only for registered signals; a violating signal was accepted and

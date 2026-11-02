@@ -34,6 +34,8 @@ packages = ["src/backtest_agent"]
 line-length = 120
 target-version = "py312"
 src = ["src", "tests"]
+# Approved code and approval records are hashed byte for byte: ruff must not lint them or rewrite them.
+extend-exclude = ["approvals", "strategies/signals"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

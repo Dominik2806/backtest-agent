@@ -76,7 +76,22 @@ point is checked by `tests/test_cli_entry_point.py`; the live tests are in `test
 Signal contract (details in `docs/strategy-spec.md`, ADR 0006): a signal `fn(prices, params) -> DataFrame` returns
 float64 in [0, 1] without NaN on the input index with one column per symbol, computed per symbol on its own trading
 rows, using only data up to the date, without modifying its input. Its params model declares `warmup_rows`, and every
-registered signal must pass `tests/signal_contract.py`. Every `strategies/*.yaml` is loaded by a test.
+registered signal must pass `tests/signal_contract.py` (a re-export of `backtest_agent.coded.contract`). `warmup_rows()` must
+return a Python `int` of at least 0 (a NumPy integer is refused). `Signal.generate` also checks, on every call, that a symbol's
+exposure is 0.0 before its (W+1)-th trading row (ADR 0017). Every `strategies/*.yaml` is loaded by a test.
+
+Coded signals (`docs/coded-signals.md`, ADR 0018): a signal that an agent writes is named by `signal.coded` (`brief`,
+`code_sha256`) in the spec and approved in two steps by a person, the idea `{signal_id, brief}` and then the sha256 of the
+code (CRLF turned into LF). The approvals are an append-only history in `approvals/<id>.json`; the approved bytes are archived
+as `approvals/code/<sha256>.py`, and the archive is what runs, never the editable `strategies/signals/<id>.py`.
+**Nothing imports or executes a coded signal before both approvals**; `coded/loader.py` (a later part of Phase 10) will be the
+only module in `src/` that may compile or execute strategy code, and a test will check that. Module map: `spec/coded_spec.py`
+(the block, the id and brief rules, `check_brief`), `coded/static.py` (the AST tripwire, whole tree, not a sandbox),
+`coded/approvals.py` (hashes, records, archive, the lock `approvals/.lock`), `coded/contract.py` (the contract check on
+synthetic frames), `coded/errors.py`. `approvals/` and `strategies/signals/` are tracked, so public; they are LF
+(`.gitattributes`) and excluded from ruff (`extend-exclude`), because the bytes are hashed. A stale `approvals/.lock` is
+deleted by hand. Expected hashes in tests are literals computed with `hashlib` outside project code; the examples in
+`docs/coded-signals.md` are checked by `tests/test_coded_docs.py`.
 
 PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` where it matters.
 
@@ -151,5 +166,8 @@ PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` wh
 - **No double brace:** no source file, tests included, contains the two-character sequence of two opening braces outside
   `.github/` (a template-placeholder check greps for it); build such strings from constants, for example
   `OPEN * 2` with `OPEN = chr(123)`.
+- **No invisible characters:** no file that git tracks (`.py .md .yaml .yml .toml .json .txt .cfg`) contains a character of the
+  Unicode categories Cc, Cf, Zl or Zp except a line break, a tab and the CR of a CRLF (`tests/test_no_invisible_characters.py`).
+  A test that needs one writes it as an escape (backslash, `u` and four hex digits) or with `chr()`.
 - **Never commit** secrets, `.env`, market data, run outputs or reports (`data/`, `runs/`, `reports/`, `*.parquet`).
 - Update this file when new commands or conventions are introduced.

@@ -198,6 +198,10 @@ def validate_signal_zeros(prices: pd.DataFrame, signals: pd.DataFrame, warmup_ro
     throughout. ``signals`` must already have passed ``validate_signal_output`` (same index, same flat columns).
     Vectorised, O(rows x symbols). Not part of ``validate_signal_output``, which stays a pure shape-and-range check.
     """
+    if not isinstance(warmup_rows, int) or isinstance(warmup_rows, bool) or warmup_rows < 0:
+        raise SignalContractError(
+            f"signal output violates the contract: warmup_rows must be an integer of at least 0, got {warmup_rows!r}"
+        )
     closes = close_frame(prices)
     problems: list[str] = []
     for symbol in closes.columns:

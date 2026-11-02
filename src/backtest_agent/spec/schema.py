@@ -19,10 +19,12 @@ from pydantic import (
     ValidationError,
     ValidationInfo,
     field_validator,
+    model_serializer,
     model_validator,
 )
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
+from backtest_agent.spec.coded_spec import CodedSpec, check_scalar_params, coded_id_problem
 from backtest_agent.spec.errors import UnknownSignalError
 from backtest_agent.spec.signals import SignalParams, get_signal
 
@@ -97,12 +99,22 @@ class DataSpec(_Model):
 
 
 class SignalSpec(_Model):
+    # ``coded`` comes first so that the validators of ``id`` and ``params`` can see it. A coded signal is not looked up
+    # in the registry at parse time (its code does not exist before the approval); see docs/coded-signals.md.
+    coded: CodedSpec | None = None
     id: str
     params: dict[str, Any] = Field(default_factory=dict, validate_default=True)
 
     @field_validator("id")
     @classmethod
-    def _registered(cls, signal_id: str) -> str:
+    def _registered(cls, signal_id: str, info: ValidationInfo) -> str:
+        if "coded" not in info.data:  # a coded block was given but is invalid; it is reported, the id is not judged
+            return signal_id
+        if info.data["coded"] is not None:
+            problem = coded_id_problem(signal_id)
+            if problem is not None:
+                raise ValueError(problem)
+            return signal_id
         try:
             get_signal(signal_id)
         except UnknownSignalError as error:
@@ -115,13 +127,42 @@ class SignalSpec(_Model):
         signal_id = info.data.get("id")
         if signal_id is None:  # the id is invalid and already reported
             return params
+        if "coded" not in info.data:  # see _registered
+            return params
+        if info.data["coded"] is not None:
+            check_scalar_params(params)  # the params model of the code validates them once the gate has loaded it
+            return params
         # A ValidationError of the params model is merged by Pydantic with the paths signal.params.<field>.
         # The stored dict has the defaults filled in, so the spec pins the values a run really uses.
         return get_signal(signal_id).params_model.model_validate(params).model_dump()
 
+    @model_serializer(mode="wrap")
+    def _without_unused_coded(self, handler: Any) -> dict[str, Any]:
+        """Leave ``coded`` out when unused, so ``to_dict()`` and the variant hash of every other spec are unchanged."""
+        data = handler(self)
+        if data.get("coded") is None:
+            data.pop("coded", None)
+        return data
+
     def params_model(self) -> SignalParams:
-        """The validated params instance of the signal."""
-        return get_signal(self.id).parse_params(self.params)
+        """The validated params instance of the signal.
+
+        A coded signal is only available once the gate has resolved it: a spec without ``coded.code_sha256`` raises
+        ``UnknownSignalError`` whatever the registry holds, so an unresolved spec can never run. With the sha the lookup
+        is allowed (the loader checks that the registered signal carries that sha).
+        """
+        if self.coded is not None and self.coded.code_sha256 is None:
+            raise UnknownSignalError(
+                f"the coded signal {self.id!r} is not resolved; it has to pass the approval gate first"
+            )
+        try:
+            return get_signal(self.id).parse_params(self.params)
+        except UnknownSignalError:
+            if self.coded is None:
+                raise
+            raise UnknownSignalError(
+                f"the coded signal {self.id!r} is not loaded; it has to pass the approval gate first"
+            ) from None
 
 
 class ExecutionSpec(_Model):

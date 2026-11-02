@@ -213,7 +213,7 @@ def write_raw(tmp_path, text: str) -> str:
     return record.run_id
 
 
-@pytest.mark.parametrize("text", ["", "{not json", "[1, 2]", "null", '"text"', "﻿{}"], ids=repr)
+@pytest.mark.parametrize("text", ["", "{not json", "[1, 2]", "null", '"text"', "\ufeff{}"], ids=repr)
 def test_a_run_json_that_is_not_a_json_object_is_refused(tmp_path, text) -> None:
     run_id = write_raw(tmp_path, text)
     with pytest.raises(JournalFormatError, match="run.json"):
