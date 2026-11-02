@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 10 part 2b (F-18), the gate. `coded/loader.py` is the only module in `src/` that compiles or executes strategy code
+  (a source-tree test reads the syntax trees). `resolve_coded(spec, approvals_dir=, strategies_dir=)` checks that the idea and
+  the code were approved, loads exactly the archived bytes in a module that is not in `sys.modules`, requires exactly one new
+  registry entry, marks it with the hash, validates the params with the params model of the code (defaults are written
+  into the spec; a default a spec cannot hold is refused), runs the contract check and returns the spec with
+  `coded.code_sha256`. `strategies_dir=None` is the stored mode (the folder is never read, the spec must pin the hash); with
+  a folder the working file is only hashed (a regular file of at most 128 KiB): its hash must be approved, a differing pin is
+  refused, and without a file the pin or the latest approved hash is used. Whenever it raises, the registry is what it was.
+  `Signal.sha256` marks what the gate loaded and `SignalSpec.resolve_signal()` is the one place where a spec finds its
+  signal (the engine uses it too). The contract check of the gate runs on synthetic frames of 120 rows with no sampling
+  (0.27 to 0.8 s for 250 calls, once per code and params in a process); its errors name the signal and the frame. A `SystemExit` (or any other error) that the code raises while it is loaded, checked or called through `Signal.generate` is a contract error (not covered: code reached through `params.warmup_rows()` in `warmup_window`, known gap 5 of the ADR). `coded/cases.py` reads `cases.yaml`, the examples
+  of a coded signal as data (safe YAML, bounded). Canary tests show that nothing is loaded without both approvals. See
+  `docs/coded-signals.md` and [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md). No new dependency.
 - Phase 10 part 2a (F-18), coded signals as a library; nothing executes a coded signal yet. `signal.coded` is an optional block
   `{brief, code_sha256}` of the spec: a spec with it is valid before its code exists (no registry lookup, scalar params), an
   unresolved one never runs, and a spec without it serializes exactly as before (the variant hash is unchanged). The id is
@@ -24,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Phase 10 part 2b: `engine/runner.py` finds the signal through `SignalSpec.resolve_signal()` (two lines; the same
+  behaviour for every spec without a `coded` block). The errors of the contract check name the signal and the frame, and a
+  `SystemExit` (or any other error) of a coded signal where the gate calls it is a contract error. Every file that existed
+  before part 2b and was changed (lines added/deleted, `git diff main...HEAD --numstat`): `src/backtest_agent/spec/signals.py`
+  (+56/-5), `spec/schema.py` (+24/-9), `engine/runner.py` (+2/-2), `coded/contract.py` (+64/-15),
+  `coded/errors.py` (+18/-0); four existing test files: `tests/test_coded_spec.py` (+3/-1; a fixture signal now
+  carries a hash), `tests/conftest.py` (+1/-0; the fixtures of the gate tests), `tests/test_coded_contract.py`
+  (+3/-3; two pinned messages start with the frame name), `tests/test_coded_docs.py` (+101/-10; tests for the gate
+  were added); and the documents `CHANGELOG.md` (+23/-0), `CLAUDE.md` (+20/-5), `docs/ROADMAP.md` (+38/-0),
+  `docs/adr/0018-coded-signals-and-approval-gate.md` (+84/-33), `docs/coded-signals.md` (+153/-9).
 - Phase 10 part 2a: `Signal.generate` refuses a `warmup_rows` that is not a Python `int` of at least 0 (before, a negative
   value indexed the trading rows from the end). Two existing test files changed: `tests/signal_contract.py` (now a re-export
   of the package module, still raising `AssertionError`) and one line of `tests/test_journal_failures.py` (a literal byte order

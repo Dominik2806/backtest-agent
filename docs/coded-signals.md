@@ -10,9 +10,10 @@ and nothing is imported before it was approved. The project is educational and n
 > their `cases.yaml`, every file in `approvals/` (records and archived code) and the briefs inside the specs. Never put
 > anything private in a brief or in code.
 
-This document describes what exists after Phase 10 part 2a: the `coded` block of the spec, the hashes, the approval
-records and the static check. The loader (the gate that runs approved code), the commands `bt approve` and
-`bt signal check` and the agents come in later parts of the phase; where this document mentions them it says so.
+This document describes what exists after Phase 10 part 2b: the `coded` block of the spec, the hashes, the approval
+records, the static check, the gate that loads approved code, the check before a run and the `cases.yaml` format. The
+commands `bt approve` and `bt signal check` and the agents come in later parts of the phase; where this document mentions
+them it says so.
 
 ## What is approved
 
@@ -81,7 +82,7 @@ signal:
 | Path | What | Written by |
 |---|---|---|
 | `strategies/signals/<id>.py` | the candidate code, editable | the signal coder agent |
-| `strategies/signals/<id>.cases.yaml` | hand-calculated examples as data (a later part) | the signal coder agent |
+| `strategies/signals/<id>.cases.yaml` | hand-calculated examples as data (see `cases.yaml` below) | the signal coder agent |
 | `approvals/<id>.json` | the append-only approval history of one signal id | the approval commands |
 | `approvals/code/<sha256>.py` | the approved code, LF line ends; the file name is its hash | the approval commands |
 | `approvals/.lock` | exists only while an approval runs; git-ignored | the approval commands |
@@ -189,9 +190,152 @@ The checks that need the code to run live in `backtest_agent.coded.contract` (pu
 honest `warmup_rows` on frames with different calendars, never on real data). That a forward peek is caught there is a
 convenience on synthetic frames; the look-ahead test on real data is Phase 15.
 
-## Not built yet in this part
+## The gate: `resolve_coded`
 
-The loader that compiles and runs approved bytes (the only place in `src/` that may do so), the `cases.yaml` runner, the
-commands `bt approve` and `bt signal check`, the line `Signal: coded, idea not approved` of `bt validate`, and the agents.
-They are described in [ADR 0018](adr/0018-coded-signals-and-approval-gate.md) so that the rules are fixed before they are
-built. Until the loader exists, nothing in the project executes a coded signal.
+`resolve_coded(spec, *, approvals_dir, strategies_dir)` in `backtest_agent.coded.loader` is the only place that executes a
+coded signal. It turns a spec with a `coded` block into a spec that can run, or raises. The order of its steps matters,
+because every refusal happens **before any file is compiled**:
+
+1. the spec has a `coded` block and its id passes the id rules;
+2. the idea `{signal_id, brief}` is approved in `approvals/<id>.json`;
+3. the hash of the code to run is chosen (the table below) and must be listed for that idea;
+4. the archive `approvals/code/<sha256>.py` is read once, its hash is compared with the name and the static check runs
+   again on those bytes;
+5. only then are those bytes compiled and executed, in a module object that is **not** put in `sys.modules`, with
+   `dont_inherit=True`; exactly one new registry entry with the id must appear, and it is marked with the hash;
+6. the params are validated by the params model of the code and written into the spec with their defaults, and the check
+   before a run (below) is made with them. The returned spec has `coded.code_sha256` set.
+
+### Which hash runs
+
+`strategies_dir` says where the editable code is. It is a parameter, not inferred from the spec.
+
+| `strategies_dir` | The file `<id>.py` | The spec pins a hash | Result |
+|---|---|---|---|
+| `None` (stored mode, `bt report`) | never read | required | the pin must be listed for the idea, else a `RecordError` (a record that cannot be reproduced, exit code 5); no pin: `RecordError` |
+| a folder (run mode, `bt run`) | exists | no | its hash must be listed for the idea; that archived hash runs. Otherwise `code not approved: the file has sha <first 8 hex>` (`NotApprovedError`, exit code 8) |
+| a folder | exists | yes, equal to the file's | the same, the hash must be listed |
+| a folder | exists | yes, different | `the spec pins <8 hex> but strategies/signals/<id>.py has sha <8 hex>` (exit code 8), **even if the file's hash is approved** |
+| a folder | does not exist | yes | the pin is used; it must be listed |
+| a folder | does not exist | no | the latest approved hash of the idea; none: `code not approved: no code is approved for the idea` |
+
+The working file is only hashed, never executed. It is `stat`-ed first and must be a regular file of at most 128 KiB (twice
+the limit of approved code, because a file saved with CRLF is longer than its LF form); a longer file is refused
+(`... is larger than the limit; approved code is at most 64 KiB`) before it is opened, and at most one byte more than the
+limit is read. A file that is not a regular file is `... cannot be read (not a regular file)`. Because the file decides in
+run mode, **editing the file and running without a new approval is refused**, and going back to an older approved version
+makes that version run. A stored run (`bt report`) never reads the folder: it runs the pinned hash from the archive, whatever
+was done to the working file since.
+
+### What happens in the registry
+
+- An id that is registered by something other than the gate (a built-in, a fixture) is a `GateError`.
+- The same hash that is already loaded in this process is reused without executing again; a different hash replaces the
+  gate's own entry. The registered `Signal` carries `sha256`, and `SignalSpec.resolve_signal()` (used by `params_model()`,
+  `warmup_rows` and the engine) only gives a spec the signal that carries the hash the spec pins; a spec resolved for one
+  version therefore refuses to run after another version was loaded, until it is resolved again. Resolve a spec just before
+  you run it.
+- **Whenever `resolve_coded` raises, the registry is exactly what it was before the call.** Code that was loaded and then
+  failed a later step (the params, the check of the defaults, the check before a run) is unloaded again, so a retry executes
+  it once more.
+- Whatever else the code changed in the process stays changed; only the registry is restored (known gap 3 of the ADR).
+
+### What the code may do when it is loaded and called
+
+`KeyboardInterrupt` and `GeneratorExit` always pass through. Anything else the code raises, **`SystemExit` included**, is an
+error of the gate where the gate calls the code: a `GateError` when the code is loaded or when its params model is used at the
+gate, a `SignalContractError` (`<id> on the <frame> frame: <Type>: <text>`) in the contract and honesty checks, a failed case in
+`cases.yaml`, and a `SignalContractError` from `Signal.generate` (the params model, the function and `warmup_rows`) for a signal
+that carries a hash. Built-in signals and fixtures are not guarded.
+
+So the claim is: a `SystemExit` (or any other error) that the code raises while it is loaded, checked or called through
+`Signal.generate` is a contract error. It is **not** a claim that a coded signal cannot end the process. The guard does not
+cover code that behaves differently after the gate has passed it (state), reached through `params.warmup_rows()` in
+`warmup_window` and through a params model that the engine uses directly (known gap 5 of the ADR).
+
+### Errors and the exit codes planned for `bt`
+
+The gate, `resolve_coded`, raises `NotApprovedError` (something has to be approved: planned exit code **8**),
+`RecordError` (the approvals folder cannot supply what the spec needs or was changed: planned exit code **5** in stored
+mode), `StaticCheckError` and `SignalContractError` (the code is not acceptable: planned exit code **9**), `SpecError` (the
+params do not fit the params model of the code: exit code 3) and `GateError` (the code did not load or its params model is
+not usable). It raises nothing else, and it does not run `cases.yaml`: `bt signal check` does, and it also raises
+`CasesError` (planned exit code 9, like `StaticCheckError` and `SignalContractError`). The commands that map these to exit
+codes (`bt approve`, `bt signal check`, and the changes of `bt run` and `bt report`) are not built yet; the mapping is
+tested with them; until then `bt run` shows a `SignalContractError` as an unexpected error, exit
+code 1, and a coded spec that was not resolved is exit code 3 (`the coded signal 'x' is not resolved; it has to pass the
+approval gate first`).
+
+## The params model of a coded signal
+
+The spec stores the params with their defaults, every run validates them again, and the journal serializes them as JSON.
+So the params model of the code must follow these rules, and the gate refuses it with a `GateError` that names the field
+if it does not:
+
+- every field, and every default, is a number, text, true or false, or a **list** of those: no `None` default (use a number
+  that means "off" instead), no tuple (use a list), no dict, no nested list, no NaN or infinity;
+- the model must accept its own defaults (a default that breaks its own `Field(..., le=1)` is refused);
+- a validator of the model may raise `ValueError` for a bad value; anything else it raises is also turned into a
+  `GateError`, but it is a bug of the code;
+- `warmup_rows()` returns a Python `int` of at least 0 (see above).
+
+## The check before a run
+
+After the params are validated, the gate runs the contract check of `backtest_agent.coded.contract` on **synthetic frames
+of 120 rows** (never on real data): the function does not modify its input, gives the same answer twice, obeys the output
+rules and the zero rows on frames with different calendars (a plain frame, holidays, a late start, an early end, a short
+history, a single symbol), and its declared `warmup_rows` is honest, which also catches a forward peek on these frames.
+Every error names the signal and the frame, for example `rsi_pullback on the calendars frame: ...`.
+
+There is **no sampling and no time rule**: every check runs on every row, so the same code and params give the same answer
+on every machine. Measured on the development machine, the check makes 250 calls of the function and takes 0.27 to 0.8 s (0.27 to 0.37 s for signals like the built-in ones, 0.75 to 0.79 s for a heavy one with seven rolling statistics); `bt signal check` uses
+frames of 300 rows (610 calls, 0.9 to 1.9 s) and the examples of `cases.yaml`. A signal that needs more than about 10 ms
+per call exceeds three seconds in the check on its own; nothing can interrupt a function that is running (known gap 4). The
+same code with the same params is checked once per process (the cache key is the pair hash and params); a failed check is
+not remembered. This is not the look-ahead test on real data (Phase 15).
+
+## `cases.yaml`: the examples of a coded signal
+
+The signal coder writes its tests as **data**, because a pytest file would import agent code in every test run. A case gives
+closing prices of a few symbols and the exposure the signal must produce on every row; `null` means that the symbol does not
+trade that day. Rows are consecutive Monday-to-Friday days from 2024-01-02; open, high and low equal the close and the volume
+is 1000. A worked example for a signal that is 1.0 on a day when the close is above the previous close of the symbol:
+
+```yaml
+signal: up_day
+cases:
+  - name: rises, falls and rises
+    prices:
+      AAA: [10, 11, 10, 12]
+      BBB: [null, 20, 21, 19]
+    expected:
+      AAA: [0, 1, 0, 1]
+      BBB: [0, 0, 1, 0]
+```
+
+Calculated by hand: AAA row 0 is its first trading row (warm-up of one row: 0); 11 is above 10 (1); 10 is not above 11 (0);
+12 is above 10 (1). BBB does not trade on row 0; row 1 is its first trading row (0); 21 is above 20 (1); 19 is not above 21
+(0). `tests/test_coded_docs.py` parses this block with `parse_cases` and runs it with such a signal.
+
+- `signal` (optional) must be the id of the file; `params` (optional) are the params of every case, with the rules of the
+  params of a coded spec; `cases` holds 1 to 50 cases with a `name`, `prices` and `expected` of 1 to 10 symbols and 1 to 400
+  rows each, the same number of rows everywhere, prices above 0 and finite, exposures between 0 and 1.
+- The file is read with the safe YAML loader: no aliases, no key given twice, no hidden characters (the categories of the
+  rule above), at most 256 KiB, at most 20 brackets open at once, counted over the whole text, quotes and comments included, so 21 unclosed brackets anywhere are refused, and it must be a regular file. They are counted before the parser sees the text, because PyYAML needs quadratic time for a long run of opening brackets.
+- The examples run through `Signal.generate`, so the output rules and the zero rows hold in them too. A difference is
+  listed with the case, the symbol, the row, the date and both values (at most ten, then `... and N more`); a case in which
+  the code raises is a failed case; two values are equal within 1e-9.
+- The examples are run by `bt signal check`, not by a run.
+
+## What `bt validate` will say
+
+`bt validate` reads a spec without importing anything. For a spec with a `coded` block it will print a `Signal:` line from
+the approval record alone (it never loads code): `Signal:     coded, idea not approved`, `Signal:     coded, idea approved,
+code not approved`, or `Signal:     coded, idea and code approved (sha <8 hex>)`, and it exits 0 in all three cases. Today it exits with code 3 and prints `bt: error: the coded signal 'x' is not resolved; it has to pass the approval gate first`, because it cannot show the warm-up of a signal that is not loaded.
+
+## Not built yet
+
+The commands `bt approve` (the idea, and the code with `--sha`) and `bt signal check`, the lines of `bt validate` above, the
+mapping of the errors above to exit codes in `bt run` and `bt report`, and the agents that write the spec and the code.
+Everything in this document that is not marked as planned exists and is tested. A coded signal can be resolved and run from
+Python today (`resolve_coded`, then `run_backtest`); the commands make it a workflow.

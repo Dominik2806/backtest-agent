@@ -12,8 +12,10 @@ from backtest_agent.coded.approvals import approve_code, approve_idea, code_sha2
 from backtest_agent.coded.static import ALLOWED_TO_ATTRIBUTES, BANNED_ATTRIBUTES, BANNED_NAMES, MAX_SOURCE_BYTES
 from backtest_agent.spec.coded_spec import MAX_BRIEF_LENGTH, MAX_ID_LENGTH
 from backtest_agent.spec.schema import SignalSpec
+from backtest_agent.spec.signals import Signal, SignalParams, per_symbol_signal
 
 DOC = (Path(__file__).resolve().parents[1] / "docs" / "coded-signals.md").read_text(encoding="utf-8")
+TEXT = " ".join(DOC.split())  # the document with every run of white space (a line break too) as one space
 
 
 def blocks(language: str) -> list[str]:
@@ -29,7 +31,7 @@ def test_the_idea_digests_of_the_table_are_the_ones_of_the_code() -> None:
     ]
     for signal_id, brief, digest in rows:
         assert idea_sha256(signal_id, brief) == digest
-        assert f"`{digest}`" in DOC
+        assert f"`{digest}`" in TEXT
 
 
 def test_the_code_digests_of_the_text_are_the_ones_of_the_code() -> None:
@@ -39,7 +41,7 @@ def test_the_code_digests_of_the_text_are_the_ones_of_the_code() -> None:
         (b"x = 1", "8ff436def1451285599a1b1ad70800493b8dcafde2912e1a38345633054e4c26"),
     ]:
         assert code_sha256(data) == digest
-        assert f"`{digest}`" in DOC
+        assert f"`{digest}`" in TEXT
 
 
 def test_the_worked_example_produces_the_record_of_the_document(tmp_path: Path) -> None:
@@ -49,18 +51,18 @@ def test_the_worked_example_produces_the_record_of_the_document(tmp_path: Path) 
     approve_idea(tmp_path, "x_signal", "B", datetime(2026, 11, 2, 10, 0, 0, tzinfo=UTC))
     _, sha, _ = approve_code(tmp_path, "x_signal", "B", data, datetime(2026, 11, 2, 11, 0, 0, tzinfo=UTC))
     assert sha == "83e18fb4daa4d96e203d83fa9f17c1b28c183c44fb75c677db99eabd8ffa5370"
-    assert f"`{sha}`" in DOC
+    assert f"`{sha}`" in TEXT
     assert (tmp_path / "x_signal.json").read_bytes() == record_line.encode("utf-8")
     assert (tmp_path / "code" / f"{sha}.py").read_bytes() == data
 
 
 def test_the_numbers_and_lists_of_the_document_are_the_ones_of_the_code() -> None:
     assert (MAX_ID_LENGTH, MAX_BRIEF_LENGTH, MAX_SOURCE_BYTES) == (64, 2000, 64 * 1024)
-    assert "at most 64 characters" in DOC and "1 to 2000 characters" in DOC and "at most 64 KiB" in DOC
+    assert "at most 64 characters" in TEXT and "1 to 2000 characters" in TEXT and "at most 64 KiB" in TEXT
     for name in BANNED_NAMES:
-        assert f"`{name}`" in DOC, name
+        assert f"`{name}`" in TEXT, name
     for name in ALLOWED_TO_ATTRIBUTES:
-        assert f"`{name}`" in DOC, name
+        assert f"`{name}`" in TEXT, name
 
 
 WILDCARDS = ["save*", "read_*"]  # the patterns the document uses for a family of banned attributes
@@ -74,17 +76,17 @@ def documented(name: str, text: str) -> bool:
 
 
 def test_every_banned_attribute_is_in_the_document_or_matches_one_of_its_wildcards() -> None:
-    missing = sorted(name for name in BANNED_ATTRIBUTES if not documented(name, DOC))
+    missing = sorted(name for name in BANNED_ATTRIBUTES if not documented(name, TEXT))
     assert missing == []
-    assert all(f"`{pattern}`" in DOC for pattern in WILDCARDS)
+    assert all(f"`{pattern}`" in TEXT for pattern in WILDCARDS)
 
 
 def test_the_check_notices_a_name_that_is_removed_from_the_document() -> None:
     for name in sorted(BANNED_ATTRIBUTES):
         if any(fnmatchcase(name, pattern) for pattern in WILDCARDS):
             continue  # covered by its wildcard
-        assert f"`{name}`" in DOC, name
-        without = DOC.replace(f"`{name}`", name)
+        assert f"`{name}`" in TEXT, name
+        without = TEXT.replace(f"`{name}`", name)
         assert not documented(name, without), name
 
 
@@ -111,3 +113,92 @@ def test_every_coded_yaml_example_of_the_documents_is_a_valid_signal_spec(name: 
         spec = SignalSpec.model_validate(data["signal"])
         assert spec.coded is not None and spec.coded.brief.strip()
         assert spec.coded.code_sha256 is None  # a spec file does not write the sha
+
+
+# --- the gate, the check before a run and cases.yaml ---
+
+
+class UpParams(SignalParams):
+    threshold: float = 0.0
+
+    def warmup_rows(self) -> int:
+        return 1
+
+
+def up_day(prices, params):
+    """1.0 where the close is above the previous close of the symbol."""
+    return per_symbol_signal(prices, lambda close: (close - close.shift(1) > params.threshold).astype("float64"))
+
+
+def test_the_worked_example_of_cases_yaml_is_parsed_and_holds_for_the_signal_it_describes() -> None:
+    from backtest_agent.coded.cases import parse_cases, run_cases
+
+    found = [b for b in re.findall(r"```yaml\n(.*?)```", DOC, flags=re.DOTALL) if "cases:" in b and "coded:" not in b]
+    assert len(found) == 1
+    cases = parse_cases(found[0].encode("utf-8"), "up_day")
+    assert [c.name for c in cases.cases] == ["rises, falls and rises"]
+    assert run_cases(Signal("up_day", UpParams, up_day), cases) == 1
+
+
+def test_the_limits_and_numbers_of_the_gate_in_the_document_are_the_ones_of_the_code() -> None:
+    from backtest_agent.coded.cases import MAX_CASES, MAX_FILE_BYTES, MAX_FLOW_DEPTH, MAX_ROWS, MAX_SYMBOLS
+    from backtest_agent.coded.contract import PRE_RUN_ROWS
+    from backtest_agent.coded.loader import FILE_LIMIT
+
+    assert (MAX_CASES, MAX_SYMBOLS, MAX_ROWS, MAX_FILE_BYTES, MAX_FLOW_DEPTH) == (50, 10, 400, 256 * 1024, 20)
+    assert (PRE_RUN_ROWS, FILE_LIMIT) == (120, 128 * 1024)
+    for text in [
+        "1 to 50 cases",
+        "1 to 10 symbols",
+        "1 to 400",
+        "at most 256 KiB",
+        "at most 20 brackets open at once, counted over the whole text, quotes and comments included, "
+        "so 21 unclosed brackets anywhere are refused",
+        "synthetic frames of 120 rows",
+        "frames of 300 rows",
+        "at most 128 KiB",
+        "at most one byte more than the limit is read",
+        "takes 0.27 to 0.8 s",
+    ]:
+        assert text in TEXT, text
+
+
+def test_the_messages_of_the_pin_versus_file_table_are_the_ones_of_the_loader() -> None:
+    loader = (Path(__file__).resolve().parents[1] / "src" / "backtest_agent" / "coded" / "loader.py").read_text("utf-8")
+    for message in [
+        "code not approved: the file has sha",
+        "code not approved: no code is approved for the idea",
+        "the spec pins",
+        "cannot be read (not a regular file)",
+        "is larger than the limit; approved code is at most",
+    ]:
+        assert message in loader, message
+    for fragment in [
+        "code not approved: the file has sha <first 8 hex>",
+        "the spec pins <8 hex> but strategies/signals/<id>.py has sha <8 hex>",
+        "cannot be read (not a regular file)",
+        "is larger than the limit; approved code is at most 64 KiB",
+        "code not approved: no code is approved for the idea",
+    ]:
+        assert fragment in TEXT, fragment
+
+
+def test_the_documented_rules_for_params_models_are_mentioned_in_the_document() -> None:
+    # Only the wording is checked here; the behaviour of each rule is tested in tests/test_coded_loader_limits.py.
+    for refused in ["no `None` default", "no tuple", "no dict", "no nested list", "no NaN or infinity"]:
+        assert refused in TEXT, refused
+
+
+def test_the_message_of_an_unresolved_spec_is_written_out_in_the_document_and_is_the_one_of_the_code() -> None:
+    from backtest_agent.spec import UnknownSignalError
+    from coded_helpers import coded_spec
+
+    spec_source = (Path(__file__).resolve().parents[1] / "src" / "backtest_agent" / "spec" / "schema.py").read_text(
+        "utf-8"
+    )
+    assert "is not resolved; it has to pass the approval gate first" in spec_source
+    with pytest.raises(UnknownSignalError) as info:
+        coded_spec("x").signal.resolve_signal()
+    message = str(info.value)
+    assert message == "the coded signal 'x' is not resolved; it has to pass the approval gate first"
+    assert f"`bt: error: {message}`" in TEXT  # the bt validate section prints it, written out

@@ -84,11 +84,26 @@ Coded signals (`docs/coded-signals.md`, ADR 0018): a signal that an agent writes
 `code_sha256`) in the spec and approved in two steps by a person, the idea `{signal_id, brief}` and then the sha256 of the
 code (CRLF turned into LF). The approvals are an append-only history in `approvals/<id>.json`; the approved bytes are archived
 as `approvals/code/<sha256>.py`, and the archive is what runs, never the editable `strategies/signals/<id>.py`.
-**Nothing imports or executes a coded signal before both approvals**; `coded/loader.py` (a later part of Phase 10) will be the
-only module in `src/` that may compile or execute strategy code, and a test will check that. Module map: `spec/coded_spec.py`
-(the block, the id and brief rules, `check_brief`), `coded/static.py` (the AST tripwire, whole tree, not a sandbox),
-`coded/approvals.py` (hashes, records, archive, the lock `approvals/.lock`), `coded/contract.py` (the contract check on
-synthetic frames), `coded/errors.py`. `approvals/` and `strategies/signals/` are tracked, so public; they are LF
+**Nothing imports or executes a coded signal before both approvals**; `coded/loader.py` is the **only module in `src/`**
+that may compile or execute strategy code, and `tests/test_coded_source_tree.py` reads the syntax trees to check that (no
+other `exec`, builtin `compile`, `eval`, `__import__`, `importlib` beyond `importlib.metadata` in the package `__init__`,
+`runpy`, `pkgutil`, `codeop`, `import_module` or `types.ModuleType`; the registry methods `set_sha256`, `unregister`,
+`restore`, `snapshot` and the `sha256` marker of a `Signal` only in the loader and `spec/signals.py`). Module map:
+`spec/coded_spec.py` (the block, the id and brief rules, `check_brief`), `coded/static.py` (the AST tripwire, whole tree,
+not a sandbox), `coded/approvals.py` (hashes, records, archive, the lock `approvals/.lock`), `coded/loader.py`
+(`resolve_coded(spec, approvals_dir=, strategies_dir=)`: the gate; `strategies_dir=None` is the stored mode of `bt report`,
+a folder the run mode of `bt run`), `coded/contract.py` (the contract check on synthetic frames, `check_before_run` with 120
+rows), `coded/cases.py` (`cases.yaml`, the examples of a coded signal as data), `coded/errors.py`. `SignalSpec.resolve_signal()`
+is the one place where a spec finds its signal (the pin check); `Signal.sha256` is the hash of the code a registered signal
+was loaded from. Rules: `resolve_coded` raises only `NotApprovedError` (planned exit 8), `RecordError` (5 in stored mode),
+`StaticCheckError`/`SignalContractError` (9), `SpecError` (3) and `GateError` (`bt signal check` also raises `CasesError`,
+planned 9; the gate never runs `cases.yaml`), and the registry is exactly what it was whenever it raises; what a coded signal raises (`SystemExit` included, not `KeyboardInterrupt`/`GeneratorExit`) while it is
+loaded, checked or called through `Signal.generate` is a contract error (code reached anywhere else, such as
+`params.warmup_rows()` in `warmup_window`, is not covered: known gap 5 of the ADR); the params model of a coded signal has defaults that are numbers, text,
+true or false, or lists of those (no `None`, tuple or dict) and accepts them. The commands that map these errors to exit codes
+come with `bt approve` and `bt signal check`. Tests that register or load a signal use the fixtures of `tests/coded_helpers.py`
+(the registry is restored, no module of a coded signal may appear in `sys.modules`, canary marker files are written under
+`tmp_path` only). `approvals/` and `strategies/signals/` are tracked, so public; they are LF
 (`.gitattributes`) and excluded from ruff (`extend-exclude`), because the bytes are hashed. A stale `approvals/.lock` is
 deleted by hand. Expected hashes in tests are literals computed with `hashlib` outside project code; the examples in
 `docs/coded-signals.md` are checked by `tests/test_coded_docs.py`.

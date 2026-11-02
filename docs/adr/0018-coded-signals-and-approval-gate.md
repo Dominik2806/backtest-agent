@@ -1,8 +1,8 @@
 # 0018: Coded signals and the approval gate
 
-- **Status:** Accepted. Built in parts: the `coded` block of the spec, the static check, the approval records and the
-  contract check are delivered; the loader, the commands and the agents follow. The rules below are fixed now so that the
-  later parts build to them.
+- **Status:** Accepted. Built in parts: the `coded` block of the spec, the static check, the approval records, the contract
+  check, the loader (the gate), the `cases.yaml` format and the check before a run are delivered; `bt approve`,
+  `bt signal check` and the agents follow. The rules below are fixed so that the later parts build to them.
 
 ## Context
 
@@ -66,39 +66,82 @@ frames before a coded signal runs and in `bt signal check`: purity, determinism,
 synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also refuses a `warmup_rows` that is not a Python
 `int` of at least 0.
 
-### Rules for the loader (built in the next part)
+### Rules for the loader (built in part 2b)
 
-- **`coded/loader.py` is the only module in `src/` that compiles or executes strategy code.** A source-tree test checks that
-  `importlib`, `exec(` and `compile(` appear nowhere else. It reads the archived bytes once, checks their hash and the static
-  check again, and executes those bytes (`types.ModuleType` and `exec`, no `.pyc`, the module is not put in `sys.modules`).
-- **`resolve_coded(spec, *, approvals_dir, strategies_dir: Path | None)` has an explicit folder parameter.** The mode is not
+- **`coded/loader.py` is the only module in `src/` that compiles or executes strategy code.** A source-tree test
+  (`tests/test_coded_source_tree.py`) reads the syntax trees and checks that no other module calls the builtins `exec` or
+  `compile`, uses `eval`, `__import__`, `import_module`, `importlib.util`, `runpy`, `pkgutil`, `codeop` or `types.ModuleType`,
+  that `importlib.metadata` is used only in the package `__init__`, and that the registry methods that load and unload
+  signals and the `sha256` marker of a `Signal` are used only by the loader and the module that defines the registry. The
+  loader reads the archived bytes once, checks their hash and the static check again, and executes those bytes
+  (`types.ModuleType` and `exec`, compiled with `dont_inherit=True`, no `.pyc`, the module is not put in `sys.modules`).
+- **`resolve_coded(spec, *, approvals_dir: Path | str, strategies_dir: Path | str | None)` has an explicit folder
+  parameter.** The mode is not
   inferred from the pin.
   - `None` is the stored mode (`bt report`): `strategies/signals` is never read, the spec must pin `code_sha256` (otherwise
     the record cannot be reproduced), and the pin must be listed in the matching idea entry.
-  - With a folder (`bt run`): the file `<id>.py` is read as bytes and hashed, never executed. If it exists, its hash must be
-    approved for the matching idea and exactly that archived hash runs; otherwise the run is refused with exit code 8,
-    `code not approved: the file has sha <first 8 hex>`. If the spec also pins a hash that differs from the file's, the run is
-    refused with exit code 8, `the spec pins <8 hex> but strategies/signals/<id>.py has sha <8 hex>`, even if the file's hash
-    is approved. If the file does not exist, the pin is used (it must be listed in the matching idea entry, as in the stored mode), or else the
-    latest approved hash of the matching idea.
+  - With a folder (`bt run`): the file `<id>.py` is only hashed, never executed. It is `stat`-ed first and must be a regular
+    file of at most twice the size limit (a CRLF file of approved code); at most one byte more than that is read. If it
+    exists, its hash must be approved for the matching idea and exactly that archived hash runs; otherwise the run is
+    refused with exit code 8, `code not approved: the file has sha <first 8 hex>`. If the spec also pins a hash that differs
+    from the file's, the run is refused with exit code 8, `the spec pins <8 hex> but strategies/signals/<id>.py has sha <8
+    hex>`, even if the file's hash is approved. If the file does not exist, the pin is used (it must be listed in the
+    matching idea entry, as in the stored mode), or else the latest approved hash of the matching idea.
   - Before any of that, the idea must be approved: an id without a record, or a brief that differs from every approved one,
     is refused. A refusal happens before any file is compiled.
-- **The registered signal carries the hash it was loaded from.** `Signal` gets a field `sha256: str | None = None` (`None` for
-  built-ins and fixtures). The loader registers through the normal decorator and then marks the entry. `params_model()` and
-  `warmup_rows` of a spec with `code_sha256` require that the registered signal carries the same hash and raise
-  `UnknownSignalError` ("not loaded") otherwise. `run_backtest` reaches `warmup_rows` in `warmup_window` before it asks for
-  the signal, so the engine needs no change, and a test pins it with two hashes.
+  - The gate raises `NotApprovedError` (a person has to approve something; planned exit code 8), `RecordError` (the
+    approvals folder cannot supply what the spec needs or was changed; planned exit code 5 in stored mode),
+    `StaticCheckError` and `SignalContractError` (planned exit code 9), `SpecError` (the params do not fit; exit code 3) and
+    `GateError` (the code did not load, or its params model is not usable). `resolve_coded` raises nothing else except
+    `KeyboardInterrupt` and `GeneratorExit`; `tests/test_coded_gate_errors.py` has one row for every documented failure and
+    checks the exact class. `CasesError` is not among them: it is raised by `coded/cases.py`, which only `bt signal check`
+    calls (planned exit code 9, like `StaticCheckError` and `SignalContractError`), and a test checks that the loader does not
+    import it. The mapping to exit codes is built, and tested, with the commands; until then `bt run` prints a
+    `SignalContractError` as an unexpected error, exit code 1.
+- **One place where a spec finds its signal.** `Signal` has a field `sha256: str | None = None` (`None` for built-ins and
+  fixtures); the loader registers through the normal decorator and then marks the entry. `SignalSpec.resolve_signal()` is
+  the one place where a spec finds its signal: a coded spec without `code_sha256` is "not resolved", and one whose pin is not
+  the hash of the registered signal is "not loaded" (nothing registered, another version, or a signal without a hash).
+  `params_model()`, `warmup_rows` and the engine (`engine/runner.py`) all call it, so no path to the function skips the
+  check and the engine no longer relies on `warmup_window` having asked first. A test bypasses `warmup_window` and shows that
+  the runner refuses a wrongly marked signal on its own.
 - **Re-registration in one process is tracked by the hash.** The loader owns exactly the registry entries whose `sha256` is
   not `None`. An id that is registered but not by the loader (a built-in, a fixture) is a `GateError`. The same hash that is
-  already loaded is reused without executing again; a different hash replaces the loader's own entry after unregistering it;
-  any failure restores the registry to its state before the call. Resolving a spec for hash B makes a spec pinned to hash A
-  refuse to run until it is resolved again, which is the intended fail-closed behaviour.
-- **The pre-run check is deterministic.** It runs on synthetic frames, never on real data. If it exceeds its budget of three
-  seconds, it samples a fixed list of rows (no randomness) and the documentation states the reduced power; `bt signal check`
-  always runs the full check. A hash that passed once in a process is not checked again.
+  already loaded is reused without executing again; a different hash replaces the loader's own entry after unregistering it.
+  Resolving a spec for hash B makes a spec pinned to hash A refuse to run until it is resolved again, which is the intended
+  fail-closed behaviour.
+- **`resolve_coded` unloads the code again whenever it raises.** The registry snapshot is taken before the load and
+  restored if anything from the load to the end fails: the params, the check of the defaults, the final validation or the
+  check before a run. So the registry is exactly what it was before the call, and a retry (with corrected params, or with
+  a corrected file) executes the code once more instead of reusing code that was never accepted.
+- **The params model of the code.** Its defaults are written into the resolved spec, as for every signal (omitting a
+  default and writing it are the same variant). They must be numbers, text, true or false, or lists of those: a `None`, a
+  tuple, a dict, a nested list or a NaN as default is a `GateError` that names the field, and the model must accept its own
+  defaults. A validator of the code that raises something other than a `ValueError` is a `GateError`, not a raw exception.
+- **What the code raises, where the gate calls it, is an error of the gate.** `KeyboardInterrupt` and `GeneratorExit` pass
+  through everywhere. Every other `BaseException`, `SystemExit` included, becomes a `GateError` when the code is loaded or
+  when its params model is used at the gate, a `SignalContractError` ("`<Type>: <text>`") in the contract and honesty
+  checks, a failed case in `cases.yaml`, and a `SignalContractError` in `Signal.generate` (the params model, the function
+  and `warmup_rows`) for a signal that carries a hash. Built-in signals and fixtures are not guarded and behave as before.
+  The guard does **not** cover code that behaves differently after the gate has passed it (state), reached through
+  `params.warmup_rows()` in `warmup_window` and through a params model that the engine uses directly (known gap 5). So the
+  claim is not that a coded signal cannot end the process, but that a `SystemExit` (or any other error) that the code
+  raises while it is loaded, checked or called through `Signal.generate` is a contract error.
+- **The check before a run has no sampling and no time rule.** It runs on synthetic frames of 120 rows, never on real data,
+  and makes every check on every row (purity, determinism, the output rules, the zero rows and the truncation test of an
+  honest `warmup_rows`). Measured on the development machine, 250 signal calls take 0.27 to 0.8 s (0.27 to 0.37 s for signals like the built-in ones, 0.75 to 0.79 s for a heavy one with seven rolling statistics); on the 300-row frames of `bt signal
+  check` 610 calls take 0.9 to 1.9 s. The budget of three seconds is therefore a property of the signal, not a switch: a
+  signal slower than about 10 ms per call exceeds it on its own. A switch to sampling that depends on the clock would make
+  the outcome depend on the machine, and no timer can interrupt a function that is running (known gap 4). The first draft
+  of this ADR planned a deterministic sampling above the budget; the measurement showed it is not needed, and it is dropped.
+  The same code with the same params is checked once per process: the cache key is the pair (hash, params), because the
+  check depends on the params; a failed check is not remembered.
+- **`cases.yaml`** (`coded/cases.py`): the examples of a coded signal as data, read with the safe YAML loader without
+  aliases, duplicate keys or hidden characters, at most 256 KiB, 50 cases, 10 symbols and 400 rows, with at most 20 brackets open at once, counted over the whole text, quotes and comments included, so 21 unclosed brackets anywhere are refused (PyYAML needs quadratic time for a long run of opening brackets, so they are counted before the parser sees the text). The file must be a regular file. A difference, a case in which the code raises, or an invalid file is a
+  `CasesError`. Only `bt signal check` runs the examples.
 - **Exit codes** (defined only in `cli/errors.py`): 8 for a gate refusal and a missing confirmation of `bt approve --code`
-  (which requires `--sha` with the first 8 hex of the hash it printed), 9 for a failed static or contract check; a stored run
-  whose record or archive is missing is exit code 5, as for every record that cannot be reproduced.
+  (which requires `--sha` with the first 8 hex of the hash it printed), 9 for a failed static check, contract check or
+  examples; a stored run whose record or archive is missing is exit code 5, as for every record that cannot be reproduced.
 
 ## Known gaps
 
@@ -113,6 +156,12 @@ The static check and the gate reduce risk; they do not remove it. These are know
    (a module attribute, the random state of a library) stays changed after a failed load.
 4. **There is no time or memory limit.** An infinite loop or a huge allocation in the candidate code hangs or crashes the
    process. The budget of the pre-run check cannot interrupt a function that is running.
+5. **State-dependent behaviour after the gate.** The gate checks the code at one moment, on synthetic frames, and guards
+   the places where it calls the code. Code that behaves differently after the gate has passed it (it keeps state: a
+   counter, a cache, a flag) is not covered where it is reached outside `Signal.generate`: through `params.warmup_rows()`
+   in `warmup_window` and through a params model that the engine uses directly. A `SystemExit` or another error raised
+   there is not turned into a contract error, and the same state can make a run differ from the check; the review of the
+   code before it is approved, and the look-ahead test (Phase 15), are what remain.
 
 Beyond these: the approvals are not tamper-proof (a process with write access to `approvals/` can write a record, like the
 journal), the check is not a sandbox (the person who reads the code before approving it is the defence), and the look-ahead
@@ -120,12 +169,14 @@ test on real data is Phase 15.
 
 ## Consequences
 
-- Nothing in the project executes a coded signal until the loader exists, and the loader only executes archived bytes whose
-  idea and hash a person approved.
+- The loader is the only code that executes a coded signal, and it only executes archived bytes whose idea and hash a
+  person approved; a source-tree test checks that no other module can.
 - Params can vary inside an approved idea without a new approval; every variant is journaled and counted.
 - `bt report` reproduces a coded run from the archive, whatever was done to the working file since.
 - Approved code and approvals are public; a brief or a signal must not hold anything private.
-- Three existing files changed behaviour or content for this part: `Signal.generate` refuses a `warmup_rows` that is not a
-  Python `int` of at least 0; `tests/signal_contract.py` is a re-export of the package module (it keeps raising
-  `AssertionError`); one line of `tests/test_journal_failures.py` writes a byte order mark as an escape (same value).
+- Existing code changed behaviour for this part: `Signal.generate` refuses a `warmup_rows` that is not a Python `int` of at
+  least 0 and guards the call of a signal that carries a hash; `SignalSpec.params_model()` looks the signal up through
+  `resolve_signal()`; `engine/runner.py` does the same (two lines, the engine behaves as before for every spec without a
+  `coded` block); `tests/signal_contract.py` is a re-export of the package module (it keeps raising `AssertionError`); one
+  line of `tests/test_journal_failures.py` writes a byte order mark as an escape (same value).
 - See [coded-signals.md](../coded-signals.md) for the files, the hashes with their bytes, the lock and the rules in full.

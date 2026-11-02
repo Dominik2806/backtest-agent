@@ -92,7 +92,9 @@ def test_with_a_sha_the_registered_signal_is_found_and_without_one_registered_it
     spec = parse_spec(to_yaml(pinned))
     with pytest.raises(UnknownSignalError, match="is not loaded"):
         spec.signal.params_model()
-    monkeypatch.setitem(SIGNALS._signals, "rsi_pullback", Signal("rsi_pullback", RsiParams, lambda p, q: p))
+    monkeypatch.setitem(
+        SIGNALS._signals, "rsi_pullback", Signal("rsi_pullback", RsiParams, lambda p, q: p, sha256="ab" * 32)
+    )
     assert spec.warmup_rows == 14
 
 

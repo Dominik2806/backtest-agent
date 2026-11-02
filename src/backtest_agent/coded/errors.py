@@ -33,3 +33,21 @@ class ApprovalError(Exception):
 
 class ApprovalFormatError(ApprovalError):
     """A file in ``approvals/`` is not a valid approval record; the message names the file and the field."""
+
+
+class GateError(Exception):
+    """The approval gate refuses to load a coded signal; the message says why (nothing was compiled or run)."""
+
+
+class NotApprovedError(GateError):
+    """A person has to approve something (the idea or the code) before this can run; exit code 8 of ``bt run``."""
+
+
+class RecordError(GateError):
+    """The approvals folder cannot supply what the spec needs, or it was changed (a record or an archive is missing or
+    does not match its hash); in stored mode (``bt report``) this is a record that cannot be reproduced, exit code 5."""
+
+
+class CasesError(Exception):
+    """The ``cases.yaml`` of a coded signal is missing or not valid, or the signal does not give its examples; the
+    message lists every problem. Like a failed contract check this is exit code 9 of ``bt signal check``."""

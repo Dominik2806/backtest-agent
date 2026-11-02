@@ -26,7 +26,7 @@ from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from backtest_agent.spec.coded_spec import CodedSpec, check_scalar_params, coded_id_problem
 from backtest_agent.spec.errors import UnknownSignalError
-from backtest_agent.spec.signals import SignalParams, get_signal
+from backtest_agent.spec.signals import Signal, SignalParams, get_signal
 
 SCHEMA_VERSION = 1
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -144,25 +144,40 @@ class SignalSpec(_Model):
             data.pop("coded", None)
         return data
 
-    def params_model(self) -> SignalParams:
-        """The validated params instance of the signal.
+    def resolve_signal(self) -> Signal:
+        """The registered signal of this spec: the one place where a spec finds its signal.
 
         A coded signal is only available once the gate has resolved it: a spec without ``coded.code_sha256`` raises
-        ``UnknownSignalError`` whatever the registry holds, so an unresolved spec can never run. With the sha the lookup
-        is allowed (the loader checks that the registered signal carries that sha).
+        ``UnknownSignalError`` whatever the registry holds, so an unresolved spec can never run. With the sha, the
+        registered signal must carry the same ``sha256`` (the hash of the code it was loaded from), otherwise the signal
+        is "not loaded": nothing is registered, or what is registered is another version, a built-in or a fixture.
+        ``params_model()`` and the engine both call this method, so no path to the function skips the check.
         """
-        if self.coded is not None and self.coded.code_sha256 is None:
+        coded = self.coded
+        if coded is None:
+            return get_signal(self.id)
+        pinned = coded.code_sha256
+        if pinned is None:
             raise UnknownSignalError(
                 f"the coded signal {self.id!r} is not resolved; it has to pass the approval gate first"
             )
         try:
-            return get_signal(self.id).parse_params(self.params)
+            signal = get_signal(self.id)
         except UnknownSignalError:
-            if self.coded is None:
-                raise
             raise UnknownSignalError(
                 f"the coded signal {self.id!r} is not loaded; it has to pass the approval gate first"
             ) from None
+        if signal.sha256 != pinned:
+            has = "no sha (it was not loaded by the gate)" if signal.sha256 is None else f"sha {signal.sha256[:8]}"
+            raise UnknownSignalError(
+                f"the coded signal {self.id!r} is not loaded: the registered signal has {has}, "
+                f"the spec pins sha {pinned[:8]}"
+            )
+        return signal
+
+    def params_model(self) -> SignalParams:
+        """The validated params instance of the signal (see ``resolve_signal`` for what a coded signal needs)."""
+        return self.resolve_signal().parse_params(self.params)
 
 
 class ExecutionSpec(_Model):

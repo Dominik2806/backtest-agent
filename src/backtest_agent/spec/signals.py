@@ -7,7 +7,7 @@ instance of the signal's params model. The output has the index of ``prices``, o
 
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -18,6 +18,7 @@ from backtest_agent.data.provider import validate_standard_frame
 from backtest_agent.spec.errors import SignalContractError, UnknownSignalError
 
 _ID = re.compile(r"[a-z][a-z0-9_]*")
+_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 class SignalParams(BaseModel):
@@ -41,12 +42,22 @@ SignalFunction = Callable[[pd.DataFrame, Any], pd.DataFrame]
 
 @dataclass(frozen=True)
 class Signal:
-    """A registered signal: id, params model and function."""
+    """A registered signal: id, params model and function.
+
+    ``sha256`` is the hash of the approved code a **coded** signal was loaded from (``coded/loader.py`` sets it); it is
+    ``None`` for built-in signals and for fixtures. A spec that pins ``code_sha256`` only finds a signal that carries
+    the same hash (``StrategySpec.warmup_rows`` and ``SignalSpec.params_model``).
+    """
 
     id: str
     params_model: type[SignalParams]
     function: SignalFunction
     description: str = ""
+    sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.sha256 is not None and not _SHA256.fullmatch(self.sha256):
+            raise ValueError(f"sha256 must be 64 lowercase hex characters, got {self.sha256!r}")
 
     def parse_params(self, params: Mapping[str, Any] | SignalParams | None = None) -> SignalParams:
         """Return a validated params instance: a mapping is validated, ``None`` gives the defaults."""
@@ -66,11 +77,29 @@ class Signal:
         caller's frame. ``ValueError`` for a non-standard input, ``SignalContractError`` for a bad output.
         """
         validate_standard_frame(prices)
-        parsed = self.parse_params(params)
-        signals = self.function(prices.copy(deep=False), parsed)
+        parsed = self._guarded(lambda: self.parse_params(params))
+        signals = self._guarded(lambda: self.function(prices.copy(deep=False), parsed))
         validate_signal_output(prices, signals)
-        validate_signal_zeros(prices, signals, parsed.warmup_rows())
+        validate_signal_zeros(prices, signals, self._guarded(parsed.warmup_rows))
         return signals
+
+    def _guarded(self, call: Callable[[], Any]) -> Any:
+        """Run code of this signal. For a signal that the gate loaded (``sha256`` is set) anything it raises, a
+        ``SystemExit`` included, becomes a ``SignalContractError`` with the cause chained; ``KeyboardInterrupt`` and
+        ``GeneratorExit`` pass. This covers what ``generate`` calls (the params model, the function, ``warmup_rows``);
+        code that is reached anywhere else (``params.warmup_rows()`` in ``warmup_window``, a params model that the
+        engine uses directly) is not covered. Built-in signals and fixtures (``sha256`` is ``None``) are not guarded:
+        their errors propagate as they always did."""
+        if self.sha256 is None:
+            return call()
+        try:
+            return call()
+        except SignalContractError:
+            raise
+        except (KeyboardInterrupt, GeneratorExit):
+            raise
+        except BaseException as error:
+            raise SignalContractError(f"{self.id}: the signal raised {type(error).__name__}: {error}") from error
 
 
 class SignalRegistry:
@@ -106,6 +135,28 @@ class SignalRegistry:
 
     def ids(self) -> tuple[str, ...]:
         return tuple(sorted(self._signals))
+
+    def snapshot(self) -> dict[str, Signal]:
+        """A copy of the registry's content, to be given to ``restore``."""
+        return dict(self._signals)
+
+    def restore(self, snapshot: Mapping[str, Signal]) -> None:
+        """Make the registry hold exactly ``snapshot`` again (what the loader does after a failure)."""
+        self._signals.clear()
+        self._signals.update(snapshot)
+
+    def unregister(self, signal_id: str) -> Signal:
+        """Remove and return a signal. Only the loader calls this, and only for a signal it loaded itself."""
+        try:
+            return self._signals.pop(signal_id)
+        except KeyError:
+            raise UnknownSignalError(f"cannot unregister {signal_id!r}: it is not registered") from None
+
+    def set_sha256(self, signal_id: str, sha256: str) -> Signal:
+        """Mark a registered signal with the hash of the code it was loaded from and return the marked signal."""
+        marked = replace(self.get(signal_id), sha256=sha256)  # validates the hash
+        self._signals[signal_id] = marked
+        return marked
 
     def __contains__(self, signal_id: object) -> bool:
         return signal_id in self._signals
