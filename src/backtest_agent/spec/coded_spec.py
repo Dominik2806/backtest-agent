@@ -84,6 +84,22 @@ def check_scalar_params(params: dict[str, Any]) -> None:
         )
 
 
+def check_brief(brief: str) -> str:
+    """The brief with CRLF turned into LF, or ``ValueError`` if it breaks a rule. The one place the rules are written:
+    ``CodedSpec`` and ``approve_idea`` both call it."""
+    brief = normalise_newlines(brief)
+    if not brief.strip():
+        raise ValueError("the brief must not be empty")
+    if len(brief) > MAX_BRIEF_LENGTH:
+        raise ValueError(f"the brief must have at most {MAX_BRIEF_LENGTH} characters, got {len(brief)}")
+    if any(forbidden_character(character) for character in brief):
+        raise ValueError(
+            "the brief must not contain control, format or line-separator characters "
+            "(Unicode categories Cc, Cf, Zl, Zp; a line break and a tab are allowed)"
+        )
+    return brief
+
+
 class CodedSpec(BaseModel):
     """``signal.coded``: the brief that is approved with the signal id, and the code that ran (``code_sha256``)."""
 
@@ -95,17 +111,7 @@ class CodedSpec(BaseModel):
     @field_validator("brief")
     @classmethod
     def _brief(cls, brief: str) -> str:
-        brief = normalise_newlines(brief)
-        if not brief.strip():
-            raise ValueError("the brief must not be empty")
-        if len(brief) > MAX_BRIEF_LENGTH:
-            raise ValueError(f"the brief must have at most {MAX_BRIEF_LENGTH} characters, got {len(brief)}")
-        if any(forbidden_character(character) for character in brief):
-            raise ValueError(
-                "the brief must not contain control, format or line-separator characters "
-                "(Unicode categories Cc, Cf, Zl, Zp; a line break and a tab are allowed)"
-            )
-        return brief
+        return check_brief(brief)
 
     @field_validator("code_sha256")
     @classmethod

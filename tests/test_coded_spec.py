@@ -186,7 +186,21 @@ FORBIDDEN_MESSAGE = (
 
 @pytest.mark.parametrize(
     "character",
-    ["\x00", "\x07", "\x1b", "\x7f", "\x85", "\r", "​", "‎", "‮", "⁦", "﻿", " ", " "],
+    [
+        "\x00",
+        "\x07",
+        "\x1b",
+        "\x7f",
+        "\x85",
+        "\r",
+        "\u200b",
+        "\u200e",
+        "\u202e",
+        "\u2066",
+        "\ufeff",
+        "\u2028",
+        "\u2029",
+    ],
     ids=lambda c: f"U+{ord(c):04X}",
 )
 def test_characters_of_the_categories_cc_cf_zl_zp_are_refused_in_a_brief(character: str) -> None:

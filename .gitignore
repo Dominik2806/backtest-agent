@@ -47,3 +47,6 @@ Thumbs.db
 
 # Claude Code local settings (personal, never shared)
 .claude/settings.local.json
+
+# The lock of a running "bt approve"; a stale one is deleted by hand (docs/coded-signals.md).
+approvals/.lock

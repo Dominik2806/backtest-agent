@@ -404,3 +404,79 @@ def test_nothing_that_identifies_a_user_or_a_machine_is_written(tmp_path: Path) 
         assert not pattern.search(data), path.name
         for item in forbidden:
             assert item.lower() not in text.lower(), (path.name, item)
+
+
+# --- a brief the spec would refuse is not approved ---
+
+
+@pytest.mark.parametrize(
+    ("brief", "reason"),
+    [
+        ("", "the brief must not be empty"),
+        (" \n\t " + chr(0xA0), "the brief must not be empty"),
+        ("x" * 2001, "the brief must have at most 2000 characters, got 2001"),
+        ("a" + chr(0x200B) + "b", "the brief must not contain control, format or line-separator characters"),
+        ("a" + chr(0x202E) + "b", "the brief must not contain control, format or line-separator characters"),
+        ("a" + chr(0x2028) + "b", "the brief must not contain control, format or line-separator characters"),
+        ("a\x00b", "the brief must not contain control, format or line-separator characters"),
+        ("a\rb", "the brief must not contain control, format or line-separator characters"),  # a lone CR
+    ],
+)
+def test_an_idea_the_spec_would_refuse_is_not_approved_and_nothing_is_written(
+    tmp_path: Path, brief: str, reason: str
+) -> None:
+    from backtest_agent.spec.coded_spec import CodedSpec
+
+    with pytest.raises(ApprovalError, match="the brief is not valid: " + re.escape(reason)):
+        approve_idea(tmp_path, "x_signal", brief, at(10))
+    assert files(tmp_path) == []
+    with pytest.raises(ValueError):  # the very same rules refuse it in a spec
+        CodedSpec(brief=brief)
+
+
+def test_a_brief_with_crlf_is_approved_as_its_lf_form(tmp_path: Path) -> None:
+    record, changed = approve_idea(tmp_path, "x_signal", "a\r\nb", at(10))
+    assert changed and record.ideas[0].idea_sha256 == "9ba96a0c177373ed575249d1402cc33668c4b05f98d2bf3de0d055522d0631d2"
+
+
+# --- two approvals at the same time ---
+
+
+def test_an_approval_that_runs_while_another_holds_the_lock_is_refused_and_writes_nothing(tmp_path: Path) -> None:
+    from backtest_agent.coded.approvals import approvals_lock
+
+    with approvals_lock(tmp_path):
+        assert files(tmp_path) == [".lock"]
+        for call in (
+            lambda: approve_idea(tmp_path, "x_signal", "B", at(10)),
+            lambda: approve_code(tmp_path, "x_signal", "B", source("0.0"), at(11)),
+            lambda: approvals_lock(tmp_path).__enter__(),
+        ):
+            with pytest.raises(ApprovalError, match=r"another approval is in progress \(\.lock exists"):
+                call()
+        assert files(tmp_path) == [".lock"]  # the lock of the first one is still there, nothing else
+    assert files(tmp_path) == []  # and it is released
+
+
+def test_the_lock_is_released_after_every_outcome(tmp_path: Path) -> None:
+    approve_idea(tmp_path, "x_signal", "B", at(10))  # written
+    approve_idea(tmp_path, "x_signal", "B", at(10, 1))  # no-op
+    approve_code(tmp_path, "x_signal", "B", source("0.0"), at(11))  # written
+    approve_code(tmp_path, "x_signal", "B", source("0.0"), at(11, 1))  # no-op
+    with pytest.raises(ApprovalError):
+        approve_code(tmp_path, "x_signal", "C", source("0.0"), at(12))  # idea not approved
+    with pytest.raises(StaticCheckError):
+        approve_code(tmp_path, "x_signal", "B", b"import os\n" + source("0.5"), at(12))
+    with pytest.raises(ApprovalError):
+        approve_idea(tmp_path, "x_signal", "", at(12))
+    assert ".lock" not in files(tmp_path)
+    assert sorted(files(tmp_path)) == sorted(["x_signal.json", f"code/{S1}.py"])
+
+
+def test_an_id_that_is_not_allowed_is_refused_before_the_folder_is_touched(tmp_path: Path) -> None:
+    target = tmp_path / "not_created_yet"
+    with pytest.raises(ValueError, match="built-in signal"):
+        approve_idea(target, "sma_crossover", "B", at(10))
+    with pytest.raises(ValueError, match="reserved file name"):
+        approve_code(target, "con", "B", source("0.0"), at(10))
+    assert not target.exists()

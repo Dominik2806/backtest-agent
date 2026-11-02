@@ -418,11 +418,11 @@ ALL_ALLOWED_TO = sorted(ALLOWED_TO_ATTRIBUTES)
 @pytest.mark.parametrize(
     ("label", "line", "message"),
     [
-        ("Cf, right-to-left override in a comment", "# a‮b", "the character U+202E (Cf) is not allowed"),
-        ("Cf, zero-width space in a string", "TEXT = 'a​b'", "the character U+200B (Cf) is not allowed"),
-        ("Cf, byte order mark inside the file", "# a﻿b", "the character U+FEFF (Cf) is not allowed"),
-        ("Zl, line separator in a comment", "# a b", "the character U+2028 (Zl) is not allowed"),
-        ("Zp, paragraph separator in a string", "TEXT = 'a b'", "the character U+2029 (Zp) is not allowed"),
+        ("Cf, right-to-left override in a comment", "# a\u202eb", "the character U+202E (Cf) is not allowed"),
+        ("Cf, zero-width space in a string", "TEXT = 'a\u200bb'", "the character U+200B (Cf) is not allowed"),
+        ("Cf, byte order mark inside the file", "# a\ufeffb", "the character U+FEFF (Cf) is not allowed"),
+        ("Zl, line separator in a comment", "# a\u2028b", "the character U+2028 (Zl) is not allowed"),
+        ("Zp, paragraph separator in a string", "TEXT = 'a\u2029b'", "the character U+2029 (Zp) is not allowed"),
         ("Cc, bell in a comment", "# a\x07b", "the character U+0007 (Cc) is not allowed"),
         ("Cc, C1 control", "# a\x85b", "the character U+0085 (Cc) is not allowed"),
         ("Cc, a lone CR in a comment", "# a\rb", "the character U+000D (Cc) is not allowed"),
@@ -454,7 +454,7 @@ def test_a_line_break_and_a_tab_are_allowed_and_so_are_non_ascii_letters() -> No
 
 
 def test_other_rules_are_still_reported_next_to_a_character_problem() -> None:
-    found = rules(build(["import os  # a‮b"]))
+    found = rules(build(["import os  # a\u202eb"]))
     assert found == at((0, "import"), (0, "character"))
 
 
@@ -562,3 +562,45 @@ def test_a_value_error_from_the_parser_is_a_finding_too(monkeypatch: pytest.Monk
     assert [(f.line, f.rule, f.message) for f in found] == [
         (0, "syntax", "the source cannot be parsed: ValueError: source code string cannot contain null bytes")
     ]
+
+
+# --- a file of hidden characters gives a short list ---
+
+
+def test_at_most_ten_characters_are_reported_and_the_rest_is_counted() -> None:
+    zero_width = chr(0x200B)
+    source = build(["# " + zero_width * 25])
+    found = [f for f in find_problems(source, "sig") if f.rule == "character"]
+    assert len(found) == 11
+    assert [f.message for f in found[:10]] == ["the character U+200B (Cf) is not allowed"] * 10
+    assert [(f.line, f.column) for f in found[:10]] == [(FIRST, column) for column in range(2, 12)]
+    assert (found[10].line, found[10].column, found[10].message) == (FIRST, 26, "... and 15 more")
+    with pytest.raises(StaticCheckError) as info:
+        check_source(source, "sig")
+    assert str(info.value).splitlines()[-1] == f"  - line {FIRST}: ... and 15 more [character]"
+    assert str(info.value).splitlines()[0] == "the signal source breaks 11 rules of the static check:"
+
+
+def test_exactly_ten_characters_are_all_reported_and_eleven_are_cut() -> None:
+    zero_width = chr(0x200B)
+    ten = [f for f in find_problems(build(["# " + zero_width * 10]), "sig") if f.rule == "character"]
+    assert len(ten) == 10 and not any("more" in f.message for f in ten)
+    eleven = [f for f in find_problems(build(["# " + zero_width * 11]), "sig") if f.rule == "character"]
+    assert len(eleven) == 11 and eleven[-1].message == "... and 1 more"
+
+
+def test_a_file_of_hidden_characters_at_the_size_limit_gives_eleven_findings() -> None:
+    zero_width = chr(0x200B)
+    count = 21000  # 3 bytes each: 63000 bytes, inside the 64 KiB limit with the fixed lines of build()
+    source = build(["# " + zero_width * count])
+    assert len(source) <= MAX_SOURCE_BYTES
+    found = find_problems(source, "sig")
+    assert len(found) == 11
+    assert found[-1].message == "... and 20990 more"
+
+
+def test_other_findings_are_not_hidden_by_the_cut() -> None:
+    zero_width = chr(0x200B)
+    found = find_problems(build(["import os", "# " + zero_width * 12]), "sig")
+    assert [f.rule for f in found].count("character") == 11
+    assert any(f.rule == "import" for f in found)

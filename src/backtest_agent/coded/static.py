@@ -28,6 +28,7 @@ from backtest_agent.coded.errors import Finding, StaticCheckError
 from backtest_agent.spec.coded_spec import forbidden_character, normalise_newlines
 
 MAX_SOURCE_BYTES = 64 * 1024
+MAX_CHARACTER_FINDINGS = 10  # then one finding "... and N more", so a file of hidden characters stays readable
 
 ALLOWED_MODULES = frozenset({"__future__", "math", "numpy", "pandas", "pydantic", "typing"})
 SIGNALS_MODULE = "backtest_agent.spec.signals"
@@ -88,12 +89,21 @@ def find_problems(source: bytes, signal_id: str) -> tuple[Finding, ...]:
     if findings:
         return tuple(sorted(findings))
     text = normalise_newlines(text)  # the CR of a CRLF is not an error; a lone CR is
+    characters: list[Finding] = []
     for number, line in enumerate(text.split(chr(10)), start=1):
         for column, character in enumerate(line):
             if forbidden_character(character):
                 category = unicodedata.category(character)
                 message = f"the character U+{ord(character):04X} ({category}) is not allowed"
-                findings.append(Finding(number, column, "character", message))
+                characters.append(Finding(number, column, "character", message))
+    if len(characters) > MAX_CHARACTER_FINDINGS:
+        last = characters[-1]
+        more = len(characters) - MAX_CHARACTER_FINDINGS
+        characters = [
+            *characters[:MAX_CHARACTER_FINDINGS],
+            Finding(last.line, last.column, "character", f"... and {more} more"),
+        ]
+    findings.extend(characters)
     if chr(0) in text:
         return tuple(sorted(findings))  # Python cannot parse a NUL byte; the finding above is the answer
     try:

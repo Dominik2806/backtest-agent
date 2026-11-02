@@ -18,7 +18,8 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -27,9 +28,10 @@ from typing import Any
 from backtest_agent.coded.errors import ApprovalError, ApprovalFormatError
 from backtest_agent.coded.static import check_source
 from backtest_agent.journal.identity import canonical_json
-from backtest_agent.spec.coded_spec import coded_id_problem, normalise_newlines
+from backtest_agent.spec.coded_spec import check_brief, coded_id_problem, normalise_newlines
 
 SCHEMA_VERSION = 1
+LOCK_NAME = ".lock"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 _TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
@@ -206,6 +208,30 @@ def render_record(record: ApprovalRecord) -> bytes:
 # --- writing (append-only) ---
 
 
+@contextmanager
+def approvals_lock(approvals_dir: Path | str) -> Iterator[None]:
+    """Hold ``approvals/.lock`` while an approval is read, changed and written.
+
+    The file is created exclusively; if it exists, another approval is running (or crashed and left it) and
+    ``ApprovalError`` says so. It is removed on the way out, also after an error. It holds nothing.
+    """
+    directory = Path(approvals_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / LOCK_NAME
+    try:
+        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise ApprovalError(
+            f"another approval is in progress ({LOCK_NAME} exists in the approvals folder); if no other bt approve "
+            "is running, delete that file and try again"
+        ) from None
+    os.close(descriptor)
+    try:
+        yield
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def approve_idea(
     approvals_dir: Path | str, signal_id: str, brief: str, moment: datetime
 ) -> tuple[ApprovalRecord, bool]:
@@ -215,13 +241,19 @@ def approve_idea(
     entries and their code are untouched.
     """
     stamp = format_time(moment)
+    record_path(approvals_dir, signal_id)  # refuses an id that is not a coded signal id before anything is touched
+    try:
+        brief = check_brief(brief)  # the rules of the spec: an idea the spec would refuse is not approved
+    except ValueError as error:
+        raise ApprovalError(f"the brief is not valid: {error}") from None
     digest = idea_sha256(signal_id, brief)
-    record = read_record(approvals_dir, signal_id) or ApprovalRecord(signal_id)
-    if record.idea(digest) is not None:
-        return record, False
-    record = ApprovalRecord(signal_id, (*record.ideas, IdeaApproval(digest, stamp)))
-    _write_atomic(record_path(approvals_dir, signal_id), render_record(record))
-    return record, True
+    with approvals_lock(approvals_dir):
+        record = read_record(approvals_dir, signal_id) or ApprovalRecord(signal_id)
+        if record.idea(digest) is not None:
+            return record, False
+        record = ApprovalRecord(signal_id, (*record.ideas, IdeaApproval(digest, stamp)))
+        _write_atomic(record_path(approvals_dir, signal_id), render_record(record))
+        return record, True
 
 
 def approve_code(
@@ -235,23 +267,25 @@ def approve_code(
     A hash that is already approved for this idea is a no-op.
     """
     stamp = format_time(moment)
-    record = read_record(approvals_dir, signal_id)
-    entry = None if record is None else record.idea(idea_sha256(signal_id, brief))
-    if record is None or entry is None:
-        raise ApprovalError(f"the idea of {signal_id!r} with this brief is not approved; approve the idea first")
-    data = normalise_source(source)
-    check_source(data, signal_id)
-    digest = hashlib.sha256(data).hexdigest()
-    if entry.has_code(digest):
-        return record, digest, False
-    _archive(code_path(approvals_dir, digest), data)
-    ideas = tuple(
-        IdeaApproval(i.idea_sha256, i.approved_at, (*i.code, CodeApproval(digest, stamp))) if i is entry else i
-        for i in record.ideas
-    )
-    record = ApprovalRecord(signal_id, ideas)
-    _write_atomic(record_path(approvals_dir, signal_id), render_record(record))
-    return record, digest, True
+    record_path(approvals_dir, signal_id)  # as above
+    with approvals_lock(approvals_dir):
+        record = read_record(approvals_dir, signal_id)
+        entry = None if record is None else record.idea(idea_sha256(signal_id, brief))
+        if record is None or entry is None:
+            raise ApprovalError(f"the idea of {signal_id!r} with this brief is not approved; approve the idea first")
+        data = normalise_source(source)
+        check_source(data, signal_id)
+        digest = hashlib.sha256(data).hexdigest()
+        if entry.has_code(digest):
+            return record, digest, False
+        _archive(code_path(approvals_dir, digest), data)
+        ideas = tuple(
+            IdeaApproval(i.idea_sha256, i.approved_at, (*i.code, CodeApproval(digest, stamp))) if i is entry else i
+            for i in record.ideas
+        )
+        record = ApprovalRecord(signal_id, ideas)
+        _write_atomic(record_path(approvals_dir, signal_id), render_record(record))
+        return record, digest, True
 
 
 def read_archived_code(approvals_dir: Path | str, sha256: str) -> bytes:
