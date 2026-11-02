@@ -49,6 +49,8 @@ BANNED_ATTRIBUTES = frozenset(
         "DataSource", "fromfile", "fromregex", "genfromtxt", "load", "loadtxt", "memmap", "open_memmap", "save",
         "savetxt", "savez", "savez_compressed", "tofile",
         "parse_file", "parse_raw",
+        # process-global state that would be changed at import time
+        "option_context", "options", "reset_option", "seed", "set_option", "set_printoptions", "seterr", "seterrcall",
         # ways into the file system, the network and C code
         "ctypeslib", "distutils", "f2py", "io",
     }
@@ -98,6 +100,10 @@ def find_problems(source: bytes, signal_id: str) -> tuple[Finding, ...]:
         tree = ast.parse(text)
     except SyntaxError as error:
         findings.append(Finding(error.lineno or 0, error.offset or 0, "syntax", f"syntax error: {error.msg}"))
+        return tuple(sorted(findings))
+    except (RecursionError, MemoryError, ValueError) as error:  # a source too deeply nested for the parser
+        message = f"the source cannot be parsed: {type(error).__name__}: {error}"
+        findings.append(Finding(0, 0, "syntax", message))
         return tuple(sorted(findings))
 
     _check_imports(tree, add)
@@ -180,7 +186,7 @@ def _check_top_level(tree: ast.Module, add: Adder) -> None:
             elif node.value is not None and not _is_literal(node.value):
                 add(node, "top-level", "a top-level assignment must assign a literal constant")
             continue
-        add(node, "top-level", f"a {type(node).__name__} statement is not allowed at the top level")
+        add(node, "top-level", f"{type(node).__name__} statements are not allowed at the top level")
 
 
 def _is_literal(node: ast.expr) -> bool:

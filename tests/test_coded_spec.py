@@ -96,7 +96,7 @@ def test_with_a_sha_the_registered_signal_is_found_and_without_one_registered_it
     assert spec.warmup_rows == 14
 
 
-def test_a_unknown_id_without_a_coded_block_is_still_an_error() -> None:
+def test_an_unknown_id_without_a_coded_block_is_still_an_error() -> None:
     data = coded({"id": "rsi_pullback", "params": {}})
     assert "unknown signal id 'rsi_pullback'" in problems(data)["signal.id"]
 

@@ -229,12 +229,12 @@ def test_the_allowed_modules_import() -> None:
         "if True:\n    pass",
         "for i in range(3):\n    pass",
         "while False:\n    pass",
-        "with pd.option_context('a', 1):\n    pass",
+        "with pd.DataFrame() as frame:\n    pass",
         "try:\n    pass\nexcept Exception:\n    pass",
         "assert True",
         "del pd",
         "raise ValueError('x')",
-        "pd.options.mode.chained_assignment = None",
+        "pd.mode.chained_assignment = None",
         "x = y = pd",
         "LIMIT = 1 + len('a')",
         "NAMES = tuple(range(3))",
@@ -392,11 +392,11 @@ def test_the_error_lists_every_finding_with_its_line_and_rule() -> None:
     assert str(info.value) == (
         "the signal source breaks 2 rules of the static check:\n"
         "  - line 4: import of 'os' is not allowed [import]\n"
-        "  - line 5: a Expr statement is not allowed at the top level [top-level]"
+        "  - line 5: Expr statements are not allowed at the top level [top-level]"
     )
     assert info.value.findings == (
         Finding(4, 0, "import", "import of 'os' is not allowed"),
-        Finding(5, 0, "top-level", "a Expr statement is not allowed at the top level"),
+        Finding(5, 0, "top-level", "Expr statements are not allowed at the top level"),
     )
 
 
@@ -493,3 +493,72 @@ def test_to_attributes_are_refused_as_imported_names_too_but_allowed_ones_import
 def test_parse_file_and_parse_raw_are_banned_attributes() -> None:
     assert {"parse_file", "parse_raw"} <= BANNED_ATTRIBUTES
     assert rules(build(["def f(m):", "    return m.parse_file('x'), m.parse_raw('y')"])) == at((1, "banned-attribute"))
+
+
+# --- sources the parser cannot take: a finding, never a crash ---
+
+TOO_DEEP = {
+    "nested parentheses": ("(" * 10000 + ")" * 10000, "SyntaxError"),
+    "nested brackets": ("x = " + "[" * 10000 + "]" * 10000, "SyntaxError"),
+    "a long chain of additions": ("x = 1" + "+1" * 30000, "RecursionError"),
+    "a long chain of attributes": ("x = a" + ".b" * 30000, "RecursionError"),
+    "a long chain of minus signs": ("x = " + "-" * 30000 + "1", "MemoryError"),
+    "a long chain of nots": ("x = " + "not " * 15000 + "1", "MemoryError"),
+}
+
+
+@pytest.mark.parametrize("label", list(TOO_DEEP))
+def test_a_source_too_deep_for_the_parser_is_a_finding_not_a_crash(label: str) -> None:
+    expression, error = TOO_DEEP[label]
+    source = expression.encode("utf-8")
+    assert len(source) <= MAX_SOURCE_BYTES
+    found = find_problems(source, "sig")
+    assert [f.rule for f in found] == ["syntax"]
+    if error == "SyntaxError":
+        assert found[0].message.startswith("syntax error: ")
+    else:
+        assert found[0].message.startswith(f"the source cannot be parsed: {error}: ")
+        assert found[0].line == 0
+    with pytest.raises(StaticCheckError):
+        check_source(source, "sig")
+
+
+# --- process-global state that a module could change while it is imported ---
+
+GLOBAL_STATE = [
+    "set_option",
+    "reset_option",
+    "option_context",
+    "options",
+    "seterr",
+    "seterrcall",
+    "set_printoptions",
+    "seed",
+]
+
+
+@pytest.mark.parametrize("name", GLOBAL_STATE)
+def test_attributes_that_change_process_global_state_are_refused(name: str) -> None:
+    assert name in BANNED_ATTRIBUTES
+    assert rules(build(["def f(np):", f"    return np.{name}"])) == at((1, "banned-attribute"))
+    assert rules(build([f"from numpy import {name}"])) == at((0, "banned-attribute"))
+
+
+def test_the_usual_ways_to_the_global_state_are_refused_and_a_seeded_generator_is_not() -> None:
+    middle = ["def f(np, pd):", "    np.random.seed(0)", "    np.seterr(all='ignore')", "    pd.set_option('a', 1)"]
+    assert rules(build(middle)) == at((1, "banned-attribute"), (2, "banned-attribute"), (3, "banned-attribute"))
+    ok = build(["def f(np):", "    return np.random.default_rng(0).random(3)"])
+    assert rules(ok) == set()
+
+
+def test_a_value_error_from_the_parser_is_a_finding_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    import backtest_agent.coded.static as static
+
+    def refuse(text: str):
+        raise ValueError("source code string cannot contain null bytes")
+
+    monkeypatch.setattr(static.ast, "parse", refuse)
+    found = find_problems(build([]), "sig")
+    assert [(f.line, f.rule, f.message) for f in found] == [
+        (0, "syntax", "the source cannot be parsed: ValueError: source code string cannot contain null bytes")
+    ]
