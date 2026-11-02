@@ -60,4 +60,6 @@ it from the start, because without warm-up history the first part of every perio
 - A signal that needs data of other symbols at the same date is possible (the contract allows any symbol's rows up to
   the date), which is what the cross-sectional `momentum_12_1` needs; for those signals warm-up is measured per symbol.
 - A 0.0 during warm-up cannot be told apart from "no position"; the declared `warmup_rows` is how callers know.
+- The zero rows (before the first trading row and during warm-up) are also checked at run time by `Signal.generate`, see
+  [ADR 0017](0017-signal-runtime-contract.md).
 - See [strategy-spec.md](../strategy-spec.md) for the full contract and the built-in signals.

@@ -171,6 +171,10 @@ raises `SignalContractError` listing every violation.
 no centered windows, no statistics of the whole sample. The engine shifts the signal by `delay_bars` before using it.
 This rule is documented here and enforced by an automated look-ahead test in Phase 15.
 
+**Zero rows, checked at run time.** `Signal.generate` raises `SignalContractError` if a symbol has a non-zero value before its
+(W+1)-th trading row (W is `warmup_rows`; with W = 0 that is before its first trading row), so the rules below hold for every
+signal, not only for registered ones that the contract test covers (`validate_signal_zeros`, [ADR 0017](adr/0017-signal-runtime-contract.md)).
+
 **Purity.** The function must not modify its input and must be deterministic. `generate` hands the function a
 copy-on-write view, so an in-place change cannot reach the caller's frame.
 

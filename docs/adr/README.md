@@ -24,3 +24,4 @@ To add one, copy [0000-template.md](0000-template.md) to the next free number an
 | [0014](0014-report.md) | Report: model, renderers and writer, own SVG charts, run id, fixed caveats, atomic write | Accepted |
 | [0015](0015-experiment-journal.md) | Experiment journal: folders as truth, SQLite index, family and trial counters, all-or-nothing write | Accepted |
 | [0016](0016-command-line.md) | Command line: argparse, `cli/` package, injected provider and clock, `run_experiment`, exit codes, provider guard, `bt report` design | Accepted |
+| [0017](0017-signal-runtime-contract.md) | Runtime check of the signal's zero rows (before the first trading row and during warm-up) | Accepted |
