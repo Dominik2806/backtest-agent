@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   approval record alone and loads nothing. Exit code 8 (refusals), exit code 9 (rejected code, `SignalContractError` for every
   signal, a built-in one too: it was code 1) and exit code 5 for approval records and archives. `bt signal check` and the
   agents are not built. See `docs/cli.md`, `docs/coded-signals.md` and [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md).
+  New files: `src/backtest_agent/cli/coded.py`, `cli/context.py`, `coded/status.py`, `coded/working.py`; tests `tests/coded_cli_helpers.py`, `test_cli_approve.py`, `test_cli_docs_coded.py`, `test_cli_exit_codes_coded.py`, `test_cli_record_hints.py`, `test_cli_report_coded.py`, `test_cli_run_coded.py`, `test_cli_validate_coded.py`.
   No new dependency.
 
 - Phase 10 part 2b (F-18), the gate. `coded/loader.py` is the only module in `src/` that compiles or executes strategy code
@@ -52,6 +53,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `SignalContractError` is now exit code 9 for every signal, built-in ones too; it was exit code 1 ("unexpected error").
   `bt run` of a signal that breaks the signal contract is the case that changes (Phase 10 part 3, `cli/errors.py`).
+- Phase 10 part 3: every file that existed before part 3 and was changed (lines added/deleted,
+  `git diff main...HEAD --numstat --diff-filter=M`): `src/backtest_agent/cli/argtypes.py` (+8/-0),
+  `cli/commands.py` (+60/-25), `cli/errors.py` (+68/-2),
+  `cli/render.py` (+114/-3), `cli/report.py` (+21/-3),
+  `coded/loader.py` (+3/-25; the reader moved to `coded/working.py`); four existing test
+  files: `tests/test_cli_coded_unresolved.py` (+33/-21; rewritten), `tests/test_cli_help.py`
+  (+5/-1), `tests/test_coded_docs.py` (+5/-2), `tests/test_docs_commands.py`
+  (+14/-0); and the documents `CHANGELOG.md` (+27/-0), `CLAUDE.md` (+14/-6),
+  `README.md` (+13/-5), `docs/ROADMAP.md` (+53/-1),
+  `docs/adr/0018-coded-signals-and-approval-gate.md` (+17/-12),
+  `docs/cli.md` (+358/-19), `docs/coded-signals.md` (+62/-33).
 - Phase 10 part 2b: `engine/runner.py` finds the signal through `SignalSpec.resolve_signal()` (two lines; the same
   behaviour for every spec without a `coded` block). The errors of the contract check name the signal and the frame, and a
   `SystemExit` (or any other error) of a coded signal where the gate calls it is a contract error. Every file that existed
