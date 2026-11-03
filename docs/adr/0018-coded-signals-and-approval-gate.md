@@ -168,6 +168,12 @@ The static check and the gate reduce risk; they do not remove it. These are know
    there is not turned into a contract error, and the same state can make a run differ from the check; the review of the
    code before it is approved, and the look-ahead test (Phase 15), are what remain.
 
+6. **Executing code that nobody approved.** `bt signal check` (addendum below) runs the working file of a candidate before
+   any person has read it, in the process of the command, with the permissions of whoever runs it and no time or memory
+   limit. The static check refuses what it can see; it does not make the file safe to run, and the registry is the only
+   thing that is put back afterwards (gaps 1 to 4 apply in full). The person who runs the command accepts this, and the
+   command says so before it executes anything.
+
 Beyond these: the approvals are not tamper-proof (a process with write access to `approvals/` can write a record, like the
 journal), the check is not a sandbox (the person who reads the code before approving it is the defence), and the look-ahead
 test on real data is Phase 15.
@@ -185,3 +191,43 @@ test on real data is Phase 15.
   `coded` block); `tests/signal_contract.py` is a re-export of the package module (it keeps raising `AssertionError`); one
   line of `tests/test_journal_failures.py` writes a byte order mark as an escape (same value).
 - See [coded-signals.md](../coded-signals.md) for the files, the hashes with their bytes, the lock and the rules in full.
+
+## Addendum (Phase 10 part 3b): checking a candidate before it is approved
+
+The rules above settle how approved code is loaded. They did not settle `bt signal check`, which has to run a file that no
+person approved yet: the static check, the contract check on frames of 300 rows and the examples of `cases.yaml`, so that a
+person knows what they are about to approve. These rules are added; nothing above changes.
+
+- **`load_candidate(spec, source)` in `coded/loader.py` is the second, and last, way to execute strategy code.** It is a
+  context manager that yields a `Candidate` (the registered signal, marked with the hash of the LF form of the file; the
+  params of the spec validated by its params model; the hash). It runs the static check again, then executes the bytes through
+  the same `_execute` as the gate, so the loader still holds exactly one `exec`, one `compile` and one `ModuleType`. When the
+  `with` block ends, however it ends, the registry is exactly what it was; an entry of the gate for the same id is set aside
+  and put back, and an id registered by something other than the gate is a `GateError`. It never writes to `approvals/`,
+  never touches the cache of the check before a run and never puts a module in `sys.modules`. The code is executed even if the
+  gate already loaded the same hash: the point is to run what is in the file now.
+- **Only `cli/signal_check.py` may use `load_candidate`**, and it is also the only module that imports `coded/cases.py`. The
+  source-tree test (`tests/test_coded_source_tree.py`) reads the syntax trees for the name, an attribute, an import of it and the
+  string `"load_candidate"` outside `coded/loader.py` and `cli/signal_check.py`; the importer test of `coded/cases.py` names
+  exactly that one module. A name computed at run time is not seen.
+- **Nothing is executed until everything that is only data has passed.** The command reads the file as bytes, runs the static
+  check and reads and validates `<id>.cases.yaml` (a missing or invalid file is a `CasesError`) before it executes anything. Then it
+  prints the consent line, then it loads, then it checks the contract, then it runs the examples.
+- **The command is the consent, and it says what is being accepted.** Before the first byte of the candidate is executed, stderr
+  gets one line: `bt: executing strategies/signals/<id>.py (sha <8 hex>, NOT approved) in this process, with your permissions
+  and no time or memory limit; the static check is a tripwire, not a sandbox`. It is not written when nothing is executed (a
+  failed static check, a file that cannot be read, a spec without a coded block, a missing or invalid `cases.yaml`), and it is
+  written once when the candidate is executed, also when the checks fail afterwards. There is no `--yes` and no prompt: an agent
+  with a shell could pass a flag as easily, and a prompt would break the tested `main(argv, ...)` contract.
+- **Process, not subprocess.** The gate also loads in the process of the command, and a subprocess needs a design of its own
+  (the frames, params and examples cross a pipe; a time limit and a memory limit that work on Windows). So gaps 3 and 4 stay
+  open for this command, and gap 6 is the price. **Hardening that is NOT built:** running the candidate in a subprocess with a
+  wall-clock limit and a memory limit. An agent that runs the command runs its own code with its own permissions, as it could with
+  Python; the only limit of an agent run is the timeout of its own tool. Whether agents may run the command unattended is decided
+  in the agents part (pull request 4), which must state it in `docs/agents.md`.
+- **A candidate can be checked before its idea is approved, and the command does not read `approvals/`.** The order is write,
+  check, approve the idea, approve the code (`bt approve --code` refuses an unapproved idea). A damaged record cannot fail a
+  check, and "writes nothing, approves nothing" holds by construction.
+- **Exit codes.** `CasesError` is raised for the first time and is exit code 9, as are a failed static check, a failed contract
+  check and a `GateError`; a file that is missing, not a regular file or too large is 9 here (the `NotApprovedError` of
+  `read_working_file` becomes a `GateError` with the same text: nothing is waiting for an approval).

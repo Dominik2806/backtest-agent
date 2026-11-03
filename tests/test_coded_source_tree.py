@@ -23,6 +23,8 @@ FORBIDDEN_NAMES = {"eval": "eval", "__import__": "__import__"}
 EXECUTING_NAMES = {"exec", "compile"}  # the builtins; re.compile is an attribute and does not count
 FORBIDDEN_MODULES = {"runpy", "pkgutil", "codeop"}
 REGISTRY_METHODS = {"set_sha256", "unregister", "restore", "snapshot"}
+CANDIDATE = "load_candidate"  # executes a candidate nobody approved (ADR 0018, addendum): one command may call it
+CANDIDATE_FILES = {LOADER, "cli/signal_check.py"}
 
 
 def violations(root: Path) -> list[str]:
@@ -35,6 +37,8 @@ def violations(root: Path) -> list[str]:
         counts = {"exec": 0, "compile": 0, "ModuleType": 0}
 
         for node in ast.walk(tree):
+            if relative not in CANDIDATE_FILES:
+                _candidate_use(found, relative, node)
             if isinstance(node, ast.Name):
                 if node.id in FORBIDDEN_NAMES:
                     _note(found, relative, node, f"the builtin {node.id} is not allowed anywhere")
@@ -92,6 +96,20 @@ def violations(root: Path) -> list[str]:
             if counts != expected:
                 found.append(f"{LOADER}:1: expected exactly one use each of {expected}, found {counts}")
     return found
+
+
+def _candidate_use(found: list[str], relative: str, node: ast.AST) -> None:
+    """``load_candidate`` executes code nobody approved: a name, an attribute, an import of it or the string
+    ``"load_candidate"`` (``getattr(loader, "load_candidate")``) outside its two files. **Not seen:** a computed
+    name."""
+    used = (
+        (isinstance(node, ast.Name) and node.id == CANDIDATE)
+        or (isinstance(node, ast.Attribute) and node.attr == CANDIDATE)
+        or (isinstance(node, ast.Constant) and node.value == CANDIDATE)
+        or (isinstance(node, ast.ImportFrom) and any(alias.name == CANDIDATE for alias in node.names))
+    )
+    if used:
+        _note(found, relative, node, f"{CANDIDATE} may only be used in {' and '.join(sorted(CANDIDATE_FILES))}")
 
 
 def _note(found: list[str], relative: str, node: ast.AST, what: str) -> None:
@@ -189,6 +207,48 @@ def test_every_rule_fires_in_a_module_that_is_not_allowed_to_do_it(tmp_path: Pat
     assert found, source
     assert all(line.startswith("elsewhere/module.py:") for line in found)
     assert any(what in line for line in found), found
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from backtest_agent.coded.loader import load_candidate",
+        "from backtest_agent.coded.loader import load_candidate as lc",
+        "from backtest_agent.coded import loader\nwith loader.load_candidate(s, b):\n    pass",
+        "import backtest_agent.coded.loader\nbacktest_agent.coded.loader.load_candidate(s, b)",
+        "x = load_candidate",
+        "f = getattr(loader, 'load_candidate')",
+    ],
+    ids=["from-import", "aliased", "attribute", "dotted", "name", "string"],
+)
+def test_load_candidate_is_refused_outside_the_loader_and_the_one_command(tmp_path: Path, source: str) -> None:
+    found = violations(tree(tmp_path, {"elsewhere/module.py": source + "\n"}))
+    assert found and all(line.startswith("elsewhere/module.py:") for line in found), found
+    assert any("load_candidate may only be used in cli/signal_check.py and coded/loader.py" in line for line in found)
+
+
+def test_load_candidate_is_refused_in_the_other_cli_modules_and_in_the_gate_commands(tmp_path: Path) -> None:
+    files = {
+        "cli/coded.py": "from backtest_agent.coded.loader import load_candidate\n",
+        "cli/commands.py": "x = load_candidate\n",
+    }
+    assert sorted(line.split(":")[0] for line in violations(tree(tmp_path, files))) == [
+        "cli/coded.py",
+        "cli/commands.py",
+    ]
+
+
+def test_load_candidate_is_allowed_in_the_loader_and_in_cli_signal_check(tmp_path: Path) -> None:
+    root = tree(
+        tmp_path,
+        {
+            LOADER: LOADER_OK + "def load_candidate(spec, source):\n    pass\n",
+            "cli/signal_check.py": (
+                "from backtest_agent.coded.loader import load_candidate\nwith load_candidate(s, b):\n    pass\n"
+            ),
+        },
+    )
+    assert violations(root) == []
 
 
 def test_importlib_metadata_is_allowed_only_in_the_package_init(tmp_path: Path) -> None:
