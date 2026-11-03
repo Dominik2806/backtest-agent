@@ -14,7 +14,7 @@ import pytest
 
 from backtest_agent.spec import SIGNALS
 from cli_helpers import at, run_cli
-from coded_cli_helpers import BRIEF, HOLD_A, HOLD_B, SHA_A, approve_all, put_source, write_hold_spec
+from coded_cli_helpers import BRIEF, HOLD_A, HOLD_B, IDEA_SHA8, SHA_A, approve_all, put_source, write_hold_spec
 from coded_helpers import (
     canary_source,
     coded_modules,
@@ -79,7 +79,9 @@ def test_nothing_approved_is_state_1(workdir: Path) -> None:
 
 
 def test_an_approved_idea_without_code_is_state_2(workdir: Path) -> None:
-    assert run_cli(["approve", "spec.yaml", "--idea"]).code == 0
+    approved = run_cli(["approve", "spec.yaml", "--idea"])
+    assert approved.code == 0
+    assert f"Idea:       approved (sha {IDEA_SHA8})" in approved.out.splitlines()
     result = validate()
     assert (result.code, result.err) == (0, "")
     assert result.out.splitlines() == head("coded, idea approved, code not approved")
@@ -147,6 +149,24 @@ def test_validate_loads_nothing_not_even_approved_code(workdir: Path, world, sta
     assert (result.code, result.err) == (0, "")
     assert result.out.splitlines() == head(f"coded, idea and code approved (sha {sha8})")
     assert world.marker_lines() == [] and coded_modules() == [] and SIGNALS.ids() == ids
+
+
+def test_the_signal_line_is_what_the_record_says_not_what_the_working_file_has(workdir: Path) -> None:
+    """``bt validate`` reports the approval record. Whether the working file still has the approved hash is checked
+    only by the commands that run code: here the file was replaced by code that nobody approved, validate still says
+    "approved (sha 8b0b3234)" and ``bt run`` refuses before it asks for any data."""
+    approve_all(workdir, HOLD_A, "8b0b3234")
+    put_source(workdir, HOLD_B)  # not approved
+    result = validate()
+    assert (result.code, result.err) == (0, "")
+    assert result.out.splitlines() == head("coded, idea and code approved (sha 8b0b3234)")
+    assert "Warm-up:    n/a (coded signal, not loaded)" in result.out.splitlines()
+    data = LiteralProvider(r3b_world())
+    run = run_cli(["run", "spec.yaml"], provider=data)
+    assert (run.code, run.out) == (8, "")
+    assert run.err.splitlines() == ["bt: error: code not approved: the file has sha 3d693599", NEUTRAL_HINT]
+    assert data.calls == []
+    assert not (workdir / "runs").exists() and not (workdir / "reports").exists()
 
 
 def test_validate_does_not_read_the_working_file(workdir: Path) -> None:
