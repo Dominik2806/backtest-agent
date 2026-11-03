@@ -75,6 +75,10 @@ class StoredSpecError(SpecError):
         Exception.__init__(self, "\n".join(lines))
 
 
+class UsageError(Exception):
+    """A combination of arguments that argparse cannot see is wrong (exit code 2), such as ``--sha`` with ``--idea``."""
+
+
 class ConfirmationError(Exception):
     """``bt approve --code`` was not confirmed: ``--sha`` is missing, or it is not the hash of the file (exit code 8).
 
@@ -124,7 +128,7 @@ def clean(message: str) -> str:
     return _CONTROL.sub("?", message)
 
 
-def _shell_word(path: str) -> str:
+def shell_word(path: str) -> str:
     """The path as the hint prints it: in double quotes if it has a character outside the safe set."""
     return f'"{path}"' if _NEEDS_QUOTES.search(path) else path
 
@@ -171,6 +175,8 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
             f"run {run_id} is logged but its report could not be written ({type(cause).__name__}: {cause})",
             f"bt report {run_id} writes the report again without logging the run twice",
         )
+    if isinstance(error, UsageError):
+        return Failure(ExitCode.USAGE, str(error), "bt approve --help describes the arguments")
     if isinstance(error, StoredSpecError):
         return Failure(
             ExitCode.SPEC,
@@ -186,7 +192,7 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
     if isinstance(error, ApprovalFormatError):
         return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT)
     if isinstance(error, ConfirmationError):
-        command = f"bt approve {_shell_word(error.spec)} --code --sha {error.short}"
+        command = f"bt approve {shell_word(error.spec)} --code --sha {error.short}"
         return Failure(ExitCode.GATE, str(error), f"read the code printed above; if you accept it, run: {command}")
     if isinstance(error, NotApprovedError | ApprovalError):
         return Failure(ExitCode.GATE, str(error), APPROVAL_HINT)

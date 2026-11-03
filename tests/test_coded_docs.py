@@ -164,7 +164,9 @@ def test_the_limits_and_numbers_of_the_gate_in_the_document_are_the_ones_of_the_
 
 
 def test_the_messages_of_the_pin_versus_file_table_are_the_ones_of_the_loader() -> None:
-    loader = (Path(__file__).resolve().parents[1] / "src" / "backtest_agent" / "coded" / "loader.py").read_text("utf-8")
+    coded = Path(__file__).resolve().parents[1] / "src" / "backtest_agent" / "coded"
+    # the gate's messages are in loader.py; those of the working file moved to working.py (read_working_file)
+    loader = (coded / "loader.py").read_text("utf-8") + (coded / "working.py").read_text("utf-8")
     for message in [
         "code not approved: the file has sha",
         "code not approved: no code is approved for the idea",

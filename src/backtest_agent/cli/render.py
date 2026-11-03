@@ -156,6 +156,98 @@ def validate_lines(spec: StrategySpec, path: str) -> list[str]:
     ]
 
 
+def ascii_escape(value: str) -> str:
+    """Plain ASCII for a line of code or of a brief: a control character becomes a backslash, x and two hex digits (a
+    tab too; the newline never reaches this function), a non-ASCII character a backslash, u and four hex digits (U and
+    eight above U+FFFF). A reader sees every character that a terminal would hide or act on."""
+    parts = []
+    for character in value:
+        number = ord(character)
+        if number < 0x20 or number == 0x7F:
+            parts.append(f"\\x{number:02x}")
+        elif number < 0x7F:
+            parts.append(character)
+        elif number <= 0xFFFF:
+            parts.append(f"\\u{number:04x}")
+        else:
+            parts.append(f"\\U{number:08x}")
+    return "".join(parts)
+
+
+def _continued(label: str, value: str) -> list[str]:
+    """``value`` may have several lines: the first is under the label, the others start in the value column.
+
+    A blank line stays blank (no trailing spaces). Nothing is wrapped or trimmed.
+    """
+    first, *rest = (ascii_escape(part) for part in value.split("\n"))
+    return [line(label, first), *((" " * LABEL_WIDTH + part) if part else "" for part in rest)]
+
+
+def approve_idea_lines(
+    signal_id: str, sha: str, changed: bool, approved_at: str, record: Path, brief: str
+) -> list[str]:
+    """The answer of ``bt approve --idea``; a repeat says ``already approved`` and shows the first approval time."""
+    state = "approved" if changed else "already approved"
+    return [
+        line("Signal", signal_id),
+        line("Idea", f"{state} (sha {sha[:8]})"),
+        line("Approved", approved_at),
+        line("Record", record.as_posix()),
+        *_continued("Brief", brief),
+    ]
+
+
+def numbered_source(source: bytes) -> list[str]:
+    """The lines of LF-normalised source, numbered; a last line without a newline counts as a line."""
+    rows = source.decode("utf-8").split("\n")
+    if rows[-1] == "":
+        rows.pop()  # the newline that ends the last line does not start another one
+    width = len(str(len(rows)))
+    numbered = []
+    for number, row in enumerate(rows, start=1):
+        prefix = f"{number:>{width}} |"
+        numbered.append(f"{prefix} {ascii_escape(row)}" if row else prefix)  # an empty line has no trailing space
+    return numbered
+
+
+def review_lines(signal_id: str, shown: str, source: bytes, sha: str) -> list[str]:
+    """What a person reads before confirming code: the facts, then the whole file with line numbers.
+
+    ``source`` is the LF-normalised bytes that are hashed; ``Size`` counts those bytes and the numbered lines.
+    """
+    numbered = numbered_source(source)
+    return [
+        line("Signal", signal_id),
+        line("File", shown),
+        line("Size", f"{plural(len(source), 'byte')}, {plural(len(numbered), 'line')}"),
+        line("Sha256", sha),
+        line("Static", "ok"),
+        "",
+        *numbered,
+    ]
+
+
+def approve_code_lines(
+    signal_id: str, sha: str, changed: bool, approved_at: str, archive: Path, record: Path, pin: str | None
+) -> list[str]:
+    """The answer of ``bt approve --code --sha``; ``pin`` is the ``code_sha256`` the spec has, if any."""
+    state = "approved" if changed else "already approved"
+    if pin is None:
+        pin_text = f"not set (signal.coded.code_sha256: {sha})"
+    elif pin == sha:
+        pin_text = "matches"
+    else:
+        pin_text = f"differs (spec pins {pin[:8]})"
+    return [
+        line("Signal", signal_id),
+        line("Code", f"{state} (sha {sha[:8]})"),
+        line("Approved", approved_at),
+        line("Archive", archive.as_posix()),
+        line("Record", record.as_posix()),
+        line("Pin", pin_text),
+    ]
+
+
 SUB_WIDTH = 10  # the label of a line under a data block, so that its value starts in column 12
 ISSUE_SEVERITY_WIDTH, ISSUE_CODE_WIDTH, ISSUE_TARGET_WIDTH = 8, 25, 12
 FRAME_LEVEL_CODES = ("unsorted_dates", "duplicate_dates")  # docs/data.md does not define their first_dates

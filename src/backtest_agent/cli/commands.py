@@ -2,36 +2,19 @@
 
 import argparse
 import sqlite3
-from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import TextIO
 
 from backtest_agent.cli import render
-from backtest_agent.cli.argtypes import positive_int, run_id_arg
+from backtest_agent.cli.argtypes import positive_int, run_id_arg, sha_prefix
+from backtest_agent.cli.coded import cmd_approve
+from backtest_agent.cli.context import Context
 from backtest_agent.cli.data import fetch_data
 from backtest_agent.cli.errors import ExitCode, ReportedValidationErrors, ReportFolderExistsError
-from backtest_agent.cli.provider import ProviderFactory
 from backtest_agent.cli.report import reproduce
 from backtest_agent.experiment import run_experiment
 from backtest_agent.journal import get_run, list_runs, rebuild_index
 from backtest_agent.reporting import write_report
 from backtest_agent.spec import load_spec
-
-
-@dataclass(frozen=True)
-class Context:
-    """What a command needs from the outside: the provider factory, the clock and the two streams."""
-
-    provider_factory: ProviderFactory
-    clock: Callable[[], datetime]
-    out: TextIO
-    err: TextIO
-
-    def emit(self, *lines: str) -> None:
-        for line in lines:
-            print(line, file=self.out)
 
 
 def cmd_run(args: argparse.Namespace, context: Context) -> ExitCode:
@@ -171,6 +154,37 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
         "--cache-dir", type=Path, default=Path("data/cache"), metavar="DIR", help="price cache folder (data/cache)"
     )
     run.set_defaults(handler=cmd_run)
+
+    approve = sub.add_parser(
+        "approve",
+        parents=[common],
+        help="approve the idea or the code of a coded signal (a person's decision; nothing is run)",
+        description="Approve a coded signal in two steps (docs/coded-signals.md). --idea approves the idea "
+        "{signal id, brief} of the spec. --code shows the whole file of the signal with line numbers and its hash and "
+        "exits with code 8; the person reads it and repeats the command with --sha and the first 8 hex of the hash to "
+        "approve exactly that code. Nothing is imported or executed. Folders are relative to the current directory.",
+    )
+    approve.add_argument("spec", metavar="SPEC", help="path of the YAML strategy spec with a coded block")
+    step = approve.add_mutually_exclusive_group(required=True)
+    step.add_argument("--idea", action="store_true", help="approve the idea (the signal id and the brief)")
+    step.add_argument("--code", action="store_true", help="show the code, or approve it when --sha is given")
+    approve.add_argument(
+        "--sha",
+        type=sha_prefix,
+        metavar="HEX8",
+        help="with --code: the first 8 hex of the hash that the command printed (either case)",
+    )
+    approve.add_argument(
+        "--approvals-dir", type=Path, default=Path("approvals"), metavar="DIR", help="approvals folder (approvals)"
+    )
+    approve.add_argument(
+        "--strategies-dir",
+        type=Path,
+        default=Path("strategies/signals"),
+        metavar="DIR",
+        help="folder of the editable signal files (strategies/signals)",
+    )
+    approve.set_defaults(handler=cmd_approve)
 
     report = sub.add_parser(
         "report",
