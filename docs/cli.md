@@ -461,6 +461,11 @@ bt: error: the code is not approved yet; confirm it with --sha 2dd4906a
 hint: read the code printed above; if you accept it, run: bt approve spec.yaml --code --sha 2dd4906a
 ```
 
+**File limits.** Approved code is at most 64 KiB, counted after CRLF became LF. A file larger than 128 KiB (twice that,
+because CRLF makes a file longer) is not read: exit code 8, `<path> is larger than the limit; approved code is at most 64 KiB`.
+A file of up to 128 KiB is read; if its LF-normalised size is more than 64 KiB the static check refuses it: exit code 9, with the
+finding `[size]`.
+
 **Size** is the size of the LF-normalised source, the bytes that are hashed: `<n>` is their number and `<m>` the number of lines, a
 last line without a newline counting as a line. A file saved with CRLF shows the same size and the same hash as the same file with
 LF. The line numbers are right-aligned to the width of the largest one, a line is printed after ` | `, and an empty line is
@@ -468,7 +473,8 @@ printed as the number and ` |` without a trailing space. **Every character is pr
 are. U+0000 to U+001F, the tab included (the line feed only ends a line), and U+007F (DEL) are printed as `\xNN`, two lowercase hex
 digits. Every other character is printed as `\uXXXX`, four lowercase hex digits, up to U+FFFF, so U+0080 to U+009F too, and as
 `\UXXXXXXXX`, eight digits, above U+FFFF. The static check already refuses the characters of the Unicode categories Cc, Cf, Zl and Zp
-except the tab, so in practice only the tab and visible non-ASCII characters of comments and strings appear.
+except the tab, so in practice only the tab and non-ASCII characters of comments and strings appear (U+00A0, the no-break space, is
+accepted and printed as `\u00a0`).
 
 **`--code --sha HEX8`** compares the 8 hex characters with the start of the hash of the bytes it has just read. A missing or a
 different `--sha` prints the review block again (stdout), writes nothing and is exit code 8; the message names the hash of the
@@ -527,7 +533,7 @@ approval does not make code safe: it means that a person read this code ([coded-
 | 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id; `bt approve` without exactly one of `--idea` and `--code`, a malformed `--sha`, `--sha` with `--idea` | argparse, `UsageError` |
 | 3 | the spec is invalid or its file cannot be read; `bt report`: the spec stored in the run no longer validates (also when the params no longer fit the archived code of a coded run); `bt approve`: the spec has no `coded` block | `SpecError`, `UnknownSignalError`, `StoredSpecError` |
 | 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors of a run: the first 10 are listed, then `... and N more`; `bt validate --data` prints all of them on stdout and one line on stderr); any other exception of a provider call |
-| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`); approvals: an approval record that is not valid (every command that reads the record: `bt approve`, `bt validate`, and `bt run`, `bt validate --data`, `bt data fetch` and `bt report`, which pass the gate), an archived code that is missing or does not match its hash (`bt run`, `bt validate --data`, `bt data fetch`, `bt report`), and in stored mode (`bt report`) a record that is missing, an idea that is not in it and a stored coded spec without a pin | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read), `RecordError`, `ApprovalFormatError` |
+| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`); approvals: an approval record that is not valid, whatever is wrong with it (not JSON, not an object with the keys of a record, another `schema_version`): exit code 5 in every command that reads the record, that is `bt approve` and `bt validate` (which raise `ApprovalFormatError`) and `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (which pass the gate and report it as `RecordError`; the hint differs, see the table of hints), an archived code that is missing or does not match its hash (`bt run`, `bt validate --data`, `bt data fetch`, `bt report`), and in stored mode (`bt report`) a record that is missing, an idea that is not in it and a stored coded spec without a pin | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read), `RecordError`, `ApprovalFormatError` |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
 | 7 | `bt report` found changed data or changed metrics: the re-evaluated record differs from the journal record | `RunChangedError` |
 | 8 | not approved or not confirmed: the idea or the code of a coded spec is not approved, the working file has another hash than the approved ones or than the pin of the spec, it cannot be read or is too large (`bt run`, `bt validate --data`, `bt data fetch`, `bt approve`); an approval error (another approval is running: `.lock`; `bt approve --code` for an idea that is not approved); `bt approve --code` without `--sha`, or with another one than the hash of the file | `NotApprovedError`, `ApprovalError`, `ConfirmationError` |
@@ -575,8 +581,8 @@ the two lines).
 | run changed, metrics (`bt report`) | the stored run is untouched; the metric code or the stored values changed; log a new run with `bt run` |
 | a refusal: code or idea not approved, the file cannot be read, an approval error | `approvals are made with bt approve; see docs/coded-signals.md` |
 | `--sha` missing or wrong | `read the code printed above; if you accept it, run: bt approve SPEC --code --sha <8 hex>` (repeats `--approvals-dir` and `--strategies-dir` when they were given and are not the defaults) |
-| a record or archive of a coded run is missing or changed | `the approvals folder (--approvals-dir) has to hold the record and the archived code this run used` |
-| an approval record that is not valid | `an approval record is not valid; restore it from version control (docs/coded-signals.md)` |
+| in `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (the gate, `RecordError`): a record or an archive that is missing or changed, an idea that is not in the record or a stored spec without a pin in stored mode, **and an approval record that is not valid** (the message line then says what is wrong with it: `is not valid JSON in UTF-8`, `must be an object with exactly the keys ...`, `schema_version must be 1, got 2`) | `the approvals folder (--approvals-dir) has to hold the record and the archived code this run used` (the same text in a first `bt run`, when there is no earlier run) |
+| in `bt validate` and `bt approve` (they read the record themselves, `ApprovalFormatError`): an approval record that is not valid | `an approval record is not valid; restore it from version control (docs/coded-signals.md)` |
 | code rejected (static check, load, examples) | `the rules a coded signal has to follow are in docs/coded-signals.md` |
 | a signal breaks the signal contract | `a signal has to follow the signal contract (docs/strategy-spec.md)` |
 | `--sha` with `--idea` | `bt approve --help describes the arguments` |

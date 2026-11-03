@@ -250,6 +250,31 @@ def test_the_order_sentence_names_the_new_groups_in_the_order_of_classify() -> N
     assert named == sorted(named)
 
 
+def table_row_with(text: str) -> str:
+    rows = [line for line in DOC.splitlines() if line.startswith("|") and text in line]
+    assert len(rows) == 1, text
+    return rows[0]
+
+
+def test_the_hint_table_says_which_commands_get_which_record_hint() -> None:
+    gate = table_row_with(f"`{errors.RECORD_HINT}`")
+    direct = table_row_with(f"`{errors.RECORD_FORMAT_HINT}`")
+    for command in ("`bt run`", "`bt validate --data`", "`bt data fetch`", "`bt report`"):
+        assert command in gate and command not in direct, command
+    for command in ("`bt validate`", "`bt approve`"):
+        assert command in direct and command not in gate, command
+    assert "`RecordError`" in gate and "`ApprovalFormatError`" in direct
+    assert "is not valid JSON in UTF-8" in gate and "schema_version must be 1, got 2" in gate
+
+
+def test_the_document_states_the_file_limits_of_the_review() -> None:
+    assert "Approved code is at most 64 KiB, counted after CRLF became LF" in TEXT
+    assert "A file larger than 128 KiB" in TEXT and "is not read: exit code 8" in TEXT
+    assert "the static check refuses it: exit code 9, with the finding `[size]`" in TEXT
+    assert "U+00A0, the no-break space, is accepted and printed as" in TEXT
+    assert "visible non-ASCII" not in TEXT
+
+
 # --- the options ---
 
 OPTIONS = [
@@ -291,11 +316,17 @@ CASES_MODULE = "backtest_agent.coded.cases"
 def imported_names(path: Path, src_root: Path) -> set[str]:
     """Every module a file imports, as an absolute dotted name; ``from a import b`` counts ``a`` and ``a.b``.
 
-    A relative import is resolved against the package of the file (``.`` is that package, ``..`` its parent).
+    A relative import is resolved against the package of the file (``.`` is that package, ``..`` its parent). A string
+    constant that contains the name of the cases module (``import_module("backtest_agent.coded.cases")``,
+    ``__import__(...)``, a string handed to ``exec``) counts as an import of it; so would a docstring that names the
+    module, which is meant: say it some other way. **Not seen:** a dynamic import whose module name is computed at run
+    time (a concatenation, a format string, a name read from a file or the environment).
     """
     package = list(path.relative_to(src_root).parent.parts)
     found: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and CASES_MODULE in node.value:
+            found.add(CASES_MODULE)
         if isinstance(node, ast.Import):
             found.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
@@ -346,6 +377,31 @@ def test_the_scan_sees_every_form_of_import(tmp_path: Path, relative_path: str, 
     target.parent.mkdir(parents=True)
     target.write_text(line + "\n", encoding="utf-8")
     assert importers_of_cases(tmp_path / "src") == [relative_path]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'import_module("backtest_agent.coded.cases")',
+        'importlib.import_module("backtest_agent.coded.cases").run_cases',
+        '__import__("backtest_agent.coded.cases")',
+        'exec("from backtest_agent.coded.cases import run_cases")',
+        'MODULE = "backtest_agent.coded.cases"',
+    ],
+)
+def test_the_scan_sees_the_name_of_the_module_in_a_string_constant(tmp_path: Path, line: str) -> None:
+    target = tmp_path / "src" / "backtest_agent" / "cli" / "a.py"
+    target.parent.mkdir(parents=True)
+    target.write_text(line + "\n", encoding="utf-8")
+    assert importers_of_cases(tmp_path / "src") == ["backtest_agent/cli/a.py"]
+
+
+def test_the_scan_does_not_see_a_name_that_is_computed_at_run_time(tmp_path: Path) -> None:
+    """The documented limit of the scan, written down as a test so that nobody believes it is covered."""
+    target = tmp_path / "src" / "backtest_agent" / "cli" / "a.py"
+    target.parent.mkdir(parents=True)
+    target.write_text('import_module("backtest_agent.coded." + "cas" + "es")\n', encoding="utf-8")
+    assert importers_of_cases(tmp_path / "src") == []
 
 
 @pytest.mark.parametrize(

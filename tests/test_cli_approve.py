@@ -764,3 +764,31 @@ def test_the_line_numbers_are_as_wide_as_the_largest_one(spec: Path, workdir: Pa
     assert body[3] == "  4 |"
     assert body[9] == ' 10 | @register_signal("rsi_pullback", params=Params)'
     assert body[99] == "100 | # padding line"
+
+
+def test_a_no_break_space_is_accepted_by_the_static_check_and_printed_as_an_escape(spec: Path, workdir: Path) -> None:
+    """U+00A0 is category Zs, not Cc, Cf, Zl or Zp: the static check accepts it and the review shows an escape."""
+    approved_idea()
+    path = workdir / "strategies" / "signals" / "rsi_pullback.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(("# a" + chr(0xA0) + "b\n").encode("utf-8") + SOURCE)
+    result = run_cli(["approve", "spec.yaml", "--code"])
+    assert result.code == 8
+    assert result.out.splitlines()[6] == " 1 | # a" + chr(92) + "u00a0b"
+    assert result.out.isascii()
+
+
+def test_the_limit_of_64_kib_counts_after_crlf_became_lf(spec: Path, workdir: Path) -> None:
+    """A file of 75411 bytes with CRLF line ends (over 64 KiB, under 128 KiB) is 50399 bytes after LF: it is read
+    and accepted by the static check; the review prints its size in LF bytes."""
+    approved_idea()
+    lf = SOURCE + b"#\n" * 25000  # 399 + 50000 = 50399 bytes, 12 + 25000 = 25012 lines
+    put(workdir, lf.replace(b"\n", b"\r\n"))
+    assert (workdir / "strategies" / "signals" / "rsi_pullback.py").stat().st_size == 75411
+    result = run_cli(["approve", "spec.yaml", "--code"])
+    assert result.code == 8
+    assert result.out.splitlines()[2:5] == [
+        "Size:       50399 bytes, 25012 lines",
+        f"Sha256:     {hashlib.sha256(lf).hexdigest()}",
+        "Static:     ok",
+    ]
