@@ -437,11 +437,6 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
   - **Known limits, stated in `docs/cli.md`:** the review prints a backslash as it is (a literal `\u00e9` and a real `é` look the same);
     the operating system's reason in `cannot be read (...)` is localized; PowerShell expands `$` and the backtick inside the
     double quotes of the hint; `bt approve` is a person's command and no rule yet denies it to an agent.
-  - **Known limit, follow-up for part 3b:** the same damaged approval record gets a different hint in `bt validate` and
-    `bt approve` ("an approval record is not valid; restore it from version control") than in the gate commands `bt run`,
-    `bt validate --data`, `bt data fetch` and `bt report` ("the approvals folder ... has to hold the record and the archived
-    code this run used", also in a first run, when there is no run yet). The exit code (5) and the message line are the same;
-    the gate wraps the format error in `RecordError`. Part 3b should give both the same advice for a record that is not valid.
   - **Every file that existed before part 3 and was changed** (the new files are listed below). Lines added/deleted, as
     `git diff main...HEAD --numstat --diff-filter=M` reports them:
     - source: `src/backtest_agent/cli/argtypes.py` (+8/-0: `sha_prefix`);

@@ -276,8 +276,6 @@ def test_a_record_that_is_not_valid_is_exit_5_in_every_command_that_passes_the_g
     assert (result.code, result.out) == (5, "")
     lines = result.err.splitlines()
     assert lines[0].startswith("bt: error: hold_a.json: ")
-    assert lines[-1] == (
-        "hint: the approvals folder (--approvals-dir) has to hold the record and the archived code this run used"
-    )
+    assert lines[-1] == "hint: an approval record is not valid; restore it from version control (docs/coded-signals.md)"
     assert data.calls == []
     untouched(workdir, data)

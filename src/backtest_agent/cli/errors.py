@@ -193,7 +193,10 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
     if isinstance(error, UnknownSignalError):
         return Failure(ExitCode.SPEC, str(error.args[0]) if error.args else "unknown signal")
     if isinstance(error, RecordError):
-        return Failure(ExitCode.JOURNAL, str(error), RECORD_HINT)
+        # The gate wraps the ApprovalFormatError of a damaged record (`raise RecordError(...) from error`): the advice
+        # for that record is the same as in the commands that read it themselves. Any other cause keeps the gate's hint.
+        damaged = isinstance(error.__cause__, ApprovalFormatError)
+        return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT if damaged else RECORD_HINT)
     if isinstance(error, ApprovalFormatError):
         return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT)
     if isinstance(error, ConfirmationError):
