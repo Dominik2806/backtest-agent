@@ -450,7 +450,7 @@ def test_a_default_that_a_spec_cannot_hold_is_exit_9(cwd: Path) -> None:
     assert len(consent_lines(err)) == 1
 
 
-def test_an_out_of_range_default_with_validate_default_is_exit_3_not_9(cwd: Path) -> None:
+def test_today_an_out_of_range_default_with_validate_default_is_exit_3_not_the_wanted_9(cwd: Path) -> None:
     """Current behaviour, reported in the review: with ``validate_default=True`` the empty params of the spec already
     fail the model, so the error is a ``SpecError`` naming ``signal.params.scale`` (exit 3); the code is at fault."""
     candidate(cwd, broken_defaults("scale: float = Field(2.0, ge=0.0, le=1.0, validate_default=True)"))

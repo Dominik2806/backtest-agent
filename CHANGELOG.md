@@ -18,8 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing. Exit codes: 0, 2, 3 (no `coded` block, params that do not fit the model of the code), 9 (static check, contract,
   examples, code that does not load, a file that cannot be read), 130. `CasesError` is raised for the first time. Only
   `cli/signal_check.py` may call `load_candidate` or import `coded/cases.py` (source-tree tests). Not built: the agents, the deny
-  rule for `bt approve`, a subprocess with a time and memory limit. See `docs/cli.md`, `docs/coded-signals.md` and the
-  addendum of [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md). No new dependency.
+  rule for `bt approve`, a subprocess with a time and memory limit.
+  New files: `src/backtest_agent/cli/signal_check.py`; tests `tests/test_cli_docs_signal_check.py`, `tests/test_cli_signal_check.py`, `tests/test_coded_candidate.py`.
+  See `docs/cli.md`, `docs/coded-signals.md` and the addendum of [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md). No new dependency.
 
 - Phase 10 part 3 (F-18), the commands. `bt approve SPEC (--idea | --code [--sha HEX8])` approves the idea `{signal id, brief}`
   and then the code of a coded spec: `--code` reads the working file once, refuses an unapproved idea (exit 8, nothing
@@ -33,7 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   signal, a built-in one too: it was code 1) and exit code 5 for approval records and archives. `bt signal check` follows in
   part 3b and the agents after it. See `docs/cli.md`, `docs/coded-signals.md` and [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md).
   New files: `src/backtest_agent/cli/coded.py`, `cli/context.py`, `coded/status.py`, `coded/working.py`; tests `tests/coded_cli_helpers.py`, `test_cli_approve.py`, `test_cli_docs_coded.py`, `test_cli_exit_codes_coded.py`, `test_cli_record_hints.py`, `test_cli_report_coded.py`, `test_cli_run_coded.py`, `test_cli_validate_coded.py`.
-  New files: `src/backtest_agent/cli/signal_check.py`; tests `tests/test_cli_docs_signal_check.py`, `tests/test_cli_signal_check.py`, `tests/test_coded_candidate.py`.
   No new dependency.
 
 - Phase 10 part 2b (F-18), the gate. `coded/loader.py` is the only module in `src/` that compiles or executes strategy code

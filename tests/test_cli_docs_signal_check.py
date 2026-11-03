@@ -272,6 +272,20 @@ def test_the_changelog_and_the_readme_name_the_command_and_the_changed_hint() ->
     assert "uv run bt signal check spec.yaml" in README and "EXECUTES the unapproved candidate file" in README
 
 
+def test_the_new_files_of_part_3b_are_in_the_entry_of_part_3b_and_not_in_the_entry_of_part_3() -> None:
+    """Each entry has its own ``New files:`` sentence; the first entry under ``### Added`` is part 3b."""
+    added = CHANGELOG[CHANGELOG.index("### Added") : CHANGELOG.index("### Changed")]
+    entries = re.split(r"(?m)^(?=- Phase 10 part )", added)[1:]
+    by_part = {entry.split(" (F-18)")[0].removeprefix("- Phase 10 part "): entry for entry in entries}
+    assert list(by_part)[:3] == ["3b", "3", "2b"]  # 3b is the first entry
+    part_3b, part_3 = by_part["3b"], by_part["3"]
+    sentence = [line for line in part_3b.splitlines() if line.startswith("  New files:")]
+    assert len(sentence) == 1 and "`src/backtest_agent/cli/signal_check.py`" in sentence[0]
+    assert part_3b.index("  New files:") < part_3b.index("No new dependency.")
+    assert "signal_check" not in part_3
+    assert part_3.count("  New files:") == 1 and "`src/backtest_agent/cli/coded.py`" in part_3
+
+
 def test_the_adr_addendum_says_what_it_changed_above_and_the_readme_lists_the_command() -> None:
     assert (
         "No rule above changes; only the sentences that said that the command is not built were corrected."
