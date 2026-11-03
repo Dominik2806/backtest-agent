@@ -11,6 +11,7 @@ from pathlib import Path
 
 from backtest_agent.cli.compare import MISSING, Difference
 from backtest_agent.cli.data import DataFetch, rows_with_data
+from backtest_agent.coded.status import ApprovalState
 from backtest_agent.data.validation import ValidationIssue
 from backtest_agent.engine import LoadedHistory
 from backtest_agent.journal import CodeVersion, RunRecord, RunSummary
@@ -142,17 +143,127 @@ def show_lines(record: RunRecord, runs_dir: Path, reports_dir: Path) -> list[str
     return lines
 
 
-def validate_lines(spec: StrategySpec, path: str) -> list[str]:
-    """The answer of ``bt validate``: the spec is valid, and the facts a reader checks before running it."""
+def signal_state_text(state: ApprovalState) -> str:
+    """The ``Signal:`` line of a coded spec: the three states of docs/coded-signals.md."""
+    if not state.idea:
+        return "coded, idea not approved"
+    if state.code_sha256 is None:
+        return "coded, idea approved, code not approved"
+    return f"coded, idea and code approved (sha {state.code_sha256[:8]})"
+
+
+def validate_lines(
+    spec: StrategySpec, path: str, state: ApprovalState | None = None, *, loaded: bool = False
+) -> list[str]:
+    """The answer of ``bt validate``: the spec is valid, and the facts a reader checks before running it.
+
+    A coded spec (``state`` is given) gets a ``Signal:`` line from the approval record. Its warm-up needs the code, so
+    it is ``n/a`` unless the gate loaded the signal (``loaded``, with ``--data``). A built-in spec has no such line.
+    """
+    not_loaded = state is not None and not loaded
+    warmup = "n/a (coded signal, not loaded)" if not_loaded else f"{fmt.integer(spec.warmup_rows, 'warmup_rows')} rows"
     return [
         f"OK: {text(path)} is a valid spec",
         line("Name", text(spec.name)),
         line("Family", text(spec.signal.id)),
+        *([line("Signal", signal_state_text(state))] if state is not None else []),
         line("Universe", ", ".join(text(s) for s in spec.universe)),
         line("Benchmark", text(spec.benchmark)),
         line("Period", period_text(spec)),
-        line("Warm-up", f"{fmt.integer(spec.warmup_rows, 'warmup_rows')} rows"),
+        line("Warm-up", warmup),
         line("Risk flags", codes_text([flag.code for flag in spec.risk_flags()])),
+    ]
+
+
+def ascii_escape(value: str) -> str:
+    """Plain ASCII for a line of code or of a brief: a control character becomes a backslash, x and two hex digits (a
+    tab too; the newline never reaches this function), a non-ASCII character a backslash, u and four hex digits (U and
+    eight above U+FFFF). A reader sees every character that a terminal would hide or act on."""
+    parts = []
+    for character in value:
+        number = ord(character)
+        if number < 0x20 or number == 0x7F:
+            parts.append(f"\\x{number:02x}")
+        elif number < 0x7F:
+            parts.append(character)
+        elif number <= 0xFFFF:
+            parts.append(f"\\u{number:04x}")
+        else:
+            parts.append(f"\\U{number:08x}")
+    return "".join(parts)
+
+
+def _continued(label: str, value: str) -> list[str]:
+    """``value`` may have several lines: the first is under the label, the others start in the value column.
+
+    A blank line stays blank (no trailing spaces). Nothing is wrapped or trimmed.
+    """
+    first, *rest = (ascii_escape(part) for part in value.split("\n"))
+    return [line(label, first), *((" " * LABEL_WIDTH + part) if part else "" for part in rest)]
+
+
+def approve_idea_lines(
+    signal_id: str, sha: str, changed: bool, approved_at: str, record: Path, brief: str
+) -> list[str]:
+    """The answer of ``bt approve --idea``; a repeat says ``already approved`` and shows the first approval time."""
+    state = "approved" if changed else "already approved"
+    return [
+        line("Signal", signal_id),
+        line("Idea", f"{state} (sha {sha[:8]})"),
+        line("Approved", approved_at),
+        line("Record", record.as_posix()),
+        *_continued("Brief", brief),
+    ]
+
+
+def numbered_source(source: bytes) -> list[str]:
+    """The lines of LF-normalised source, numbered; a last line without a newline counts as a line."""
+    rows = source.decode("utf-8").split("\n")
+    if rows[-1] == "":
+        rows.pop()  # the newline that ends the last line does not start another one
+    width = len(str(len(rows)))
+    numbered = []
+    for number, row in enumerate(rows, start=1):
+        prefix = f"{number:>{width}} |"
+        numbered.append(f"{prefix} {ascii_escape(row)}" if row else prefix)  # an empty line has no trailing space
+    return numbered
+
+
+def review_lines(signal_id: str, shown: str, source: bytes, sha: str) -> list[str]:
+    """What a person reads before confirming code: the facts, then the whole file with line numbers.
+
+    ``source`` is the LF-normalised bytes that are hashed; ``Size`` counts those bytes and the numbered lines.
+    """
+    numbered = numbered_source(source)
+    return [
+        line("Signal", signal_id),
+        line("File", shown),
+        line("Size", f"{plural(len(source), 'byte')}, {plural(len(numbered), 'line')}"),
+        line("Sha256", sha),
+        line("Static", "ok"),
+        "",
+        *numbered,
+    ]
+
+
+def approve_code_lines(
+    signal_id: str, sha: str, changed: bool, approved_at: str, archive: Path, record: Path, pin: str | None
+) -> list[str]:
+    """The answer of ``bt approve --code --sha``; ``pin`` is the ``code_sha256`` the spec has, if any."""
+    state = "approved" if changed else "already approved"
+    if pin is None:
+        pin_text = f"not set (signal.coded.code_sha256: {sha})"
+    elif pin == sha:
+        pin_text = "matches"
+    else:
+        pin_text = f"differs (spec pins {pin[:8]})"
+    return [
+        line("Signal", signal_id),
+        line("Code", f"{state} (sha {sha[:8]})"),
+        line("Approved", approved_at),
+        line("Archive", archive.as_posix()),
+        line("Record", record.as_posix()),
+        line("Pin", pin_text),
     ]
 
 

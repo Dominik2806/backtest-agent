@@ -147,7 +147,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
 | 8 | `feature/experiment-journal`, `feature/experiment-entry-point` | Run log with trial counter (two parts) | F-15 | S | Done |
 | 9 | `feature/cli`, `feature/cli-data`, `feature/cli-report` | `bt` command (three parts); release `v0.1.0` | F-16 | M | Done |
-| 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
+| 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | In progress |
 | 11 | `feature/agents-auditor-interpreter` | Bias auditor and report interpreter subagents | F-19, F-20 | M | Planned |
 | 12 | `feature/backtest-command` | `/backtest` command with approval gate; release `v0.2.0` | F-21 | M | Planned |
 | 13 | `feature/oos-walkforward` | Out-of-sample split and walk-forward analysis | F-22, F-23 | L | Planned |
@@ -416,6 +416,58 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
       and the cases example were added);
     - documents: `CHANGELOG.md` (+23/-0), `CLAUDE.md` (+20/-5), `docs/ROADMAP.md` (+38/-0),
       `docs/adr/0018-coded-signals-and-approval-gate.md` (+84/-33), `docs/coded-signals.md` (+153/-9).
+- Phase 10 part 3 (`feature/coded-signals-cli`): `bt approve` and the resolving of coded specs in the commands. The roadmap
+  listed neither; `bt signal check` moves to its own pull request (part 3b) and the agents stay last. Deviations from the plan
+  and from the first text of ADR 0018:
+  - **`bt signal check` is not part of this pull request.** It has to execute a candidate that is not approved yet, which the
+    ADR did not settle (ADR 0018 says only that the gate runs approved bytes); that needs its own decision and a changed rule for
+    the loader, so docs and ADR keep saying that it is not built. `CasesError` is mapped to exit code 9 by `classify`, but no
+    command raises it yet.
+  - **Exit codes.** 8 is a refusal (`NotApprovedError`, `ApprovalError`, `ConfirmationError`), 9 is rejected code
+    (`StaticCheckError`, `SignalContractError` for every signal, `GateError`, `CasesError`), 5 widens to `RecordError` and
+    `ApprovalFormatError`. A bare `GateError` is 9, not 8: it never means that a person has to approve something. A malformed
+    `--sha` and `--sha` with `--idea` are usage errors (2).
+  - **`bt validate` of a coded spec** prints a `Signal:` line from the approval record alone and `Warm-up: n/a`; it reads
+    neither the working file nor the archive. `bt validate --data` and `bt data fetch` pass the gate in run mode, since the window of
+    the data needs the warm-up. The Phase 10 row of the status tables says "In progress" (it said "Planned").
+  - **Moves and small additions:** `read_working_file` moved from `coded/loader.py` to `coded/working.py` unchanged (the commands
+    read the file through it); `Context` moved to `cli/context.py` so that `cli/coded.py` can use it; `coded/status.py` reads the
+    record for `bt validate`; `UsageError` is an exit-2 error for what argparse cannot see; the hint of a missing or wrong `--sha`
+    repeats the folder options that were given. `bt approve` never edits the spec, so the pin is a line the person adds.
+  - **Known limits, stated in `docs/cli.md`:** the review prints a backslash as it is (a literal `\u00e9` and a real `é` look the same);
+    the operating system's reason in `cannot be read (...)` is localized; PowerShell expands `$` and the backtick inside the
+    double quotes of the hint; `bt approve` is a person's command and no rule yet denies it to an agent.
+  - **Known limit, follow-up for part 3b:** the same damaged approval record gets a different hint in `bt validate` and
+    `bt approve` ("an approval record is not valid; restore it from version control") than in the gate commands `bt run`,
+    `bt validate --data`, `bt data fetch` and `bt report` ("the approvals folder ... has to hold the record and the archived
+    code this run used", also in a first run, when there is no run yet). The exit code (5) and the message line are the same;
+    the gate wraps the format error in `RecordError`. Part 3b should give both the same advice for a record that is not valid.
+  - **Every file that existed before part 3 and was changed** (the new files are listed below). Lines added/deleted, as
+    `git diff main...HEAD --numstat --diff-filter=M` reports them:
+    - source: `src/backtest_agent/cli/argtypes.py` (+8/-0: `sha_prefix`);
+      `src/backtest_agent/cli/commands.py` (+60/-25: `Context` moved out, the `approve` command,
+      `coded_options`, the gate in `run`, `validate`, `data fetch` and `report`); `src/backtest_agent/cli/errors.py`
+      (+68/-2: exit codes 8 and 9, `ConfirmationError`, `UsageError`, `shell_word`, the new
+      rows of `classify`); `src/backtest_agent/cli/render.py` (+114/-3: `ascii_escape`, the blocks of
+      `bt approve`, the `Signal:` line of `bt validate`); `src/backtest_agent/cli/report.py`
+      (+21/-3: `stored_coded_spec`, the `approvals_dir` of `reproduce`);
+      `src/backtest_agent/coded/loader.py` (+3/-25: `read_working_file` moved to
+      `coded/working.py`, `FILE_LIMIT` is re-exported);
+    - four existing tests: `tests/test_cli_coded_unresolved.py` (+33/-21: rewritten, it says what
+      `bt validate` and `bt run` do with a coded spec that nothing approved); `tests/test_cli_help.py`
+      (+5/-1: the help of `approve`); `tests/test_coded_docs.py` (+5/-2: the working-file
+      messages are read from `coded/working.py` too, and no command prints the message of an unresolved spec any more);
+      `tests/test_docs_commands.py` (+14/-0: the forms of `bt approve` that must and must not parse);
+    - documents: `CHANGELOG.md` (+27/-0), `CLAUDE.md` (+14/-6), `README.md` (+13/-5),
+      `docs/ROADMAP.md` (+53/-1), `docs/adr/0018-coded-signals-and-approval-gate.md`
+      (+17/-12), `docs/cli.md` (+358/-19), `docs/coded-signals.md`
+      (+62/-33).
+  - **New files** (all other files of the part): source: `src/backtest_agent/cli/coded.py` (`cmd_approve`, `resolve_for_run`),
+    `src/backtest_agent/cli/context.py` (`Context`, moved from `commands.py`), `src/backtest_agent/coded/status.py`
+    (`approval_state`), `src/backtest_agent/coded/working.py` (`read_working_file`, moved from `loader.py`); tests:
+    `tests/coded_cli_helpers.py`, `tests/test_cli_approve.py`, `tests/test_cli_docs_coded.py`,
+    `tests/test_cli_exit_codes_coded.py`, `tests/test_cli_record_hints.py`, `tests/test_cli_report_coded.py`,
+    `tests/test_cli_run_coded.py`, `tests/test_cli_validate_coded.py`.
 
 ---
 

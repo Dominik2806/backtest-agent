@@ -5,15 +5,18 @@ spec, with the stored ``costs_applied`` and metric assumptions, and only after t
 the journal record. Nothing here writes or logs anything.
 """
 
+from pathlib import Path
+
 from pydantic import ValidationError
 
 from backtest_agent.cli.compare import differences, prioritized
 from backtest_agent.cli.errors import RunChangedError, StoredSpecError
+from backtest_agent.coded.loader import resolve_coded
 from backtest_agent.data import DataProvider
 from backtest_agent.journal import JournalFormatError, RunRecord
 from backtest_agent.journal.models import build_record
 from backtest_agent.metrics import Evaluation, MetricAssumptions, evaluate
-from backtest_agent.spec import SpecProblem, StrategySpec, UnknownSignalError
+from backtest_agent.spec import SpecError, SpecProblem, StrategySpec, UnknownSignalError
 from backtest_agent.spec.loader import problems_of
 
 
@@ -58,9 +61,24 @@ def stored_settings(record: RunRecord) -> tuple[bool, MetricAssumptions]:
         raise fail(f"the stored metric assumptions cannot be read ({error})") from None
 
 
-def reproduce(record: RunRecord, provider: DataProvider) -> Evaluation:
-    """Evaluate the stored spec again; return the evaluation if it equals the record, else raise ``RunChangedError``."""
+def stored_coded_spec(record: RunRecord, spec: StrategySpec, approvals_dir: Path | str) -> StrategySpec:
+    """A stored coded spec through the gate in stored mode: the archived code it pins is loaded, the editable file is
+    never read. A missing record or archive is ``RecordError`` (exit code 5), params that no longer fit the code are
+    a stored spec that no longer validates (exit code 3)."""
+    try:
+        return resolve_coded(spec, approvals_dir=approvals_dir, strategies_dir=None)
+    except SpecError as error:
+        raise StoredSpecError(record.run_id, error.problems) from None
+
+
+def reproduce(record: RunRecord, provider: DataProvider, approvals_dir: Path | str = Path("approvals")) -> Evaluation:
+    """Evaluate the stored spec again; return the evaluation if it equals the record, else raise ``RunChangedError``.
+
+    ``approvals_dir`` is only used for a coded spec (stored mode of the gate, see ``stored_coded_spec``).
+    """
     spec = stored_spec(record)
+    if spec.signal.coded is not None:
+        spec = stored_coded_spec(record, spec, approvals_dir)
     apply_costs, assumptions = stored_settings(record)
     evaluation = evaluate(spec, provider, apply_costs=apply_costs, assumptions=assumptions)
     fresh = build_record(

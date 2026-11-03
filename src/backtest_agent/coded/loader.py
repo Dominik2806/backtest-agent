@@ -26,7 +26,6 @@ the registry is exactly what it was before the call. Nothing else the code chang
 
 import difflib
 import os
-import stat
 import types
 from pathlib import Path
 
@@ -41,15 +40,12 @@ from backtest_agent.coded.approvals import (
 )
 from backtest_agent.coded.contract import check_before_run
 from backtest_agent.coded.errors import ApprovalError, GateError, NotApprovedError, RecordError
-from backtest_agent.coded.static import MAX_SOURCE_BYTES, check_source
+from backtest_agent.coded.static import check_source
+from backtest_agent.coded.working import FILE_LIMIT, read_working_file  # noqa: F401 - FILE_LIMIT is re-exported
 from backtest_agent.spec.coded_spec import check_scalar_params, coded_id_problem
 from backtest_agent.spec.errors import SpecError, SpecProblem, UnknownSignalError
 from backtest_agent.spec.schema import StrategySpec
 from backtest_agent.spec.signals import SIGNALS, Signal
-
-#: The most bytes of the working file that are read. Approved code has at most MAX_SOURCE_BYTES after CRLF became LF,
-#: and a file that only uses CRLF is at most twice that long, so a longer file cannot be approved code.
-FILE_LIMIT = 2 * MAX_SOURCE_BYTES
 
 
 def resolve_coded(spec: StrategySpec, *, approvals_dir: Path | str, strategies_dir: Path | str | None) -> StrategySpec:
@@ -145,7 +141,7 @@ def _chosen_sha(
     shown = f"strategies/signals/{signal_id}.py"
     path = Path(strategies_dir) / f"{signal_id}.py"
     if os.path.lexists(path):
-        file_sha = code_sha256(_read_working_file(path, shown))  # only hashed, never executed
+        file_sha = code_sha256(read_working_file(path, shown))  # only hashed, never executed
         if pinned is not None and pinned != file_sha:
             raise NotApprovedError(f"the spec pins {pinned[:8]} but {shown} has sha {file_sha[:8]}")
         if not entry.has_code(file_sha):
@@ -157,24 +153,6 @@ def _chosen_sha(
     if latest is None:
         raise NotApprovedError(f"code not approved: no code is approved for the idea of {signal_id!r}")
     return latest.sha256
-
-
-def _read_working_file(path: Path, shown: str) -> bytes:
-    """The bytes of the editable file: a regular file of at most ``FILE_LIMIT`` bytes, else ``NotApprovedError``."""
-    too_large = f"{shown} is larger than the limit; approved code is at most {MAX_SOURCE_BYTES // 1024} KiB"
-    try:
-        info = path.stat()
-        if not stat.S_ISREG(info.st_mode):
-            raise NotApprovedError(f"{shown} cannot be read (not a regular file)")
-        if info.st_size > FILE_LIMIT:
-            raise NotApprovedError(too_large)
-        with path.open("rb") as handle:
-            data = handle.read(FILE_LIMIT + 1)  # one byte more than the limit shows a file that grew since the stat
-    except OSError as error:
-        raise NotApprovedError(f"{shown} cannot be read ({error.strerror or error})") from None
-    if len(data) > FILE_LIMIT:
-        raise NotApprovedError(too_large)
-    return data
 
 
 def _listed(entry: IdeaApproval, sha: str, refuse: type[GateError]) -> str:

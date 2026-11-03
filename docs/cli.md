@@ -1,14 +1,17 @@
 # Command line: `bt`
 
-The whole backtester runs from one command, without any agent (F-16). `bt` is a thin layer over code that already exists
-and stays unchanged: a standard run is `run_experiment` ([journal.md](journal.md)), reading the journal is its read API,
-the numbers are printed by the formatters of the report ([report.md](report.md)). `evaluate()` and `run_backtest()` stay
-pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in [ADR 0016](adr/0016-command-line.md). The project is educational and not investment advice.
+The whole backtester runs from one command, without any agent (F-16). `bt` is a thin layer over code that already exists:
+a standard run is `run_experiment` ([journal.md](journal.md)), reading the journal is its read API, the numbers are
+printed by the formatters of the report ([report.md](report.md)), and a coded signal is approved and loaded by the code of
+[coded-signals.md](coded-signals.md) (`approve_idea`, `approve_code`, `resolve_coded`). `evaluate()` and `run_backtest()`
+stay pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in [ADR 0016](adr/0016-command-line.md). The project is educational and not investment advice.
 
-**Status.** Every command described here exists: `run`, `validate` (also `--data`), `data fetch`, `report` and
-`journal list`, `journal show`, `journal rebuild`. They were delivered in three pull requests: part 1 `run`, `validate`
-(spec only) and the journal commands, part 2 `data fetch` and `validate --data`, part 3 `report` (exit code 7) and the
-README quickstart.
+**Status.** Every command described here exists: `run`, `validate` (also `--data`), `data fetch`, `report`,
+`journal list`, `journal show`, `journal rebuild` and `approve`. The first seven were delivered in three pull requests
+(Phase 9): part 1 `run`, `validate` (spec only) and the journal commands, part 2 `data fetch` and `validate --data`, part 3
+`report` (exit code 7) and the README quickstart. `approve`, the exit codes 8 and 9 and the handling of a spec with a `coded`
+block in `run`, `validate`, `data fetch` and `report` came with Phase 10 (F-18). **`bt signal check` and the agents are not
+built yet** ([coded-signals.md](coded-signals.md), "Not built yet"), so nothing in `bt` runs `cases.yaml` today.
 
 ## Starting `bt`
 
@@ -31,13 +34,15 @@ the script and `__main__.py` wrap it.
 | `runs` | the journal: `runs/<run id>/run.json`, `spec.yaml`, `runs/index.sqlite` | by `bt run` |
 | `reports` | `reports/<run id>/report.md`, `report.html`, `equity.svg`, `drawdown.svg` | by `bt run` |
 | `data/cache` | the Parquet cache of the prices | by the first fetch |
+| `approvals` | the approval records `approvals/<id>.json`, the archived code `approvals/code/<sha256>.py` and `approvals/.lock` while an approval runs | by the first `bt approve` |
+| `strategies/signals` | the editable files `<id>.py` of coded signals. `bt approve`, `bt run`, `bt validate --data` and `bt data fetch` read the file only as bytes, hash it and compare the hash with the approved hashes; what runs is the archived copy `approvals/code/<sha256>.py`, never this file | never by `bt`: a person or an agent writes the file |
 
 The spec is found by the path you give, so the examples are `strategies/*.yaml` relative to a clone. `bt` also works
-from another folder, but then it writes `runs/`, `reports/` and `data/cache/` into **that** folder. **The journal, and so
+from another folder, but then it writes `runs/`, `reports/`, `data/cache/` and `approvals/` into **that** folder and looks for `strategies/signals/` there. **The journal, and so
 the trial counter of a strategy family, belongs to one `--runs-dir`**: running the same strategy from two folders gives
 two journals with separate counters, and the trial line of a report only counts runs of its own journal. Use the same
 folder (or the same `--runs-dir`) for everything you want counted together. `bt run` prints the path of the journal entry
-every time. All three folders are git-ignored in this repository.
+every time. `runs`, `reports` and `data/cache` are git-ignored in this repository; `approvals` and `strategies/signals` are tracked, so they are public ([coded-signals.md](coded-signals.md)).
 
 ## Commands
 
@@ -53,6 +58,8 @@ All commands accept `--help`. Every leaf command also accepts `--debug` (print t
 | `--no-report` | off | log the run, write no report: no `Report` line, and the reports folder is not created (`--reports-dir` is then unused) |
 | `--no-costs` | off | run without the costs of the spec (`apply_costs=False`); the output says so and the run carries the risk flag `costs_not_applied`. It does not change the variant: a cost-free run of the same spec is a repeat ([journal.md](journal.md)) |
 | `--cache-dir DIR` | `data/cache` | the Parquet cache of the prices (relative to the current directory) |
+| `--approvals-dir DIR` | `approvals` | a spec with a `coded` block only: where the approvals are read |
+| `--strategies-dir DIR` | `strategies/signals` | a spec with a `coded` block only: where the editable `<id>.py` is read (hashed, never executed) |
 
 `--debug` only adds the traceback of an error on stderr; it never changes an exit code.
 
@@ -74,6 +81,18 @@ clock here and nowhere else (UTC, timezone-aware, injectable). `allow_short_warm
 (`periods_per_year` 252, risk-free rate 0) keep their defaults. **`allow_short_warmup` is not stored in `run.json` and has
 no command line flag**: it is always the default (True), so a short history gives the risk flag `insufficient_warmup` and
 a warning, never an error.
+
+**A spec with a `coded` block.** `bt run` first passes the spec through the gate in run mode,
+`resolve_coded(spec, approvals_dir=..., strategies_dir=...)` ([coded-signals.md](coded-signals.md), "The gate"), before the
+provider is created and before any data is requested. The idea and the code must be approved; the hash of
+`strategies/signals/<id>.py` decides which approved code runs, so a file that was edited after the approval is refused, and
+so is a spec that pins another hash. A refusal is exit code 8 (`NotApprovedError`, also when there is no record yet); an archive that is missing or
+changed, or a record that is not valid, is exit code 5; code that fails the static check, does not load or fails the contract check is exit code 9; nothing is
+fetched, logged or written. A run of a coded spec is a standard run: `run_experiment` logs it, the family is the signal id and
+`run.json` stores the **resolved** spec, with `coded.brief`, `coded.code_sha256` (64 hex characters) and the params with every
+default written out. So an unpinned spec and the same spec pinned to the hash it resolved to are one variant, and a new
+approved hash is a new variant, a new trial ([journal.md](journal.md)). `bt run` never writes the spec file. A full example
+is at the end of this document.
 
 The provider is `CachedProvider(YFinanceProvider(), cache_dir)`. The spec's `data.provider` can only be `yfinance`
 today. History is loaded from `period.start` minus the warm-up of the signal, for the universe and, in a second run, for
@@ -116,7 +135,8 @@ fewer than two dates), never `nan`. Which metrics are undefined when is defined 
 ### `bt validate SPEC`
 
 Checks the spec only: the schema, a registered signal id and valid parameters (every problem is listed with its field
-path). It fetches no data, writes nothing and needs no network. Output:
+path; a spec with a `coded` block has no registered signal before its code is approved, see below). It fetches no data,
+writes nothing and needs no network. Output:
 
 ```
 OK: strategies/sma_crossover.yaml is a valid spec
@@ -126,6 +146,35 @@ Universe:   SPY, QQQ, TLT, GLD
 Benchmark:  SPY
 Period:     2010-01-01 to 2023-12-31
 Warm-up:    199 rows
+Risk flags: none
+```
+
+**A spec with a `coded` block.** Without `--data` it is not looked up in the registry and no code is loaded; `bt validate`
+prints the same block with one more line after `Family:`, the `Signal:` line, taken from the approval record
+`approvals/<id>.json` alone (`--approvals-dir DIR`, default `approvals`), and the warm-up, which needs the code, is `n/a`.
+The three states of the line:
+
+| State | The `Signal:` line |
+|---|---|
+| the idea `{signal id, brief}` of the spec is not approved (no record, or another brief) | `Signal:     coded, idea not approved` |
+| the idea is approved and its code is not: a spec that pins a hash needs that hash approved for the idea, without a pin the latest approved code counts | `Signal:     coded, idea approved, code not approved` |
+| the idea and the code are approved | `Signal:     coded, idea and code approved (sha <first 8 hex of the hash>)` |
+
+The exit code is 0 in all three states (a record that is not valid is exit code 5). The line says what the **record** says:
+`bt validate` does not read `strategies/signals/<id>.py` and does not read the archive, so a file edited after the approval,
+or an archive that was changed, still shows `approved`. The commands that run code check the file (`bt run`,
+`bt validate --data`, `bt data fetch`: its hash) or the archive (`bt report`). Output for the first state (the spec of
+"Example: a coded signal, from approval to run"):
+
+```
+OK: spec.yaml is a valid spec
+Name:       Buy and hold A
+Family:     hold_a
+Signal:     coded, idea not approved
+Universe:   A
+Benchmark:  B
+Period:     2024-01-02 to 2024-01-08
+Warm-up:    n/a (coded signal, not loaded)
 Risk flags: none
 ```
 
@@ -148,6 +197,11 @@ If the data has validation errors in either request, the exit code is **4**: a r
 errors. Everything is printed first (stdout), then stderr gets one line, `bt: error: the data has 3 validation errors
 (listed above)` (`1 validation error` for one), and no hint, so no issue is printed twice. Without errors the exit code is 0 (warnings
 and infos do not change it). A provider failure, no data or a cache miss is exit code 4 as everywhere, with nothing on stdout.
+
+For a spec with a `coded` block, `--data` needs the warm-up window of the signal, so the spec passes the gate in run mode
+first, like in `bt run` (`--approvals-dir DIR` and `--strategies-dir DIR`, defaults `approvals` and `strategies/signals`). Before
+the approval that is exit code 8 and nothing is requested from the provider; after it the head block has the real warm-up and
+the `Signal:` line `coded, idea and code approved (sha <8 hex>)`, and the approved code was loaded.
 
 ### `bt journal list`
 
@@ -190,7 +244,9 @@ the middle of a family cannot be repaired by a rebuild, only the last runs of a 
 
 ### `bt data fetch SPEC`
 
-Option `--cache-dir DIR` (`data/cache`). Fetches exactly the two requests of a run through the cache, so a later `bt run` is
+Option `--cache-dir DIR` (`data/cache`); for a spec with a `coded` block also `--approvals-dir DIR` and `--strategies-dir DIR`:
+the warm-up window needs the signal, so such a spec passes the gate in run mode first (exit code 8 before the approval, and
+nothing is requested from the provider). Fetches exactly the two requests of a run through the cache, so a later `bt run` is
 served from it: the universe over `fetch_start` to `period.end`, then the benchmark (`benchmark_spec`) over its own window
 ("The data window" below). It runs no backtest and writes nothing but the cache. For each request it prints the window, the
 rows per symbol, the validation counts and the data hash:
@@ -228,6 +284,7 @@ data and refuses if the result differs from the journal.
 | `--runs-dir DIR` | `runs` | the journal the run is read from (only read; nothing is logged, the index is not opened) |
 | `--reports-dir DIR` | `reports` | where the report is written, in `<reports dir>/<run id>/` |
 | `--cache-dir DIR` | `data/cache` | the price cache; **it must be the cache the run was made with** |
+| `--approvals-dir DIR` | `approvals` | a coded run only: where the record and the archived code of the approved hash are read |
 | `--overwrite` | off | replace the files of an existing report folder (`report.md`, `report.html`, the two SVGs); other files in it stay |
 
 **Flow, in this order** (each failure stops there and nothing is written):
@@ -236,7 +293,8 @@ data and refuses if the result differs from the journal.
 2. If `<reports dir>/<run id>` exists and `--overwrite` is not given: exit code 5, **before** any data is fetched. The hint
    names the option: `pass --overwrite to replace the files in it, or choose another --reports-dir`.
 3. The spec is rebuilt from `run.json`. A spec that no longer validates (the schema or a signal changed since the run) is
-   exit code 3: `the stored spec of run <id> no longer validates (<n> problems):` and the field paths.
+   exit code 3: `the stored spec of run <id> no longer validates (<n> problems):` and the field paths. A stored spec with a
+   `coded` block then passes the gate in **stored mode** (`strategies_dir=None`, see "Coded runs" below).
 4. The stored settings are read: `costs_applied` of the strategy and of the benchmark must both be `true` or `false` and
    **equal** (the evaluation takes one `apply_costs` flag for both runs, so two different values are a record that cannot be
    reproduced) and the metric assumptions (`periods_per_year`, `risk_free_rate`) must be readable (unknown or invalid keys
@@ -249,6 +307,14 @@ data and refuses if the result differs from the journal.
    logged, the clock is not read, the journal and the index are not touched, and with unchanged data and spec **`report.md`
    (and the other three files) is identical to the original byte for byte**, including the trial line "as of this run" even
    if more runs of the family were logged since.
+
+**Coded runs.** The archive decides, not the working file: whatever was done to `strategies/signals/<id>.py` since the run
+(edited, replaced or deleted) does not matter, and the file is never read or executed. The stored spec must pin
+`code_sha256`, and exactly the archived bytes of that hash are checked (hash and static check) and loaded. A record or an
+archive that is missing or does not match its hash, an idea that is not in the record and a stored spec without a pin are exit
+code 5 (`RecordError`); params that no longer fit the archived code are exit code 3 (`the stored spec of run <id> no longer
+validates`); archived code that fails the static check, does not load or fails the contract check is exit code 9. The signal
+does not have to be in the registry before: the gate puts it there. Everything after that is as for any run.
 
 **What is compared.** Exactly four of the keys of `run.json` ([journal.md](journal.md)): `spec`, `evaluation` (both data
 hashes, all metrics, the alignment, the assumptions), `trades` and `costs`. **Not compared:** the others, that is
@@ -335,23 +401,150 @@ so `bt report` fetches it live and can see other data than the run did. With no 
 code 4 and nothing is written. `bt report` is also the answer to exit code 6 (the run was logged but its report failed): it
 writes that report without logging the run twice.
 
+### `bt approve SPEC`
+
+Approves a coded signal in the two steps of [coded-signals.md](coded-signals.md), "What is approved": the idea (`--idea`)
+and the code (`--code`). It is a decision of a person. It never imports, compiles or executes anything: it reads the editable
+file as bytes, runs the static check (a walk over the syntax tree) and hands the same bytes to the approval code. It needs no
+network and requests no data. Exactly one of `--idea` and `--code` is required.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--idea` | | approve the idea `{signal id, brief}` of the spec |
+| `--code` | | show the code of the signal and its hash; with `--sha`, approve it |
+| `--sha HEX8` | | with `--code`: the first 8 hex characters of the hash that the command printed, in capitals or not |
+| `--approvals-dir DIR` | `approvals` | where the records and the archived code are written |
+| `--strategies-dir DIR` | `strategies/signals` | where the editable `<id>.py` is read |
+
+Neither `--idea` nor `--code`, both, a `--sha` that is not exactly 8 hex characters and `--sha` with `--idea` are usage errors
+(exit code 2). `SPEC` gives the signal id and the brief; a spec without a `coded` block is exit code 3, and the command never
+edits the spec. The clock is read once, in the command, and is the time of the approval (UTC, whole seconds).
+
+**`--idea`** approves the idea of the spec, appends it to `approvals/<id>.json` and prints (exit code 0):
+
+```
+Signal:     rsi_pullback
+Idea:       approved (sha 69b960c5)
+Approved:   2026-01-15T10:30:05Z
+Record:     approvals/rsi_pullback.json
+Brief:      Buy the dip.
+
+            Hold while RSI(2) < 10.
+            Exit at 50.
+```
+
+The brief is printed as stored, not wrapped: the lines after the first start in column 13 and a blank line stays blank. Approving
+the same idea again prints `Idea:       already approved (sha 69b960c5)` with the time of the **first** approval, exits 0 and leaves the
+record file byte for byte as it was. A changed brief is a new idea, an extra entry; earlier entries and their code stay.
+
+**`--code` without `--sha`** is the review step. In this order: the working file is read once (a regular file of at most
+128 KiB; a file that is missing, a folder or too large is exit code 8 with the message of the gate); its line ends are turned
+into LF; the idea must be approved (otherwise exit code 8, `the idea of 'x' is not approved; approve the idea first`, and
+**nothing** is printed); the static check runs (findings are exit code 9, nothing is printed but the error). Then stdout gets the
+facts and the whole file with line numbers, and the command exits with code 8, because the code is not approved yet:
+
+```
+Signal:     <id>
+File:       <strategies dir>/<id>.py
+Size:       <n> bytes, <m> lines
+Sha256:     <64 hex characters>
+Static:     ok
+
+<line number> | <line of the source>
+...
+```
+
+stderr then says (the 8 hex characters are the start of the hash):
+
+```
+bt: error: the code is not approved yet; confirm it with --sha 2dd4906a
+hint: read the code printed above; if you accept it, run: bt approve spec.yaml --code --sha 2dd4906a
+```
+
+**File limits.** Approved code is at most 64 KiB, counted after CRLF became LF. A file larger than 128 KiB (twice that,
+because CRLF makes a file longer) is not read: exit code 8, `<path> is larger than the limit; approved code is at most 64 KiB`.
+A file of up to 128 KiB is read; if its LF-normalised size is more than 64 KiB the static check refuses it: exit code 9, with the
+finding `[size]`.
+
+**Size** is the size of the LF-normalised source, the bytes that are hashed: `<n>` is their number and `<m>` the number of lines, a
+last line without a newline counting as a line. A file saved with CRLF shows the same size and the same hash as the same file with
+LF. The line numbers are right-aligned to the width of the largest one, a line is printed after ` | `, and an empty line is
+printed as the number and ` |` without a trailing space. **Every character is printed as ASCII.** The characters from the space (U+0020) to `~` (U+007E) are printed as they
+are. U+0000 to U+001F, the tab included (the line feed only ends a line), and U+007F (DEL) are printed as `\xNN`, two lowercase hex
+digits. Every other character is printed as `\uXXXX`, four lowercase hex digits, up to U+FFFF, so U+0080 to U+009F too, and as
+`\UXXXXXXXX`, eight digits, above U+FFFF. The static check already refuses the characters of the Unicode categories Cc, Cf, Zl and Zp
+except the tab, so in practice only the tab and non-ASCII characters of comments and strings appear (U+00A0, the no-break space, is
+accepted and printed as `\u00a0`).
+
+**`--code --sha HEX8`** compares the 8 hex characters with the start of the hash of the bytes it has just read. A missing or a
+different `--sha` prints the review block again (stdout), writes nothing and is exit code 8; the message names the hash of the
+**current** file, and the hint repeats the spec path and the folder options that were given and are not the defaults, in that
+order `--approvals-dir`, `--strategies-dir`. A path is put in double quotes if it has a character outside
+`[A-Za-z0-9_./\:-]`:
+
+```
+bt: error: --sha 00000000 is not the start of the hash of strategies/signals/rsi_pullback.py; the file has sha 2dd4906a
+hint: read the code printed above; if you accept it, run: bt approve spec.yaml --code --sha 2dd4906a
+```
+
+A matching `--sha` approves exactly the bytes that were read: they are checked by the static check again, archived as
+`approvals/code/<sha256>.py` and listed in the record, and the command prints (exit code 0, the second time `already approved`
+with the time of the first approval and no byte of the record or the archive changed):
+
+```
+Signal:     rsi_pullback
+Code:       approved (sha 2dd4906a)
+Approved:   2026-01-15T10:31:05Z
+Archive:    approvals/code/2dd4906aab2f817dc071472f59a7029e06bfa026f20df4db0e5a620bc7137c8c.py
+Record:     approvals/rsi_pullback.json
+Pin:        not set (signal.coded.code_sha256: 2dd4906aab2f817dc071472f59a7029e06bfa026f20df4db0e5a620bc7137c8c)
+```
+
+The `Pin:` line compares the spec with the hash: `not set (signal.coded.code_sha256: <64 hex>)` (the line to add if you want to
+pin the code), `matches`, or `differs (spec pins <8 hex>)`. The spec file is never edited. An approval takes `approvals/.lock`
+([coded-signals.md](coded-signals.md), "The lock"): if it exists, the command is exit code 8 and writes nothing.
+
+The exit codes of `bt approve`: 0 approved (or already approved); 2 arguments; 3 no `coded` block; 5 a record that is not valid;
+8 the idea is not approved, the file cannot be read or is too large, an approval is running (`.lock`), `--sha` is missing or
+wrong; 9 the static check refuses the file (the bytes are refused before they are decoded or printed, so a file that is not
+UTF-8 is a finding too).
+
+**Who runs `bt approve`.** A person, and a person has to read the printed code before the second command: nothing in the
+command checks that anybody did. An agent that has a shell could run both commands itself, and then the approval would mean
+nothing, so the agent that writes a signal must not run `bt approve`. Today only the discipline of the person enforces that. A later pull
+request adds a rule that denies the command to the agents; that rule does not exist yet. The static check is a tripwire and an
+approval does not make code safe: it means that a person read this code ([coded-signals.md](coded-signals.md)).
+
+**Known limits.**
+
+- A backslash in the code is printed as it is, so code that contains the six characters `\u00e9` and code that contains the
+  character `é` look the same in the review (`\u00e9`).
+- The reason in `cannot be read (...)` is the operating system's own text and follows its language.
+- The hint puts a path in double quotes when it has an unusual character. PowerShell expands `$` and the backtick inside double
+  quotes, so a path with one of them has to be quoted by hand (single quotes) before the command of the hint is pasted.
+- The review is on stdout and the exit code is 8 by design: it says that the code is not approved yet, not that something broke.
+
 ## Exit codes
 
 | Code | Meaning | Caused by |
 |---|---|---|
 | 0 | success (also `--help`, `--version`, an empty journal) | |
 | 1 | unexpected error: a bug, or an operating system error such as a folder that cannot be written | any other exception |
-| 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id | argparse |
-| 3 | the spec is invalid or its file cannot be read; `bt report`: the spec stored in the run no longer validates | `SpecError`, `UnknownSignalError`, `StoredSpecError` |
+| 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id; `bt approve` without exactly one of `--idea` and `--code`, a malformed `--sha`, `--sha` with `--idea` | argparse, `UsageError` |
+| 3 | the spec is invalid or its file cannot be read; `bt report`: the spec stored in the run no longer validates (also when the params no longer fit the archived code of a coded run); `bt approve`: the spec has no `coded` block | `SpecError`, `UnknownSignalError`, `StoredSpecError` |
 | 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors of a run: the first 10 are listed, then `... and N more`; `bt validate --data` prints all of them on stdout and one line on stderr); any other exception of a provider call |
-| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`) | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read) |
+| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`); approvals: an approval record that is not valid, whatever is wrong with it (not JSON, not an object with the keys of a record, another `schema_version`): exit code 5 in every command that reads the record, that is `bt approve` and `bt validate` (which raise `ApprovalFormatError`) and `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (which pass the gate and report it as `RecordError`; the hint differs, see the table of hints), an archived code that is missing or does not match its hash (`bt run`, `bt validate --data`, `bt data fetch`, `bt report`), and in stored mode (`bt report`) a record that is missing, an idea that is not in it and a stored coded spec without a pin | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read), `RecordError`, `ApprovalFormatError` |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
 | 7 | `bt report` found changed data or changed metrics: the re-evaluated record differs from the journal record | `RunChangedError` |
+| 8 | not approved or not confirmed: the idea or the code of a coded spec is not approved, the working file has another hash than the approved ones or than the pin of the spec, it cannot be read or is too large (`bt run`, `bt validate --data`, `bt data fetch`, `bt approve`); an approval error (another approval is running: `.lock`; `bt approve --code` for an idea that is not approved); `bt approve --code` without `--sha`, or with another one than the hash of the file | `NotApprovedError`, `ApprovalError`, `ConfirmationError` |
+| 9 | code that is rejected: the static check, the contract check at run time (**every** signal, a built-in too; it was code 1 before Phase 10), a coded signal that does not load or whose params model is unusable (`GateError`). `CasesError` is mapped here too; it is raised only by `bt signal check`, which is not built yet | `StaticCheckError`, `SignalContractError`, `GateError`, `CasesError` |
 | 130 | interrupted with Ctrl-C | `KeyboardInterrupt` |
 
-The checks run in this order: interrupt, report failed, spec (the stored spec of `bt report` first), run changed, data, journal, everything else. The order matters because
+The checks run in this order: interrupt, report failed, usage (`UsageError`), spec (the stored spec of `bt report` first), approval records (`RecordError`, `ApprovalFormatError`: code 5), refusals (`ConfirmationError`, `NotApprovedError`, `ApprovalError`: code 8), rejected code (`StaticCheckError`, `CasesError`, `GateError`, `SignalContractError`: code 9), run changed, data, journal, everything else. The order matters because
 `JournalFormatError` is both a `JournalError` and a `ValueError` (so it is code 5, while any other `ValueError`, a bug for
-example, is code 1) and `ExperimentReportError` is a `RuntimeError`. Code 4 versus 1: only an exception raised inside a call
+example, is code 1), `ExperimentReportError` is a `RuntimeError`, `RecordError` and `NotApprovedError` are kinds of `GateError` (code 9) and
+`ApprovalFormatError` is a kind of `ApprovalError` (code 8), so each comes before its base class, and `SignalContractError` is a
+`ValueError` that is code 9, not 1. Code 4 versus 1: only an exception raised inside a call
 into the data provider becomes code 4 (the guard below); the same exception raised anywhere else is code 1. Code 5, which of
 the messages: `run_experiment` checks the report folder first, so a report folder alone gives "report folder already exists",
 and both folders together give "run id already exists". A run that was interrupted before the
@@ -386,6 +579,13 @@ the two lines).
 | stored spec no longer validates | the run folder is untouched; the spec schema or a signal changed since the run |
 | run changed, data (`bt report`) | the stored run is untouched; use the cache the run was made with (`--cache-dir`) or log a new run with `bt run` |
 | run changed, metrics (`bt report`) | the stored run is untouched; the metric code or the stored values changed; log a new run with `bt run` |
+| a refusal: code or idea not approved, the file cannot be read, an approval error | `approvals are made with bt approve; see docs/coded-signals.md` |
+| `--sha` missing or wrong | `read the code printed above; if you accept it, run: bt approve SPEC --code --sha <8 hex>` (repeats `--approvals-dir` and `--strategies-dir` when they were given and are not the defaults) |
+| in `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (the gate, `RecordError`): a record or an archive that is missing or changed, an idea that is not in the record or a stored spec without a pin in stored mode, **and an approval record that is not valid** (the message line then says what is wrong with it: `is not valid JSON in UTF-8`, `must be an object with exactly the keys ...`, `schema_version must be 1, got 2`) | `the approvals folder (--approvals-dir) has to hold the record and the archived code this run used` (the same text in a first `bt run`, when there is no earlier run) |
+| in `bt validate` and `bt approve` (they read the record themselves, `ApprovalFormatError`): an approval record that is not valid | `an approval record is not valid; restore it from version control (docs/coded-signals.md)` |
+| code rejected (static check, load, examples) | `the rules a coded signal has to follow are in docs/coded-signals.md` |
+| a signal breaks the signal contract | `a signal has to follow the signal contract (docs/strategy-spec.md)` |
+| `--sha` with `--idea` | `bt approve --help describes the arguments` |
 
 **The provider guard.** Only the calls into the data provider are wrapped: any exception that is not a `DataError`
 (a connection error of the HTTP layer, for example) becomes a `DataError` ("the data provider failed (Type: message)") with the
@@ -711,3 +911,142 @@ hint: the stored run is untouched; use the cache the run was made with (--cache-
 (The derivation gives `0.41592`; the digits of `0.41591999999999985` past the twelfth come from the program, from the
 rounding of binary floating point, not from the derivation. A float is printed with all its digits because the
 comparison works at the 1e-9 level.) No report folder is created.
+
+## Example: a coded signal, from approval to run
+
+The tests run this with an injected provider (no network). It is the world of "Example: one run" (`strategy.yaml`, fixture
+R3b) with one change: the signal is `hold_a`, a coded signal that does what `buy_and_hold` does, so the numbers must be the
+numbers of that example. `spec.yaml` is `strategy.yaml` with this signal block:
+
+```yaml
+signal:
+  id: hold_a
+  params: {}
+  coded:
+    brief: "Hold A for the whole period."
+```
+
+`strategies/signals/hold_a.py` (13 lines, 426 bytes with LF line ends, the file that the review below prints; the signal
+holds every symbol from its first trading row on):
+
+```text
+"""Buy and hold, written as a coded signal."""
+import pandas as pd
+from pydantic import Field
+from backtest_agent.spec.signals import SignalParams, per_symbol_signal, register_signal
+
+
+class Params(SignalParams):
+    scale: float = Field(1.0, ge=0.0, le=1.0)
+
+
+@register_signal("hold_a", params=Params)
+def hold_a(prices, params):
+    return per_symbol_signal(prices, lambda close: pd.Series(params.scale, index=close.index))
+```
+
+**1. The idea** (clock 2026-01-15 10:30:05 UTC). `bt validate spec.yaml` first says `Signal:     coded, idea not approved`
+(the block of "bt validate" above) and `bt run spec.yaml` is refused with exit code 8. Then:
+
+```powershell
+bt approve spec.yaml --idea
+```
+
+```
+Signal:     hold_a
+Idea:       approved (sha bc1586a4)
+Approved:   2026-01-15T10:30:05Z
+Record:     approvals/hold_a.json
+Brief:      Hold A for the whole period.
+```
+
+**2. The review** (clock 10:31:05). The person reads the code, then asks for it:
+
+```powershell
+bt approve spec.yaml --code
+```
+
+stdout (exit code 8):
+
+```
+Signal:     hold_a
+File:       strategies/signals/hold_a.py
+Size:       426 bytes, 13 lines
+Sha256:     8b0b3234cf07e5cf0807b5c5fd9122479babcce5719ff56fffd630e117e9a6ab
+Static:     ok
+
+ 1 | """Buy and hold, written as a coded signal."""
+ 2 | import pandas as pd
+ 3 | from pydantic import Field
+ 4 | from backtest_agent.spec.signals import SignalParams, per_symbol_signal, register_signal
+ 5 |
+ 6 |
+ 7 | class Params(SignalParams):
+ 8 |     scale: float = Field(1.0, ge=0.0, le=1.0)
+ 9 |
+10 |
+11 | @register_signal("hold_a", params=Params)
+12 | def hold_a(prices, params):
+13 |     return per_symbol_signal(prices, lambda close: pd.Series(params.scale, index=close.index))
+```
+
+stderr:
+
+```
+bt: error: the code is not approved yet; confirm it with --sha 8b0b3234
+hint: read the code printed above; if you accept it, run: bt approve spec.yaml --code --sha 8b0b3234
+```
+
+**3. The code** (clock 10:31:05):
+
+```powershell
+bt approve spec.yaml --code --sha 8b0b3234
+```
+
+```
+Signal:     hold_a
+Code:       approved (sha 8b0b3234)
+Approved:   2026-01-15T10:31:05Z
+Archive:    approvals/code/8b0b3234cf07e5cf0807b5c5fd9122479babcce5719ff56fffd630e117e9a6ab.py
+Record:     approvals/hold_a.json
+Pin:        not set (signal.coded.code_sha256: 8b0b3234cf07e5cf0807b5c5fd9122479babcce5719ff56fffd630e117e9a6ab)
+```
+
+`bt validate spec.yaml` now has the line `Signal:     coded, idea and code approved (sha 8b0b3234)`; it still shows `n/a` as the warm-up,
+because it loads nothing.
+
+**4. The run** (clock 10:32:05). The gate hashes `strategies/signals/hold_a.py`, finds the hash approved, loads the archived
+bytes and runs them. The eight characters `HHHHHHHH` are the hash of the inputs, as in "Example: one run":
+
+```powershell
+bt run spec.yaml
+```
+
+```
+Run:        20260115T103205Z-buy-and-hold-a-HHHHHHHH
+Strategy:   Buy and hold A (family hold_a)
+Trials:     family hold_a: 1 distinct variant in 1 run as of this run. This run is run 1, a new variant (variant 1). Counts cover only runs logged in this journal.
+Period:     2024-01-02 to 2024-01-08, 5 bars
+Costs:      applied
+
+Metric               Strategy  Benchmark (B)
+Total return           17.13%        -21.59%
+CAGR              288,635.82%       -100.00%
+Sharpe ratio             5.87          -7.50
+Maximum drawdown      -12.00%        -21.59%
+
+Excess return (compared window): +38.72%
+
+Risk flags: none
+Journal:    runs/20260115T103205Z-buy-and-hold-a-HHHHHHHH/run.json
+Report:     reports/20260115T103205Z-buy-and-hold-a-HHHHHHHH/report.md and report.html
+```
+
+What the run left behind. `run.json` holds the resolved spec: `signal.coded.code_sha256` is
+`8b0b3234cf07e5cf0807b5c5fd9122479babcce5719ff56fffd630e117e9a6ab`, `signal.params` is `{"scale": 1.0}` (the default of the
+params model, written out), the family is `hold_a` and the variant hash is
+`ec8c4c28e116f8d24d0aed06063dcabb112d891364b7b84719276339176fc9ae`. The same spec with `code_sha256: 8b0b3234...` written in it
+is the same variant (run 2 of variant 1). After an edit of `hold_a.py`, `bt run spec.yaml` is exit code 8 with
+`code not approved: the file has sha <8 hex>` until the new file is approved with `bt approve`; the new hash is then a new
+variant of the same family (variant 2, run 3 of the family). `bt report 20260115T103205Z-buy-and-hold-a-<hash>` loads the
+**archived** code of `8b0b3234` and never reads the working file, so it still reproduces the first run after the edit.

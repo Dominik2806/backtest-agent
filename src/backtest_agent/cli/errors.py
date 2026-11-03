@@ -2,7 +2,8 @@
 
 ``classify`` is the only place that decides which code an error class gets. The order of the checks matters:
 ``JournalFormatError`` is both a ``JournalError`` and a ``ValueError`` and ``ExperimentReportError`` a
-``RuntimeError``, so the specific classes come first and everything unknown is code 1.
+``RuntimeError``, ``RecordError`` and ``NotApprovedError`` are ``GateError`` subclasses and ``ApprovalFormatError``
+is an ``ApprovalError``, so the specific classes come first and everything unknown is code 1.
 """
 
 import re
@@ -14,6 +15,15 @@ from pathlib import Path
 
 from backtest_agent.cli import render
 from backtest_agent.cli.compare import Difference, change_kind
+from backtest_agent.coded.errors import (
+    ApprovalError,
+    ApprovalFormatError,
+    CasesError,
+    GateError,
+    NotApprovedError,
+    RecordError,
+    StaticCheckError,
+)
 from backtest_agent.data.errors import DataError, DataValidationError
 from backtest_agent.experiment import ExperimentReportError
 from backtest_agent.journal import (
@@ -22,9 +32,15 @@ from backtest_agent.journal import (
     JournalIndexStale,
     RunNotFoundError,
 )
-from backtest_agent.spec.errors import SpecError, SpecProblem, UnknownSignalError
+from backtest_agent.spec.errors import SignalContractError, SpecError, SpecProblem, UnknownSignalError
 
 MAX_ISSUES_SHOWN = 10
+_NEEDS_QUOTES = re.compile(r"[^A-Za-z0-9_./\\:-]")
+APPROVAL_HINT = "approvals are made with bt approve; see docs/coded-signals.md"
+RECORD_HINT = "the approvals folder (--approvals-dir) has to hold the record and the archived code this run used"
+RECORD_FORMAT_HINT = "an approval record is not valid; restore it from version control (docs/coded-signals.md)"
+CODE_HINT = "the rules a coded signal has to follow are in docs/coded-signals.md"
+CONTRACT_HINT = "a signal has to follow the signal contract (docs/strategy-spec.md)"
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
@@ -59,6 +75,33 @@ class StoredSpecError(SpecError):
         Exception.__init__(self, "\n".join(lines))
 
 
+class UsageError(Exception):
+    """A combination of arguments that argparse cannot see is wrong (exit code 2), such as ``--sha`` with ``--idea``.
+
+    ``hint`` is the second line of the error block (what to do), or ``None`` for no hint.
+    """
+
+    def __init__(self, message: str, hint: str | None = None) -> None:
+        self.hint = hint
+        super().__init__(message)
+
+
+class ConfirmationError(Exception):
+    """``bt approve --code`` was not confirmed: ``--sha`` is missing, or it is not the hash of the file (exit code 8).
+
+    ``spec`` is the spec path as the person typed it and ``short`` the first 8 hex of the hash of the file, so the hint
+    can name the exact command that confirms the code. ``folders`` are the ``(option, value)`` pairs of the folder
+    options that were given and are not the defaults (``--approvals-dir``, ``--strategies-dir``); the hint repeats them,
+    so the command it names reads the same folders.
+    """
+
+    def __init__(self, spec: str, short: str, message: str, folders: Sequence[tuple[str, str]] = ()) -> None:
+        self.folders = tuple(folders)
+        self.spec = spec
+        self.short = short
+        super().__init__(message)
+
+
 class ReportFolderExistsError(FileExistsError):
     """``bt report`` refuses to write into an existing report folder without ``--overwrite`` (exit code 5)."""
 
@@ -76,6 +119,8 @@ class ExitCode(IntEnum):
     JOURNAL = 5
     REPORT_FAILED = 6
     CHANGED = 7
+    GATE = 8
+    CODE = 9
     INTERRUPTED = 130
 
 
@@ -91,6 +136,11 @@ class Failure:
 def clean(message: str) -> str:
     """Control characters (a terminal escape in a spec name, for example) become `?`; newlines and tabs stay."""
     return _CONTROL.sub("?", message)
+
+
+def shell_word(path: str) -> str:
+    """The path as the hint prints it: in double quotes if it has a character outside the safe set."""
+    return f'"{path}"' if _NEEDS_QUOTES.search(path) else path
 
 
 def _validation_message(error: DataValidationError) -> str:
@@ -135,6 +185,8 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
             f"run {run_id} is logged but its report could not be written ({type(cause).__name__}: {cause})",
             f"bt report {run_id} writes the report again without logging the run twice",
         )
+    if isinstance(error, UsageError):
+        return Failure(ExitCode.USAGE, str(error), error.hint)
     if isinstance(error, StoredSpecError):
         return Failure(
             ExitCode.SPEC,
@@ -145,6 +197,20 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
         return Failure(ExitCode.SPEC, str(error), "the fields of a spec are described in docs/strategy-spec.md")
     if isinstance(error, UnknownSignalError):
         return Failure(ExitCode.SPEC, str(error.args[0]) if error.args else "unknown signal")
+    if isinstance(error, RecordError):
+        return Failure(ExitCode.JOURNAL, str(error), RECORD_HINT)
+    if isinstance(error, ApprovalFormatError):
+        return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT)
+    if isinstance(error, ConfirmationError):
+        command = f"bt approve {shell_word(error.spec)} --code --sha {error.short}"
+        command += "".join(f" {option} {shell_word(value)}" for option, value in error.folders)
+        return Failure(ExitCode.GATE, str(error), f"read the code printed above; if you accept it, run: {command}")
+    if isinstance(error, NotApprovedError | ApprovalError):
+        return Failure(ExitCode.GATE, str(error), APPROVAL_HINT)
+    if isinstance(error, StaticCheckError | CasesError | GateError):
+        return Failure(ExitCode.CODE, str(error), CODE_HINT)
+    if isinstance(error, SignalContractError):
+        return Failure(ExitCode.CODE, str(error), CONTRACT_HINT)
     if isinstance(error, RunChangedError):
         untouched = "the stored run is untouched; "
         hint = untouched + (

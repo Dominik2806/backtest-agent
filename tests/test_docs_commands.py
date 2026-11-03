@@ -80,9 +80,23 @@ def test_the_checker_itself_rejects_what_it_should() -> None:
         "uv run bt data fetchh spec.yaml",
         "uv run bt report RUN_ID --overwriten",
         "uv run bt report",
+        "uv run bt approve spec.yaml",  # neither --idea nor --code
+        "uv run bt approve spec.yaml --idea --code",
+        "uv run bt approve spec.yaml --code --sha zz",  # not 8 hex characters
+        "uv run bt approve --idea",  # no spec
     ):
         with pytest.raises(AssertionError, match="does not parse"):
             parse(argv_of(bad))
+
+
+def test_the_approve_forms_of_the_docs_parse() -> None:
+    for good in (
+        "uv run bt approve spec.yaml --idea",
+        "uv run bt approve spec.yaml --code",
+        "uv run bt approve spec.yaml --code --sha 3f9a1c2e",
+        "uv run bt approve spec.yaml --code --sha 3F9A1C2E --approvals-dir a --strategies-dir strategies/signals",
+    ):
+        parse(argv_of(good))
 
 
 def test_help_and_version_are_accepted_but_nothing_else_that_exits() -> None:

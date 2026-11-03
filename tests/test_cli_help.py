@@ -7,7 +7,7 @@ from cli_helpers import run_cli
 
 def test_the_top_level_help_lists_the_commands() -> None:
     out = run_cli(["--help"]).out
-    for command in ("run", "validate", "data", "journal"):
+    for command in ("run", "validate", "approve", "data", "journal"):
         assert f"\n    {command} " in out
     assert "Educational, not investment advice." in out
 
@@ -20,6 +20,10 @@ def test_the_top_level_help_lists_the_commands() -> None:
             ["SPEC", "--runs-dir DIR", "--reports-dir DIR", "--no-report", "--no-costs", "--cache-dir DIR", "--debug"],
         ),
         (["validate"], ["SPEC", "--debug"]),
+        (
+            ["approve"],
+            ["SPEC", "(--idea | --code)", "[--sha HEX8]", "--approvals-dir DIR", "--strategies-dir DIR", "--debug"],
+        ),
         (["journal", "list"], ["--family F", "--limit N", "--runs-dir DIR", "--debug"]),
         (["journal", "show"], ["RUN_ID", "--runs-dir DIR", "--reports-dir DIR", "--debug"]),
         (["journal", "rebuild"], ["--runs-dir DIR", "--debug"]),

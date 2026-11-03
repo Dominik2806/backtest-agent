@@ -164,7 +164,9 @@ def test_the_limits_and_numbers_of_the_gate_in_the_document_are_the_ones_of_the_
 
 
 def test_the_messages_of_the_pin_versus_file_table_are_the_ones_of_the_loader() -> None:
-    loader = (Path(__file__).resolve().parents[1] / "src" / "backtest_agent" / "coded" / "loader.py").read_text("utf-8")
+    coded = Path(__file__).resolve().parents[1] / "src" / "backtest_agent" / "coded"
+    # the gate's messages are in loader.py; those of the working file moved to working.py (read_working_file)
+    loader = (coded / "loader.py").read_text("utf-8") + (coded / "working.py").read_text("utf-8")
     for message in [
         "code not approved: the file has sha",
         "code not approved: no code is approved for the idea",
@@ -201,4 +203,5 @@ def test_the_message_of_an_unresolved_spec_is_written_out_in_the_document_and_is
         coded_spec("x").signal.resolve_signal()
     message = str(info.value)
     assert message == "the coded signal 'x' is not resolved; it has to pass the approval gate first"
-    assert f"`bt: error: {message}`" in TEXT  # the bt validate section prints it, written out
+    assert f"`{message}`" in TEXT  # written out in the validate section; no command prints it any more
+    assert f"`bt: error: {message}`" not in TEXT
