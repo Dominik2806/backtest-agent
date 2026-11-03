@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `SignalContractError` is now exit code 9 for every signal, built-in ones too; it was exit code 1 ("unexpected error").
+  `bt run` of a signal that breaks the signal contract is the case that changes (Phase 10 part 3, `cli/errors.py`).
 - Phase 10 part 2b: `engine/runner.py` finds the signal through `SignalSpec.resolve_signal()` (two lines; the same
   behaviour for every spec without a `coded` block). The errors of the contract check name the signal and the frame, and a
   `SystemExit` (or any other error) of a coded signal where the gate calls it is a contract error. Every file that existed

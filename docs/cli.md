@@ -35,7 +35,7 @@ the script and `__main__.py` wrap it.
 | `reports` | `reports/<run id>/report.md`, `report.html`, `equity.svg`, `drawdown.svg` | by `bt run` |
 | `data/cache` | the Parquet cache of the prices | by the first fetch |
 | `approvals` | the approval records `approvals/<id>.json`, the archived code `approvals/code/<sha256>.py` and `approvals/.lock` while an approval runs | by the first `bt approve` |
-| `strategies/signals` | the editable files `<id>.py` of coded signals; read by `bt approve`, `bt run`, `bt validate --data` and `bt data fetch`, only as bytes (hashed, never executed except as approved code through the gate) | never by `bt`: a person or an agent writes the file |
+| `strategies/signals` | the editable files `<id>.py` of coded signals. `bt approve`, `bt run`, `bt validate --data` and `bt data fetch` read the file only as bytes, hash it and compare the hash with the approved hashes; what runs is the archived copy `approvals/code/<sha256>.py`, never this file | never by `bt`: a person or an agent writes the file |
 
 The spec is found by the path you give, so the examples are `strategies/*.yaml` relative to a clone. `bt` also works
 from another folder, but then it writes `runs/`, `reports/`, `data/cache/` and `approvals/` into **that** folder and looks for `strategies/signals/` there. **The journal, and so
@@ -149,7 +149,7 @@ Warm-up:    199 rows
 Risk flags: none
 ```
 
-**A spec with a `coded` block** is not looked up in the registry and no code is loaded. Without `--data`, `bt validate`
+**A spec with a `coded` block.** Without `--data` it is not looked up in the registry and no code is loaded; `bt validate`
 prints the same block with one more line after `Family:`, the `Signal:` line, taken from the approval record
 `approvals/<id>.json` alone (`--approvals-dir DIR`, default `approvals`), and the warm-up, which needs the code, is `n/a`.
 The three states of the line:
@@ -464,10 +464,11 @@ hint: read the code printed above; if you accept it, run: bt approve spec.yaml -
 **Size** is the size of the LF-normalised source, the bytes that are hashed: `<n>` is their number and `<m>` the number of lines, a
 last line without a newline counting as a line. A file saved with CRLF shows the same size and the same hash as the same file with
 LF. The line numbers are right-aligned to the width of the largest one, a line is printed after ` | `, and an empty line is
-printed as the number and ` |` without a trailing space. **Every character is printed as ASCII**: a control character (all but
-the line feed, so the tab too) as `\xNN` with two hex digits, a character above U+007F as `\uXXXX` (`\UXXXXXXXX` above U+FFFF).
-The static check already refuses control characters other than the tab, so in practice only the tab and non-ASCII characters of
-comments and strings appear.
+printed as the number and ` |` without a trailing space. **Every character is printed as ASCII.** The characters from the space (U+0020) to `~` (U+007E) are printed as they
+are. U+0000 to U+001F, the tab included (the line feed only ends a line), and U+007F (DEL) are printed as `\xNN`, two lowercase hex
+digits. Every other character is printed as `\uXXXX`, four lowercase hex digits, up to U+FFFF, so U+0080 to U+009F too, and as
+`\UXXXXXXXX`, eight digits, above U+FFFF. The static check already refuses the characters of the Unicode categories Cc, Cf, Zl and Zp
+except the tab, so in practice only the tab and visible non-ASCII characters of comments and strings appear.
 
 **`--code --sha HEX8`** compares the 8 hex characters with the start of the hash of the bytes it has just read. A missing or a
 different `--sha` prints the review block again (stdout), writes nothing and is exit code 8; the message names the hash of the
@@ -526,7 +527,7 @@ approval does not make code safe: it means that a person read this code ([coded-
 | 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id; `bt approve` without exactly one of `--idea` and `--code`, a malformed `--sha`, `--sha` with `--idea` | argparse, `UsageError` |
 | 3 | the spec is invalid or its file cannot be read; `bt report`: the spec stored in the run no longer validates (also when the params no longer fit the archived code of a coded run); `bt approve`: the spec has no `coded` block | `SpecError`, `UnknownSignalError`, `StoredSpecError` |
 | 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors of a run: the first 10 are listed, then `... and N more`; `bt validate --data` prints all of them on stdout and one line on stderr); any other exception of a provider call |
-| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`); approvals: an approval record that is not valid (`bt run`, `bt report`, `bt validate`, `bt approve`), an archived code that is missing or does not match its hash (`bt run`, `bt validate --data`, `bt data fetch`, `bt report`), and in stored mode (`bt report`) a record that is missing, an idea that is not in it and a stored coded spec without a pin | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read), `RecordError`, `ApprovalFormatError` |
+| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`); approvals: an approval record that is not valid (every command that reads the record: `bt approve`, `bt validate`, and `bt run`, `bt validate --data`, `bt data fetch` and `bt report`, which pass the gate), an archived code that is missing or does not match its hash (`bt run`, `bt validate --data`, `bt data fetch`, `bt report`), and in stored mode (`bt report`) a record that is missing, an idea that is not in it and a stored coded spec without a pin | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read), `RecordError`, `ApprovalFormatError` |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
 | 7 | `bt report` found changed data or changed metrics: the re-evaluated record differs from the journal record | `RunChangedError` |
 | 8 | not approved or not confirmed: the idea or the code of a coded spec is not approved, the working file has another hash than the approved ones or than the pin of the spec, it cannot be read or is too large (`bt run`, `bt validate --data`, `bt data fetch`, `bt approve`); an approval error (another approval is running: `.lock`; `bt approve --code` for an idea that is not approved); `bt approve --code` without `--sha`, or with another one than the hash of the file | `NotApprovedError`, `ApprovalError`, `ConfirmationError` |

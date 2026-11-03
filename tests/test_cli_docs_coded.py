@@ -6,10 +6,12 @@ is not built is not built. The expected blocks are literals (hashes and sizes: `
 ``tests/test_cli_approve.py``); the expected output is never computed with project code.
 """
 
+import ast
 import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 from backtest_agent.cli import errors
 from backtest_agent.cli.errors import ConfirmationError, UsageError, classify
@@ -26,7 +28,7 @@ from backtest_agent.coded.errors import (
 from backtest_agent.spec.errors import SignalContractError
 from cli_helpers import at, run_cli
 from coded_cli_helpers import HOLD_A, SHA_A, put_source, write_hold_spec
-from coded_helpers import registry_and_modules_are_restored  # noqa: F401 - autouse fixture
+from coded_helpers import coded_spec, registry_and_modules_are_restored  # noqa: F401 - autouse fixture
 from report_helpers import world as r3b_world
 from runner_helpers import LiteralProvider
 from test_cli_approve import CODE_LINES, CONFIRM_HINT, IDEA_LINES, SOURCE
@@ -164,12 +166,7 @@ def test_the_approve_section_shows_the_blocks_of_the_tests() -> None:
     )
     assert in_doc(IDEA_LINES)
     assert in_doc(CODE_LINES)
-    assert in_doc(
-        [
-            "bt: error: the code is not approved yet; confirm it with --sha 2dd4906a",
-            CONFIRM_HINT.removeprefix("hint: ").join(["hint: ", ""]),
-        ]
-    )
+    assert in_doc(["bt: error: the code is not approved yet; confirm it with --sha 2dd4906a", CONFIRM_HINT])
     assert in_doc([f"bt: error: {wrong}", CONFIRM_HINT])
 
 
@@ -288,15 +285,86 @@ def test_bt_signal_check_is_not_a_command() -> None:
     assert "**`bt signal check` and the agents are not built yet**" in TEXT
 
 
-def test_nothing_in_the_package_runs_the_examples_so_nothing_raises_cases_error_in_a_command() -> None:
-    callers = []
-    for path in (ROOT / "src" / "backtest_agent").rglob("*.py"):
-        text = path.read_text(encoding="utf-8")
-        for name in ("run_cases(", "read_cases(", "parse_cases("):
-            if name in text and path.name != "cases.py":
-                callers.append((path.name, name))
-    assert callers == []
-    assert classify(CasesError("x")).code == 9  # mapped, so that the command can use it
+CASES_MODULE = "backtest_agent.coded.cases"
+
+
+def imported_names(path: Path, src_root: Path) -> set[str]:
+    """Every module a file imports, as an absolute dotted name; ``from a import b`` counts ``a`` and ``a.b``.
+
+    A relative import is resolved against the package of the file (``.`` is that package, ``..`` its parent).
+    """
+    package = list(path.relative_to(src_root).parent.parts)
+    found: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = package[: len(package) - (node.level - 1)] if node.level else []
+            module = ".".join([*base, *([node.module] if node.module else [])])
+            found.add(module)
+            found.update(f"{module}.{alias.name}" for alias in node.names)
+    return found
+
+
+def importers_of_cases(src_root: Path) -> list[str]:
+    """The files under ``src_root`` other than ``coded/cases.py`` that import ``backtest_agent.coded.cases``."""
+    found = []
+    for path in sorted(src_root.rglob("*.py")):
+        if path.relative_to(src_root).as_posix() == "backtest_agent/coded/cases.py":
+            continue
+        names = imported_names(path, src_root)
+        if any(name == CASES_MODULE or name.startswith(CASES_MODULE + ".") for name in names):
+            found.append(path.relative_to(src_root).as_posix())
+    return found
+
+
+def test_no_module_but_cases_py_imports_the_cases_module_so_no_command_can_run_the_examples() -> None:
+    """``bt signal check`` is the only planned caller of the functions of ``coded/cases.py`` (``cases_path``,
+    ``read_cases``, ``parse_cases`` and ``run_cases``) and it is not built: nothing imports the module, so nothing runs
+    ``cases.yaml`` and nothing raises ``CasesError`` in a command."""
+    assert importers_of_cases(ROOT / "src") == []
+    assert (ROOT / "src" / "backtest_agent" / "coded" / "cases.py").is_file()  # the scan looks at the right tree
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "line"),
+    [
+        ("backtest_agent/cli/a.py", "import backtest_agent.coded.cases"),
+        ("backtest_agent/cli/a.py", "import backtest_agent.coded.cases as cases"),
+        ("backtest_agent/cli/a.py", "from backtest_agent.coded.cases import run_cases"),
+        ("backtest_agent/cli/a.py", "from backtest_agent.coded import cases"),
+        ("backtest_agent/cli/a.py", "from backtest_agent.coded import errors, cases"),
+        ("backtest_agent/cli/a.py", "from ..coded import cases"),
+        ("backtest_agent/cli/a.py", "from ..coded.cases import run_cases"),
+        ("backtest_agent/coded/loader.py", "from .cases import run_cases"),
+        ("backtest_agent/coded/loader.py", "from . import cases"),
+        ("backtest_agent/cli/a.py", "def f():\n    from backtest_agent.coded.cases import run_cases"),
+    ],
+)
+def test_the_scan_sees_every_form_of_import(tmp_path: Path, relative_path: str, line: str) -> None:
+    target = tmp_path / "src" / relative_path
+    target.parent.mkdir(parents=True)
+    target.write_text(line + "\n", encoding="utf-8")
+    assert importers_of_cases(tmp_path / "src") == [relative_path]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "from backtest_agent.coded.errors import CasesError",
+        "from backtest_agent.coded import errors",
+        "import backtest_agent.coded.static",
+        "from backtest_agent.cli import errors",
+    ],
+)
+def test_the_scan_ignores_the_other_modules_of_the_package(tmp_path: Path, line: str) -> None:
+    target = tmp_path / "src" / "backtest_agent" / "cli" / "a.py"
+    target.parent.mkdir(parents=True)
+    target.write_text(line + "\n", encoding="utf-8")
+    cases = tmp_path / "src" / "backtest_agent" / "coded" / "cases.py"
+    cases.parent.mkdir(parents=True)
+    cases.write_text("from backtest_agent.coded.cases import run_cases\n", encoding="utf-8")  # the one exempt file
+    assert importers_of_cases(tmp_path / "src") == []
 
 
 # --- the known limits are the behaviour ---
@@ -317,10 +385,6 @@ def test_a_literal_backslash_u00e9_and_a_real_e_acute_look_the_same_in_the_revie
 
 
 def write_spec_and_idea(workdir: Path) -> None:
-    import yaml
-
-    from coded_helpers import coded_spec
-
     spec = coded_spec("rsi_pullback", brief="B")
     (workdir / "spec.yaml").write_text(yaml.safe_dump(spec.to_dict(), sort_keys=False), encoding="utf-8")
     assert run_cli(["approve", "spec.yaml", "--idea"], clock=at(0)).code == 0

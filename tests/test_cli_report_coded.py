@@ -167,3 +167,11 @@ def test_the_approvals_folder_option_is_used(tmp_path: Path, monkeypatch) -> Non
     assert report(found.group(0), "--overwrite").code == 5  # the default folder "approvals" does not exist
     forget_the_signal()
     assert report(found.group(0), "--overwrite", *options).code == 0
+
+
+def test_a_record_that_is_not_valid_is_exit_5(run_id: str, tmp_path: Path) -> None:
+    (tmp_path / "approvals" / "hold_a.json").write_bytes(b"{")
+    result = report(run_id, "--overwrite")
+    assert (result.code, result.out) == (5, "")
+    assert result.err.splitlines()[0].startswith("bt: error: hold_a.json: ")
+    assert result.err.splitlines()[-1] == RECORD_HINT

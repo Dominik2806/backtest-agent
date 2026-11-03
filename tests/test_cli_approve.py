@@ -357,6 +357,15 @@ def test_control_characters_are_escaped_in_the_review_even_if_the_static_check_m
         ("\u202e", "\\u202e"),
         ("\U0001f600", "\\U0001f600"),
         ("~ and space", "~ and space"),
+        # the exact boundaries of the rule written in docs/cli.md
+        (chr(0x1F), chr(92) + "x1f"),  # the last character below the space
+        (chr(0x20), " "),  # the first character that is printed as it is
+        (chr(0x7E), "~"),  # the last one
+        (chr(0x80), chr(92) + "u0080"),  # the C1 range goes to the four-digit form, not to the two-digit one
+        (chr(0x9F), chr(92) + "u009f"),
+        (chr(0xA0), chr(92) + "u00a0"),
+        (chr(0xFFFF), chr(92) + "uffff"),
+        (chr(0x10000), chr(92) + "U00010000"),
     ],
 )
 def test_ascii_escape_of_one_character(raw: str, shown: str) -> None:
@@ -650,3 +659,108 @@ def test_the_real_static_check_stops_the_canary_before_it_is_archived(workdir: P
     assert (result.code, result.out) == (9, "")
     assert world.marker_lines() == [] and coded_modules() == []
     assert tree(workdir) == ["approvals/canary_signal.json"]
+
+
+# --- the claims of the "bt approve" section of docs/cli.md that the tests above do not pin ---
+
+STATIC_HINT = "hint: the rules a coded signal has to follow are in docs/coded-signals.md"
+WITH_OS = SOURCE.replace(b"from pydantic import Field\n", b"import os\nfrom pydantic import Field\n")
+LOCK_MESSAGE = (
+    "bt: error: another approval is in progress (.lock exists in the approvals folder); "
+    "if no other bt approve is running, delete that file and try again"
+)
+SIX_LINES = (
+    b"from backtest_agent.spec.signals import SignalParams, per_symbol_signal, register_signal\n"
+    b"\n"
+    b"\n"
+    b'@register_signal("rsi_pullback", params=SignalParams)\n'
+    b"def rsi_pullback(prices, params):\n"
+    b"    return per_symbol_signal(prices, lambda close: close * 0.0)\n"
+)  # 243 bytes, 6 lines
+
+
+def test_a_file_over_128_kib_is_exit_8_and_a_file_of_exactly_128_kib_is_read(spec: Path, workdir: Path) -> None:
+    approved_idea()
+    put(workdir, b"#" * 131073)
+    over = run_cli(["approve", "spec.yaml", "--code"])
+    assert (over.code, over.out) == (8, "")
+    assert over.err.splitlines() == [
+        "bt: error: strategies/signals/rsi_pullback.py is larger than the limit; approved code is at most 64 KiB",
+        NEUTRAL_HINT,
+    ]
+    put(workdir, b"#" * 131072)  # read in full; it is the static check that refuses 131072 bytes (the limit is 65536)
+    at_limit = run_cli(["approve", "spec.yaml", "--code"])
+    assert (at_limit.code, at_limit.out) == (9, "")
+    assert at_limit.err.splitlines() == [
+        "bt: error: the signal source breaks 1 rule of the static check:",
+        "  - the source has 131072 bytes; the limit is 65536 [size]",
+        STATIC_HINT,
+    ]
+
+
+def test_the_file_is_read_before_the_idea_is_checked(spec: Path, workdir: Path) -> None:
+    result = run_cli(["approve", "spec.yaml", "--code"])  # no file and no approved idea
+    assert (result.code, result.out) == (8, "")
+    first = result.err.splitlines()[0]
+    assert first.startswith("bt: error: strategies/signals/rsi_pullback.py cannot be read (") and first.endswith(")")
+
+
+def test_the_idea_is_checked_before_the_static_check(spec: Path, workdir: Path) -> None:
+    put(workdir, WITH_OS)  # breaks the static check, and the idea is not approved either
+    result = run_cli(["approve", "spec.yaml", "--code"])
+    assert (result.code, result.out) == (8, "")
+    assert result.err.splitlines() == [
+        "bt: error: the idea of 'rsi_pullback' is not approved; approve the idea first",
+        NEUTRAL_HINT,
+    ]
+
+
+def test_approving_code_with_a_stale_lock_is_exit_8_and_archives_nothing(spec: Path, workdir: Path) -> None:
+    approved_idea()
+    put(workdir, SOURCE)
+    (workdir / "approvals" / ".lock").write_bytes(b"")
+    result = run_cli(["approve", "spec.yaml", "--code", "--sha", "2dd4906a"], clock=at(60))
+    assert (result.code, result.out) == (8, "")
+    assert result.err.splitlines() == [LOCK_MESSAGE, NEUTRAL_HINT]
+    assert tree(workdir) == ["approvals/.lock", "approvals/rsi_pullback.json"]
+    assert (workdir / "approvals" / "rsi_pullback.json").read_bytes() == RECORD_AFTER_IDEA
+
+
+def test_the_approval_checks_the_bytes_again_before_it_archives_them(spec: Path, workdir: Path, monkeypatch) -> None:
+    """The command's own static check is switched off here; the check inside the approval still refuses the file."""
+    approved_idea()
+    monkeypatch.setattr("backtest_agent.cli.coded.check_source", lambda data, signal_id: None)
+    put(workdir, WITH_OS)
+    sha8 = hashlib.sha256(WITH_OS).hexdigest()[:8]
+    result = run_cli(["approve", "spec.yaml", "--code", "--sha", sha8], clock=at(60))
+    assert (result.code, result.out) == (9, "")
+    assert result.err.splitlines() == [
+        "bt: error: the signal source breaks 1 rule of the static check:",
+        "  - line 2: import of 'os' is not allowed [import]",
+        STATIC_HINT,
+    ]
+    assert tree(workdir) == ["approvals/rsi_pullback.json"]
+
+
+def test_the_line_numbers_are_as_wide_as_the_largest_one(spec: Path, workdir: Path) -> None:
+    approved_idea()
+    put(workdir, SIX_LINES)
+    six = run_cli(["approve", "spec.yaml", "--code"]).out.splitlines()
+    assert six[2] == "Size:       243 bytes, 6 lines"
+    assert six[6:] == [
+        "1 | from backtest_agent.spec.signals import SignalParams, per_symbol_signal, register_signal",
+        "2 |",
+        "3 |",
+        '4 | @register_signal("rsi_pullback", params=SignalParams)',
+        "5 | def rsi_pullback(prices, params):",
+        "6 |     return per_symbol_signal(prices, lambda close: close * 0.0)",
+    ]
+    put(workdir, SOURCE + b"# padding line\n" * 88)  # 399 + 88 * 15 = 1719 bytes, 12 + 88 = 100 lines
+    hundred = run_cli(["approve", "spec.yaml", "--code"]).out.splitlines()
+    assert hundred[2] == "Size:       1719 bytes, 100 lines"
+    body = hundred[6:]
+    assert len(body) == 100
+    assert body[0] == '  1 | """A signal that holds a constant."""'
+    assert body[3] == "  4 |"
+    assert body[9] == ' 10 | @register_signal("rsi_pullback", params=Params)'
+    assert body[99] == "100 | # padding line"

@@ -255,3 +255,29 @@ def test_without_the_gate_the_registry_does_not_have_the_signal_of_a_coded_spec(
     assert "hold_a" not in SIGNALS  # approving loads nothing
     assert run_cli(["run", "spec.yaml"], provider=provider(), clock=at(0)).code == 0
     assert SIGNALS.get("hold_a").sha256 == SHA_A
+
+
+# --- an approval record that is not valid: exit code 5 in every command that reads it ---
+
+
+@pytest.mark.parametrize(
+    "command",
+    [["run", "spec.yaml"], ["validate", "spec.yaml", "--data"], ["data", "fetch", "spec.yaml"]],
+    ids=["run", "validate-data", "data-fetch"],
+)
+def test_a_record_that_is_not_valid_is_exit_5_in_every_command_that_passes_the_gate(
+    workdir: Path, command: list[str]
+) -> None:
+    put_source(workdir, HOLD_A)
+    (workdir / "approvals").mkdir()
+    (workdir / "approvals" / "hold_a.json").write_bytes(b"{")
+    data = provider()
+    result = run_cli(command, provider=data)
+    assert (result.code, result.out) == (5, "")
+    lines = result.err.splitlines()
+    assert lines[0].startswith("bt: error: hold_a.json: ")
+    assert lines[-1] == (
+        "hint: the approvals folder (--approvals-dir) has to hold the record and the archived code this run used"
+    )
+    assert data.calls == []
+    untouched(workdir, data)
