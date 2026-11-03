@@ -25,6 +25,7 @@ from runner_helpers import LiteralProvider
 
 RUN_ID = re.compile(r"20260115T1030(?P<second>\d\d)Z-buy-and-hold-a-[0-9a-f]{8}")
 RECORD_HINT = "hint: the approvals folder (--approvals-dir) has to hold the record and the archived code this run used"
+FORMAT_HINT = "hint: an approval record is not valid; restore it from version control (docs/coded-signals.md)"
 
 
 @pytest.fixture
@@ -174,4 +175,5 @@ def test_a_record_that_is_not_valid_is_exit_5(run_id: str, tmp_path: Path) -> No
     result = report(run_id, "--overwrite")
     assert (result.code, result.out) == (5, "")
     assert result.err.splitlines()[0].startswith("bt: error: hold_a.json: ")
-    assert result.err.splitlines()[-1] == RECORD_HINT
+    # the same hint as bt validate and bt approve (test_cli_record_hints.py)
+    assert result.err.splitlines()[-1] == FORMAT_HINT

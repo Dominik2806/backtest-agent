@@ -15,6 +15,7 @@ from pathlib import Path
 
 from backtest_agent.cli import render
 from backtest_agent.cli.compare import Difference, change_kind
+from backtest_agent.cli.render import shell_word
 from backtest_agent.coded.errors import (
     ApprovalError,
     ApprovalFormatError,
@@ -35,8 +36,8 @@ from backtest_agent.journal import (
 from backtest_agent.spec.errors import SignalContractError, SpecError, SpecProblem, UnknownSignalError
 
 MAX_ISSUES_SHOWN = 10
-_NEEDS_QUOTES = re.compile(r"[^A-Za-z0-9_./\\:-]")
 APPROVAL_HINT = "approvals are made with bt approve; see docs/coded-signals.md"
+# The hint of the gate for a record or an archive that is missing or changed; a damaged record gets RECORD_FORMAT_HINT.
 RECORD_HINT = "the approvals folder (--approvals-dir) has to hold the record and the archived code this run used"
 RECORD_FORMAT_HINT = "an approval record is not valid; restore it from version control (docs/coded-signals.md)"
 CODE_HINT = "the rules a coded signal has to follow are in docs/coded-signals.md"
@@ -138,11 +139,6 @@ def clean(message: str) -> str:
     return _CONTROL.sub("?", message)
 
 
-def shell_word(path: str) -> str:
-    """The path as the hint prints it: in double quotes if it has a character outside the safe set."""
-    return f'"{path}"' if _NEEDS_QUOTES.search(path) else path
-
-
 def _validation_message(error: DataValidationError) -> str:
     issues = getattr(error.result, "errors", None)
     if not issues:
@@ -198,7 +194,10 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
     if isinstance(error, UnknownSignalError):
         return Failure(ExitCode.SPEC, str(error.args[0]) if error.args else "unknown signal")
     if isinstance(error, RecordError):
-        return Failure(ExitCode.JOURNAL, str(error), RECORD_HINT)
+        # The gate wraps the ApprovalFormatError of a damaged record (`raise RecordError(...) from error`): the advice
+        # for that record is the same as in the commands that read it themselves. Any other cause keeps the gate's hint.
+        damaged = isinstance(error.__cause__, ApprovalFormatError)
+        return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT if damaged else RECORD_HINT)
     if isinstance(error, ApprovalFormatError):
         return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT)
     if isinstance(error, ConfirmationError):

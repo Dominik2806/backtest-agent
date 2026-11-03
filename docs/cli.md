@@ -7,11 +7,12 @@ printed by the formatters of the report ([report.md](report.md)), and a coded si
 stay pure and write nothing. The code is in `src/backtest_agent/cli/`; the decisions are in [ADR 0016](adr/0016-command-line.md). The project is educational and not investment advice.
 
 **Status.** Every command described here exists: `run`, `validate` (also `--data`), `data fetch`, `report`,
-`journal list`, `journal show`, `journal rebuild` and `approve`. The first seven were delivered in three pull requests
+`journal list`, `journal show`, `journal rebuild`, `approve` and `signal check`. The first seven were delivered in three pull requests
 (Phase 9): part 1 `run`, `validate` (spec only) and the journal commands, part 2 `data fetch` and `validate --data`, part 3
 `report` (exit code 7) and the README quickstart. `approve`, the exit codes 8 and 9 and the handling of a spec with a `coded`
-block in `run`, `validate`, `data fetch` and `report` came with Phase 10 (F-18). **`bt signal check` and the agents are not
-built yet** ([coded-signals.md](coded-signals.md), "Not built yet"), so nothing in `bt` runs `cases.yaml` today.
+block in `run`, `validate`, `data fetch` and `report` came with Phase 10 (F-18); `signal check`, the one command that runs
+`cases.yaml` and the one that executes a file nobody approved, came with part 3b. **The agents are not built yet**
+([coded-signals.md](coded-signals.md), "Not built yet").
 
 ## Starting `bt`
 
@@ -524,20 +525,144 @@ approval does not make code safe: it means that a person read this code ([coded-
   quotes, so a path with one of them has to be quoted by hand (single quotes) before the command of the hint is pasted.
 - The review is on stdout and the exit code is 8 by design: it says that the code is not approved yet, not that something broke.
 
+### `bt signal check SPEC`
+
+Checks a candidate coded signal **before it is approved**: the static check, the contract check on frames of 300 rows and the
+examples of `<id>.cases.yaml`, so that a person knows what they are about to approve ([coded-signals.md](coded-signals.md),
+"Checking a candidate"). It needs no network and requests no data.
+
+**This command executes the file `strategies/signals/<id>.py`, which nobody approved.** It runs in the process of the
+command, with the permissions of whoever runs it and with no time or memory limit. The static check is a tripwire, not a
+sandbox ([ADR 0018](adr/0018-coded-signals-and-approval-gate.md), known gaps 4 and 6). Read the file first if you do not trust
+where it came from. Running the command is the consent, and the command says so on stderr before it executes anything.
+Nothing is approved and nothing is written, and the approvals folder is not read.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--strategies-dir DIR` | `strategies/signals` | where the editable `<id>.py` and its `<id>.cases.yaml` are read |
+
+There is no `--approvals-dir`: the record is never read, so a candidate can be checked before its idea is approved, a damaged
+record cannot fail a check, and approved code can be checked again. A candidate is checked again every time: nothing is
+remembered between two runs of the command, not even by the cache of the check before a run. The order, and where each step
+stops:
+
+1. The spec is read. A spec without a `coded` block is exit code 3.
+2. The working file is read as bytes (a regular file of at most 128 KiB), its line ends are turned into LF and its hash is
+   taken: the hash that `bt approve` will print for it. A file that is missing, is not a regular file, cannot be read or is too
+   large is exit code 9, **not 8**: nothing is waiting for an approval here.
+3. The static check. Findings are exit code 9.
+4. `<id>.cases.yaml` is read and validated as data. A file that is missing or not valid is exit code 9.
+5. **Up to here nothing was executed and the consent line has not been written.** Now it is written to stderr (below).
+6. The candidate is loaded: the static check runs again, then the file is executed. The params of the spec are validated by the
+   params model of the code; params that do not fit it are exit code 3. Code that raises while it is loaded, `SystemExit`
+   included, is exit code 9.
+7. The contract check on frames of 300 rows ([coded-signals.md](coded-signals.md), "The check before a run" has the
+   measured times). A failure is exit code 9.
+8. The examples of `<id>.cases.yaml`, through `Signal.generate`. A difference, or a case in which the code raises, is exit
+   code 9. They run with the params of the cases file (the defaults of the code if it gives none), not with the params of the
+   spec.
+
+When the command ends, however it ends (Ctrl-C included: exit code 130), the registry of signals is what it was before. Nothing
+else that the code changed in the process is undone (known gap 3).
+
+The consent line is written once, in step 5, and only if the command gets that far: it is not written when the spec has no
+`coded` block, when the file cannot be read, when the static check refuses it or when `cases.yaml` is missing or not valid. It
+names the file as given, the first 8 hex of the hash and what is accepted:
+
+```
+bt: executing strategies/signals/x_signal.py (sha 81d30b98, NOT approved) in this process, with your permissions and no time or memory limit; the static check is a tripwire, not a sandbox
+```
+
+If every check passes, stdout has this (exit code 0). The `Pin:` line compares the `code_sha256` of the spec with the hash, as
+in `bt approve`. `Next` is not a statement about the approvals, which the command never reads; its two commands repeat
+`--strategies-dir` when it was given and is not the default, and put a spec path with unusual characters in double quotes:
+
+```
+Signal:     x_signal
+File:       strategies/signals/x_signal.py
+Sha256:     81d30b983518137333e6868e5db31497951cbb1709bb10464544f0dcc7bb2d77
+Static:     ok
+Contract:   ok (frames of 300 rows)
+Cases:      ok (1 case in x_signal.cases.yaml)
+Pin:        not set (signal.coded.code_sha256: 81d30b983518137333e6868e5db31497951cbb1709bb10464544f0dcc7bb2d77)
+Checked:    nothing was approved or written
+Next, if not done yet:
+  bt approve spec.yaml --idea
+  bt approve spec.yaml --code --sha 81d30b98
+```
+
+The file of this example is the signal of `tests/coded_helpers.py` with the factor 0.5 (a constant exposure of 0.5), and its
+`x_signal.cases.yaml` has one case: `AAA` trades on three rows (10, 11, 12) and `BBB` on the last two (20, 21), and the
+expected exposure is 0.5 on every row on which a symbol trades and 0 before its first row. A failed check prints nothing on
+stdout and an error on stderr. Three failures, each with exit code 9 and the literal text. **A static check failure** (the
+consent line is not written; the file imports `os` and calls `open`):
+
+```
+bt: error: the signal source breaks 3 rules of the static check:
+  - line 2: import of 'os' is not allowed [import]
+  - line 5: With statements are not allowed at the top level [top-level]
+  - line 5: the name 'open' is not allowed [banned-name]
+hint: the rules a coded signal has to follow are in docs/coded-signals.md
+```
+
+**A contract failure** (the consent line comes first; this file returns 2.0 where an exposure must be between 0 and 1):
+
+```
+bt: executing strategies/signals/x_signal.py (sha 8a72b45e, NOT approved) in this process, with your permissions and no time or memory limit; the static check is a tripwire, not a sandbox
+bt: error: x_signal on the plain frame: signal output violates the contract: 900 value(s) outside [0, 1]; first at 2024-01-02 in 'AAA'
+hint: a signal has to follow the signal contract (docs/strategy-spec.md)
+```
+
+**A failing example** (the consent line comes first; the case expects 0.25 for `AAA` where the code gives 0.5):
+
+```
+bt: executing strategies/signals/x_signal.py (sha 81d30b98, NOT approved) in this process, with your permissions and no time or memory limit; the static check is a tripwire, not a sandbox
+bt: error: 3 differences in the examples:
+  - x_signal on the case 'holds one half': AAA row 0 (2024-01-02): expected 0.25, got 0.5
+  - x_signal on the case 'holds one half': AAA row 1 (2024-01-03): expected 0.25, got 0.5
+  - x_signal on the case 'holds one half': AAA row 2 (2024-01-04): expected 0.25, got 0.5
+hint: the rules a coded signal has to follow are in docs/coded-signals.md
+```
+
+The exit codes of `bt signal check`: 0 every check passed; 2 arguments (no `SPEC`, no action, `--approvals-dir`); 3 the spec has
+no `coded` block, or its params do not fit the params model of the candidate; 9 rejected code: the static check, the contract
+check, the examples (`CasesError`: a missing or invalid `cases.yaml` or a difference), code that does not load or whose params
+model is not usable (`GateError`), and a working file that is missing, not a regular file, unreadable or too large; 130
+interrupted. The command never exits with 8 or 5.
+
+**The order of a person.** Write the file and its examples, `bt signal check`, read the code, `bt approve --idea`, `bt approve
+--code` and confirm with `--sha`. The check does not replace the reading: `bt approve --code` still shows the whole file, still
+refuses an unapproved idea (exit code 8) and still needs the `--sha`. A candidate that passes is not safe; it is a candidate
+that a person can read with less effort.
+
+**Who runs `bt signal check`.** A person, for a file they wrote or received. An agent that runs the command runs its own code
+with its own permissions, as it could with Python; the only limit of an agent run is the timeout of its own tool; whether agents
+may run it unattended is decided in the agents part (pull request 4) and stated in `docs/agents.md`. The rule that denies
+`bt approve` to the agents does not exist yet either.
+
+**Known limits.**
+
+- The candidate runs in the process of the command, not in a subprocess. A subprocess with a wall-clock limit and a memory limit
+  would contain an infinite loop and a huge allocation; it is **not built** ([ADR 0018](adr/0018-coded-signals-and-approval-gate.md),
+  addendum).
+- Only the registry of signals is restored; a module attribute or a random state that the code changed stays changed.
+- The examples run with their own params, so a spec whose params differ from the defaults is checked by the contract check with
+  its params and by the examples with the params of the cases file.
+
 ## Exit codes
 
 | Code | Meaning | Caused by |
 |---|---|---|
 | 0 | success (also `--help`, `--version`, an empty journal) | |
 | 1 | unexpected error: a bug, or an operating system error such as a folder that cannot be written | any other exception |
-| 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id; `bt approve` without exactly one of `--idea` and `--code`, a malformed `--sha`, `--sha` with `--idea` | argparse, `UsageError` |
-| 3 | the spec is invalid or its file cannot be read; `bt report`: the spec stored in the run no longer validates (also when the params no longer fit the archived code of a coded run); `bt approve`: the spec has no `coded` block | `SpecError`, `UnknownSignalError`, `StoredSpecError` |
+| 2 | usage error: unknown command or option, a missing argument, `--limit 0`, an unsafe run id; `bt approve` without exactly one of `--idea` and `--code`, a malformed `--sha`, `--sha` with `--idea`; `bt signal check` without `SPEC` or with `--approvals-dir` | argparse, `UsageError` |
+| 3 | the spec is invalid or its file cannot be read; `bt report`: the spec stored in the run no longer validates (also when the params no longer fit the archived code of a coded run); `bt approve` and `bt signal check`: the spec has no `coded` block; `bt signal check`: the params of the spec do not fit the params model of the candidate | `SpecError`, `UnknownSignalError`, `StoredSpecError` |
 | 4 | data problem: the provider failed, no data, validation errors in the data, a cache miss offline | `DataError` and subclasses (validation errors of a run: the first 10 are listed, then `... and N more`; `bt validate --data` prints all of them on stdout and one line on stderr); any other exception of a provider call |
-| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`); approvals: an approval record that is not valid, whatever is wrong with it (not JSON, not an object with the keys of a record, another `schema_version`): exit code 5 in every command that reads the record, that is `bt approve` and `bt validate` (which raise `ApprovalFormatError`) and `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (which pass the gate and report it as `RecordError`; the hint differs, see the table of hints), an archived code that is missing or does not match its hash (`bt run`, `bt validate --data`, `bt data fetch`, `bt report`), and in stored mode (`bt report`) a record that is missing, an idea that is not in it and a stored coded spec without a pin | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read), `RecordError`, `ApprovalFormatError` |
+| 5 | journal problem or an existing output: stale or busy index, an index file that is not a database (for example garbage bytes), unreadable `run.json`, run not found, run id exists, report folder exists (also for `bt report`, whose hint names `--overwrite`), stored `costs_applied` values that differ or stored metric assumptions that cannot be read (`bt report`); approvals: an approval record that is not valid, whatever is wrong with it (not JSON, not an object with the keys of a record, another `schema_version`): exit code 5 in every command that reads the record, that is `bt approve` and `bt validate` (which raise `ApprovalFormatError`) and `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (which pass the gate and report it as `RecordError`; the hint is the same in all of them, see the table of hints), an archived code that is missing or does not match its hash (`bt run`, `bt validate --data`, `bt data fetch`, `bt report`), and in stored mode (`bt report`) a record that is missing, an idea that is not in it and a stored coded spec without a pin | `JournalError`, `JournalFormatError`, `FileExistsError` (`ReportFolderExistsError` for `bt report`), `sqlite3.Error` (the index cannot be read), `RecordError`, `ApprovalFormatError` |
 | 6 | the run was logged but its report failed; the message names the run id and the hint is `bt report RUN_ID` | `ExperimentReportError` |
 | 7 | `bt report` found changed data or changed metrics: the re-evaluated record differs from the journal record | `RunChangedError` |
 | 8 | not approved or not confirmed: the idea or the code of a coded spec is not approved, the working file has another hash than the approved ones or than the pin of the spec, it cannot be read or is too large (`bt run`, `bt validate --data`, `bt data fetch`, `bt approve`); an approval error (another approval is running: `.lock`; `bt approve --code` for an idea that is not approved); `bt approve --code` without `--sha`, or with another one than the hash of the file | `NotApprovedError`, `ApprovalError`, `ConfirmationError` |
-| 9 | code that is rejected: the static check, the contract check at run time (**every** signal, a built-in too; it was code 1 before Phase 10), a coded signal that does not load or whose params model is unusable (`GateError`). `CasesError` is mapped here too; it is raised only by `bt signal check`, which is not built yet | `StaticCheckError`, `SignalContractError`, `GateError`, `CasesError` |
+| 9 | code that is rejected: the static check, the contract check at run time (**every** signal, a built-in too; it was code 1 before Phase 10), a coded signal that does not load or whose params model is unusable (`GateError`). `CasesError`, the examples of `bt signal check` (a missing or invalid `cases.yaml`, a difference), is mapped here and raised only by that command; for `bt signal check` a working file that is missing, not a regular file, unreadable or too large is also 9, not 8, because nothing waits for an approval | `StaticCheckError`, `SignalContractError`, `GateError`, `CasesError` |
 | 130 | interrupted with Ctrl-C | `KeyboardInterrupt` |
 
 The checks run in this order: interrupt, report failed, usage (`UsageError`), spec (the stored spec of `bt report` first), approval records (`RecordError`, `ApprovalFormatError`: code 5), refusals (`ConfirmationError`, `NotApprovedError`, `ApprovalError`: code 8), rejected code (`StaticCheckError`, `CasesError`, `GateError`, `SignalContractError`: code 9), run changed, data, journal, everything else. The order matters because
@@ -581,8 +706,8 @@ the two lines).
 | run changed, metrics (`bt report`) | the stored run is untouched; the metric code or the stored values changed; log a new run with `bt run` |
 | a refusal: code or idea not approved, the file cannot be read, an approval error | `approvals are made with bt approve; see docs/coded-signals.md` |
 | `--sha` missing or wrong | `read the code printed above; if you accept it, run: bt approve SPEC --code --sha <8 hex>` (repeats `--approvals-dir` and `--strategies-dir` when they were given and are not the defaults) |
-| in `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (the gate, `RecordError`): a record or an archive that is missing or changed, an idea that is not in the record or a stored spec without a pin in stored mode, **and an approval record that is not valid** (the message line then says what is wrong with it: `is not valid JSON in UTF-8`, `must be an object with exactly the keys ...`, `schema_version must be 1, got 2`) | `the approvals folder (--approvals-dir) has to hold the record and the archived code this run used` (the same text in a first `bt run`, when there is no earlier run) |
-| in `bt validate` and `bt approve` (they read the record themselves, `ApprovalFormatError`): an approval record that is not valid | `an approval record is not valid; restore it from version control (docs/coded-signals.md)` |
+| an approval record that is not valid, in **every** command that reads approvals: `bt validate` and `bt approve` (they read the record themselves, `ApprovalFormatError`) and `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (the gate wraps the error in a `RecordError` whose cause is the `ApprovalFormatError`; the hint follows the cause). The message line says what is wrong with the record: `is not valid JSON in UTF-8`, `must be an object with exactly the keys ...`, `schema_version must be 1, got 2`, `cannot be read (...)`. A record file that cannot be read (a folder in its place, no permission) is treated the same: the hint says "not valid" and the message line gives the real reason | `an approval record is not valid; restore it from version control (docs/coded-signals.md)` |
+| in `bt run`, `bt validate --data`, `bt data fetch` and `bt report` (the gate, `RecordError` with any other cause): a record or an archive that is missing or changed, an idea that is not in the record or a stored spec without a pin in stored mode. A record that is missing is exit code 5 only in stored mode (`bt report`); in `bt run`, `bt validate --data` and `bt data fetch` it is exit code 8 (the idea is not approved) | `the approvals folder (--approvals-dir) has to hold the record and the archived code this run used` (the wording "this run used" stays in a first `bt run`, when there is no earlier run, for a missing or changed archive) |
 | code rejected (static check, load, examples) | `the rules a coded signal has to follow are in docs/coded-signals.md` |
 | a signal breaks the signal contract | `a signal has to follow the signal contract (docs/strategy-spec.md)` |
 | `--sha` with `--idea` | `bt approve --help describes the arguments` |

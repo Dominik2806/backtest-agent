@@ -10,10 +10,10 @@ and nothing is imported before it was approved. The project is educational and n
 > their `cases.yaml`, every file in `approvals/` (records and archived code) and the briefs inside the specs. Never put
 > anything private in a brief or in code.
 
-This document describes what exists after Phase 10 part 3: the `coded` block of the spec, the hashes, the approval
-records, the static check, the gate that loads approved code, the check before a run, the `cases.yaml` format, the command
-`bt approve` and the handling of a coded spec in `bt run`, `bt validate`, `bt data fetch` and `bt report`. The command
-`bt signal check` and the agents come in later parts of the phase; where this document mentions them it says so.
+This document describes what exists after Phase 10 part 3b: the `coded` block of the spec, the hashes, the approval
+records, the static check, the gate that loads approved code, the check before a run, the `cases.yaml` format, the commands
+`bt approve` and `bt signal check` and the handling of a coded spec in `bt run`, `bt validate`, `bt data fetch` and `bt report`.
+The agents come in the next part of the phase; where this document mentions them it says so.
 
 ## What is approved
 
@@ -280,8 +280,7 @@ hash: exit code **5**, in the stored mode of `bt report` and in the run mode too
 (the code is not acceptable: exit code **9**), `SpecError` (the params do not fit the params model of the code: exit code 3) and
 `GateError` (the code did not load or its params model is not usable: exit code **9**, "code rejected"). It raises nothing
 else, and it does not run `cases.yaml`: `bt signal check` does, and it also raises `CasesError`, which `bt` maps to exit
-code 9 like `StaticCheckError` and `SignalContractError`. **`bt signal check` is not built yet, so no command raises
-`CasesError` today.** `bt approve` adds `ApprovalError` (exit code 8: another approval is running, the idea is not approved),
+code 9 like `StaticCheckError` and `SignalContractError` (no other command raises it). `bt approve` adds `ApprovalError` (exit code 8: another approval is running, the idea is not approved),
 `ApprovalFormatError` (a record that is not valid: exit code 5) and `ConfirmationError` (`--sha` missing or wrong: exit
 code 8). `SignalContractError` is exit code 9 for every signal, a built-in one too (it was code 1 before Phase 10). The
 mapping is in `cli/errors.py` and the table is in [cli.md](cli.md), "Exit codes".
@@ -308,8 +307,8 @@ history, a single symbol), and its declared `warmup_rows` is honest, which also 
 Every error names the signal and the frame, for example `rsi_pullback on the calendars frame: ...`.
 
 There is **no sampling and no time rule**: every check runs on every row, so the same code and params give the same answer
-on every machine. Measured on the development machine, the check makes 250 calls of the function and takes 0.27 to 0.8 s (0.27 to 0.37 s for signals like the built-in ones, 0.75 to 0.79 s for a heavy one with seven rolling statistics); `bt signal check` (not built yet)
-is planned to use frames of 300 rows (610 calls, 0.9 to 1.9 s) and the examples of `cases.yaml`. A signal that needs more than about 10 ms
+on every machine. Measured on the development machine, the check makes 250 calls of the function and takes 0.27 to 0.8 s (0.27 to 0.37 s for signals like the built-in ones, 0.75 to 0.79 s for a heavy one with seven rolling statistics); `bt signal check` uses
+frames of 300 rows (610 calls, 0.9 to 1.9 s) and runs the examples of `cases.yaml`. A signal that needs more than about 10 ms
 per call exceeds three seconds in the check on its own; nothing can interrupt a function that is running (known gap 4). The
 same code with the same params is checked once per process (the cache key is the pair hash and params); a failed check is
 not remembered. This is not the look-ahead test on real data (Phase 15).
@@ -345,7 +344,32 @@ Calculated by hand: AAA row 0 is its first trading row (warm-up of one row: 0); 
 - The examples run through `Signal.generate`, so the output rules and the zero rows hold in them too. A difference is
   listed with the case, the symbol, the row, the date and both values (at most ten, then `... and N more`); a case in which
   the code raises is a failed case; two values are equal within 1e-9.
-- The examples are run by `bt signal check` (not built yet), not by a run.
+- The examples are run by `bt signal check`, not by a run.
+
+## Checking a candidate: `bt signal check`
+
+`bt signal check SPEC` ([cli.md](cli.md), "`bt signal check SPEC`") is the check of a candidate **before** it is approved: the
+static check, the contract check on frames of 300 rows and the examples of `strategies/signals/<id>.cases.yaml`. It reads the
+working file as bytes (the hash it prints is the hash `bt approve` will print), runs the static check, reads and validates the
+examples as data, writes one consent line to stderr and only then executes the file, checks the contract and runs the examples.
+It writes nothing, approves nothing and does not read `approvals/`, so a candidate can be checked before its idea is approved;
+the natural order is write, check, `bt approve --idea`, `bt approve --code`. It is the only command that runs `cases.yaml`
+(`CasesError`, exit code 9, is raised only there), and the only module that may call `load_candidate`, which executes a file
+nobody approved; a source-tree test checks both.
+
+**Known gap 6: it executes code that nobody approved.** The file runs in the process of the command, with the permissions of
+whoever runs it and no time or memory limit; the static check is a tripwire, not a sandbox; and only the registry of signals is
+put back afterwards (known gaps 1 to 4 apply in full). Running the command is the consent, and the line on stderr says so before
+anything is executed: `bt: executing strategies/signals/<id>.py (sha <8 hex>, NOT approved) in this process, with your
+permissions and no time or memory limit; the static check is a tripwire, not a sandbox`. There is no `--yes` and no prompt: an
+agent with a shell could pass a flag as easily, and a prompt would break the tested `main(argv, ...)` contract.
+
+**In process, not in a subprocess.** The gate loads in the process of the command too, and a subprocess needs a design of its
+own (the frames, params and examples cross a pipe; a time limit and a memory limit that work on Windows). **Not built:** running
+the candidate in a subprocess with a wall-clock limit and a memory limit. An agent that runs the command runs its own code with its
+own permissions; the only limit of an agent run is the timeout of its own tool; whether agents may run it unattended is decided in
+the agents part (pull request 4) and stated in `docs/agents.md`. The rule that denies `bt approve` to the agents does not exist
+yet either.
 
 ## What `bt validate` says
 
@@ -364,7 +388,10 @@ An unresolved spec used outside the gate, from Python, still raises `UnknownSign
 
 ## Not built yet
 
-The command `bt signal check` (the static check, the contract check on frames of 300 rows and the examples of `cases.yaml`
-for a candidate before it is approved) and the agents that write the spec and the code. Everything in this document that is
-not marked as not built exists and is tested. A coded signal is approved with `bt approve`, run with `bt run` and reproduced
-with `bt report`; nothing in `bt` runs `cases.yaml` yet.
+- The agents that write the spec and the code (`strategy-architect` and `signal-coder`), with `docs/agents.md`: the next pull
+  request. It also decides whether the agents may run `bt signal check` unattended.
+- The rule that denies `bt approve` to the agents.
+- Running a candidate of `bt signal check` in a subprocess with a wall-clock limit and a memory limit.
+
+Everything else in this document exists and is tested. A coded signal is checked with `bt signal check`, approved with
+`bt approve`, run with `bt run` and reproduced with `bt report`.

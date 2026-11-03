@@ -19,6 +19,9 @@ bytes and hashed, never executed; if it exists its hash must be approved for the
 runs; if the spec pins another hash, the run is refused; if the file does not exist, the pin is used, or else the latest
 approved hash.
 
+The one exception to "only approved bytes" is ``load_candidate``, for ``bt signal check`` alone (ADR 0018, addendum):
+it executes the working file of a candidate that nobody approved, in this process, and restores the registry afterwards.
+
 Registry rules: an id that is registered by something other than this module is refused; the same hash that is
 already loaded is reused without executing again; a different hash replaces this module's own entry; on every failure
 the registry is exactly what it was before the call. Nothing else the code changes is undone (ADR 0018, known gaps).
@@ -27,6 +30,9 @@ the registry is exactly what it was before the call. Nothing else the code chang
 import difflib
 import os
 import types
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -35,6 +41,7 @@ from backtest_agent.coded.approvals import (
     IdeaApproval,
     code_sha256,
     idea_sha256,
+    normalise_source,
     read_archived_code,
     read_record,
 )
@@ -102,8 +109,13 @@ def clear_checked() -> None:
     _CHECKED.clear()
 
 
+def checked_key(sha: str, params: dict) -> tuple[str, str]:
+    """The key of ``_CHECKED``: the hash of the code and its validated params (the check depends on both)."""
+    return (sha, repr(sorted(params.items())))
+
+
 def _check_contract_once(signal: Signal, params: dict, sha: str) -> None:
-    key = (sha, repr(sorted(params.items())))
+    key = checked_key(sha, params)
     if key in _CHECKED:
         return
     check_before_run(signal, signal.parse_params(params))  # raises SignalContractError; nothing is remembered then
@@ -179,6 +191,11 @@ def _load(signal_id: str, sha: str, data: bytes, before: dict[str, Signal]) -> S
             return existing  # loaded before in this process: reuse it, do not execute again
         SIGNALS.unregister(signal_id)  # the gate's own entry of another version
     _execute(signal_id, sha, data)
+    return _registered_once(signal_id, sha, before)
+
+
+def _registered_once(signal_id: str, sha: str, before: dict[str, Signal]) -> Signal:
+    """After the code ran: exactly one new entry, ``signal_id``, and nothing else changed; it is marked with ``sha``."""
     after = SIGNALS.snapshot()
     kept = {key: value for key, value in before.items() if key != signal_id}
     if {key: after.get(key) for key in kept} != kept:
@@ -188,6 +205,57 @@ def _load(signal_id: str, sha: str, data: bytes, before: dict[str, Signal]) -> S
         registered = ", ".join(sorted(added)) or "nothing"
         raise GateError(f"the code must register exactly one signal, {signal_id!r}; it registered {registered}")
     return SIGNALS.set_sha256(signal_id, sha)
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """A signal loaded by ``load_candidate``: the registered (and marked) signal, the params of the spec validated by
+    its params model (with defaults), and the hash of the LF form of the file it came from."""
+
+    signal: Signal
+    params: dict
+    sha256: str
+
+
+@contextmanager
+def load_candidate(spec: StrategySpec, source: bytes) -> Iterator[Candidate]:
+    """Execute a candidate that NOBODY APPROVED, for ``bt signal check`` only (ADR 0018, addendum; known gap 6).
+
+    ``source`` is the editable file as bytes (CRLF is turned into LF, so ``sha256`` is the hash ``bt approve`` prints).
+    The static check runs again before anything is compiled. The signal is registered under the id of the spec and
+    marked with the hash, like a gate-loaded signal, so ``Signal.generate`` guards its calls in the same way. **When
+    the ``with`` block ends, however it ends (an exception, ``KeyboardInterrupt`` and ``GeneratorExit`` included), the
+    registry is exactly what it was before the call**; an entry of the gate for the same id is set aside and put back.
+    Nothing is written to ``approvals/``, the cache of ``resolve_coded`` (``_CHECKED``) is not touched and the module
+    is not put in ``sys.modules``. Nothing else the code changes is undone (known gap 3).
+
+    Raises ``StaticCheckError``, ``GateError`` (no coded block, the id is taken by something other than the gate, the
+    code did not load or registered something else, the params model is not usable) and ``SpecError`` (the params of
+    the spec do not fit the params model). Only ``cli/signal_check.py`` may call it; a source-tree test checks that.
+    """
+    if spec.signal.coded is None:
+        raise GateError("the spec has no coded block; there is no candidate to load")
+    signal_id = spec.signal.id
+    problem = coded_id_problem(signal_id)
+    if problem is not None:
+        raise GateError(problem)
+    # Redundant today: code_sha256, the static check and compile treat CRLF like LF. Kept so that the bytes that run are
+    # the bytes bt approve would archive.
+    data = normalise_source(source)
+    sha = code_sha256(data)
+    check_source(data, signal_id)
+    before = SIGNALS.snapshot()
+    try:
+        existing = before.get(signal_id)
+        if existing is not None:
+            if existing.sha256 is None:
+                raise GateError(f"the id {signal_id!r} is already registered by something other than the gate")
+            SIGNALS.unregister(signal_id)  # set aside; the candidate is executed even if the same hash is loaded
+        _execute(signal_id, sha, data)
+        signal = _registered_once(signal_id, sha, before)
+        yield Candidate(signal, _validated_params(signal, spec.signal.params), sha)
+    finally:
+        SIGNALS.restore(before)
 
 
 def _execute(signal_id: str, sha: str, data: bytes) -> None:

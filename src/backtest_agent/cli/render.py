@@ -6,6 +6,7 @@ are the report's own. The CLI's own words are plain ASCII.
 """
 
 import json
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -20,6 +21,12 @@ from backtest_agent.reporting.model import text, trial_line
 from backtest_agent.spec import StrategySpec
 
 LABEL_WIDTH = 12  # "Risk flags:" plus one space
+_NEEDS_QUOTES = re.compile(r"[^A-Za-z0-9_./\\:-]")
+
+
+def shell_word(path: str) -> str:
+    """The path as a hint prints it: in double quotes if it has a character outside the safe set."""
+    return f'"{path}"' if _NEEDS_QUOTES.search(path) else path
 
 
 def line(label: str, value: str) -> str:
@@ -246,24 +253,62 @@ def review_lines(signal_id: str, shown: str, source: bytes, sha: str) -> list[st
     ]
 
 
+def pin_text(pin: str | None, sha: str) -> str:
+    """How the ``code_sha256`` of the spec (``pin``) compares with the hash of the file."""
+    if pin is None:
+        return f"not set (signal.coded.code_sha256: {sha})"
+    return "matches" if pin == sha else f"differs (spec pins {pin[:8]})"
+
+
 def approve_code_lines(
     signal_id: str, sha: str, changed: bool, approved_at: str, archive: Path, record: Path, pin: str | None
 ) -> list[str]:
     """The answer of ``bt approve --code --sha``; ``pin`` is the ``code_sha256`` the spec has, if any."""
     state = "approved" if changed else "already approved"
-    if pin is None:
-        pin_text = f"not set (signal.coded.code_sha256: {sha})"
-    elif pin == sha:
-        pin_text = "matches"
-    else:
-        pin_text = f"differs (spec pins {pin[:8]})"
     return [
         line("Signal", signal_id),
         line("Code", f"{state} (sha {sha[:8]})"),
         line("Approved", approved_at),
         line("Archive", archive.as_posix()),
         line("Record", record.as_posix()),
-        line("Pin", pin_text),
+        line("Pin", pin_text(pin, sha)),
+    ]
+
+
+def executing_notice(shown: str, sha: str) -> str:
+    """The consent line of ``bt signal check``, on stderr, before the candidate is executed (ADR 0018, addendum)."""
+    return (
+        f"bt: executing {shown} (sha {sha[:8]}, NOT approved) in this process, with your permissions and no time or "
+        "memory limit; the static check is a tripwire, not a sandbox"
+    )
+
+
+def signal_check_lines(
+    signal_id: str,
+    shown: str,
+    sha: str,
+    cases_name: str,
+    cases: int,
+    pin: str | None,
+    spec: str,
+    folders: Sequence[tuple[str, str]],
+) -> list[str]:
+    """The answer of ``bt signal check`` when every check passed. ``folders`` are the ``(option, value)`` pairs of the
+    folder options that were given and are not the defaults, so that the commands of ``Next`` read the same folders."""
+    spec_word = shell_word(spec)
+    options = "".join(f" {option} {shell_word(value)}" for option, value in folders)
+    return [
+        line("Signal", signal_id),
+        line("File", shown),
+        line("Sha256", sha),
+        line("Static", "ok"),
+        line("Contract", "ok (frames of 300 rows)"),
+        line("Cases", f"ok ({plural(cases, 'case')} in {cases_name})"),
+        line("Pin", pin_text(pin, sha)),
+        line("Checked", "nothing was approved or written"),
+        "Next, if not done yet:",
+        f"  bt approve {spec_word} --idea{options}",
+        f"  bt approve {spec_word} --code --sha {sha[:8]}{options}",
     ]
 
 

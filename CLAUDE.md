@@ -96,8 +96,8 @@ a folder the run mode of `bt run`), `coded/contract.py` (the contract check on s
 rows), `coded/cases.py` (`cases.yaml`, the examples of a coded signal as data), `coded/errors.py`. `SignalSpec.resolve_signal()`
 is the one place where a spec finds its signal (the pin check); `Signal.sha256` is the hash of the code a registered signal
 was loaded from. Rules: `resolve_coded` raises only `NotApprovedError` (exit 8), `RecordError` (5),
-`StaticCheckError`/`SignalContractError` (9), `SpecError` (3) and `GateError` (9; `bt signal check`, **not built yet**, will
-also raise `CasesError`, which `classify` already maps to 9; the gate never runs `cases.yaml`), and the registry is exactly what it was whenever it raises; what a coded signal raises (`SystemExit` included, not `KeyboardInterrupt`/`GeneratorExit`) while it is
+`StaticCheckError`/`SignalContractError` (9), `SpecError` (3) and `GateError` (9; the gate never runs
+`cases.yaml`: `CasesError`, exit 9, is raised only by `bt signal check`), and the registry is exactly what it was whenever it raises; what a coded signal raises (`SystemExit` included, not `KeyboardInterrupt`/`GeneratorExit`) while it is
 loaded, checked or called through `Signal.generate` is a contract error (code reached anywhere else, such as
 `params.warmup_rows()` in `warmup_window`, is not covered: known gap 5 of the ADR); the params model of a coded signal has defaults that are numbers, text,
 true or false, or lists of those (no `None`, tuple or dict) and accepts them. `cli/errors.py` maps all of them: 8 for refusals
@@ -105,10 +105,19 @@ true or false, or lists of those (no `None`, tuple or dict) and accepts them. `c
 `RecordError` and `ApprovalFormatError`; `classify` checks the subclasses of `GateError` and `ApprovalError` first. Commands:
 `cli/coded.py` (`cmd_approve`, and `resolve_for_run`, the one place where a command passes a coded spec through the gate in run
 mode: `bt run`, `bt validate --data`, `bt data fetch`), `cli/report.py` (`stored_coded_spec`: the stored mode of `bt report`),
-`coded/working.py` (`read_working_file`: bytes only, shared by the gate and `bt approve`), `coded/status.py` (`approval_state`: the
+`coded/working.py` (`read_working_file`: bytes only, shared by the gate, `bt approve` and `bt signal check`), `cli/signal_check.py`
+(`cmd_signal_check`), `coded/status.py` (`approval_state`: the
 `Signal:` line of `bt validate`, from the record alone: no file, no archive, nothing loaded), `cli/context.py` (`Context`).
 `bt approve` reads the file once and shows, hashes and archives those bytes; it imports and executes nothing; a person has to read
-the printed code, and no rule denies the command to an agent yet; `bt signal check` is not built. Tests that register or load a signal use the fixtures of `tests/coded_helpers.py`
+the printed code, and no rule denies the command to an agent yet. `bt signal check` (`cli/signal_check.py`, ADR 0018 addendum, `docs/cli.md`)
+**executes a candidate that nobody approved**, in the process of the command, with the permissions of whoever runs it and no time
+or memory limit (known gap 6): it reads the file as bytes, runs the static check and reads `cases.yaml` as data, writes ONE consent
+line to stderr, and only then calls `load_candidate`, checks the contract on frames of 300 rows and runs the examples; it reads no
+approvals, writes nothing and caches nothing. **Only `cli/signal_check.py` may use `load_candidate` or import `coded/cases.py`**
+(`tests/test_coded_source_tree.py` and `tests/test_cli_docs_coded.py` read the syntax trees); `load_candidate` restores the registry
+however its block ends. Exit codes of the command: 3 (no coded block, params that do not fit), 9 (everything rejected, a file that
+cannot be read too), never 8. Not built: the agents, the deny rule for `bt approve`, and running a candidate in a subprocess with a
+time and memory limit. Tests that register or load a signal use the fixtures of `tests/coded_helpers.py`
 (the registry is restored, no module of a coded signal may appear in `sys.modules`, canary marker files are written under
 `tmp_path` only). `approvals/` and `strategies/signals/` are tracked, so public; they are LF
 (`.gitattributes`) and excluded from ruff (`extend-exclude`), because the bytes are hashed. A stale `approvals/.lock` is

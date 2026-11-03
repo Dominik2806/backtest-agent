@@ -11,6 +11,7 @@ from backtest_agent.cli.context import Context
 from backtest_agent.cli.data import fetch_data
 from backtest_agent.cli.errors import ExitCode, ReportedValidationErrors, ReportFolderExistsError
 from backtest_agent.cli.report import reproduce
+from backtest_agent.cli.signal_check import cmd_signal_check
 from backtest_agent.coded.status import approval_state
 from backtest_agent.experiment import run_experiment
 from backtest_agent.journal import get_run, list_runs, rebuild_index
@@ -203,6 +204,35 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
     )
     coded_options(approve)
     approve.set_defaults(handler=cmd_approve)
+
+    signal = sub.add_parser(
+        "signal",
+        help="check a candidate coded signal before it is approved",
+        description="Commands for coded signals (docs/coded-signals.md).",
+    )
+    signal_actions = signal.add_subparsers(dest="signal_command", required=True, metavar="ACTION")
+    check = signal_actions.add_parser(
+        "check",
+        parents=[common],
+        help="EXECUTE a candidate that is not approved yet and check it: static check, contract, examples",
+        description="Check a candidate coded signal BEFORE it is approved. THIS COMMAND EXECUTES THE FILE "
+        "strategies/signals/<id>.py, which nobody approved, in this process, with your permissions and with no time "
+        "or memory limit; the static check is a tripwire, not a sandbox. Read the file first if you do not trust "
+        "where it came from. Before anything is executed the command checks the file as bytes (the static check) and "
+        "the examples file <id>.cases.yaml as data, and writes one line to stderr; then it loads the candidate, runs "
+        "the contract check on frames of 300 rows and runs the examples. Nothing is approved or written and the "
+        "approvals folder is not read, so a candidate can be checked before its idea is approved. Folders are "
+        "relative to the current directory.",
+    )
+    check.add_argument("spec", metavar="SPEC", help="path of the YAML strategy spec with a coded block")
+    check.add_argument(
+        "--strategies-dir",
+        type=Path,
+        default=DEFAULT_STRATEGIES_DIR,
+        metavar="DIR",
+        help="folder of the editable signal file and its cases file (strategies/signals)",
+    )
+    check.set_defaults(handler=cmd_signal_check)
 
     report = sub.add_parser(
         "report",

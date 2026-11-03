@@ -1,9 +1,10 @@
 """docs/cli.md is true about ``bt approve`` and the coded commands (the claims of the documents of Phase 10 part 3).
 
 The worked example of the document is what the commands print; the exit-code table and the hints are the ones of
-``classify``; every option the document names exists; the known limits it states are the behaviour; and what it says
-is not built is not built. The expected blocks are literals (hashes and sizes: ``tests/coded_cli_helpers.py``,
-``tests/test_cli_approve.py``); the expected output is never computed with project code.
+``classify``; every option the document names exists; the known limits it states are the behaviour; and the examples
+run only in ``bt signal check`` (``tests/test_cli_docs_signal_check.py`` has the claims about that command). The
+expected blocks are literals (hashes and sizes: ``tests/coded_cli_helpers.py``, ``tests/test_cli_approve.py``); the
+expected output is never computed with project code.
 """
 
 import ast
@@ -32,6 +33,7 @@ from coded_helpers import coded_spec, registry_and_modules_are_restored  # noqa:
 from report_helpers import world as r3b_world
 from runner_helpers import LiteralProvider
 from test_cli_approve import CODE_LINES, CONFIRM_HINT, IDEA_LINES, SOURCE
+from test_cli_record_hints import COMMANDS, CONTENTS, DOCUMENTED
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = (ROOT / "docs" / "cli.md").read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -257,14 +259,31 @@ def table_row_with(text: str) -> str:
 
 
 def test_the_hint_table_says_which_commands_get_which_record_hint() -> None:
+    """The rows are tied to the cases of ``tests/test_cli_record_hints.py``: every command that test runs on a damaged
+    record is named in the row of the format hint, and the gate row names only the gate commands."""
+    damaged = table_row_with(f"`{errors.RECORD_FORMAT_HINT}`")
     gate = table_row_with(f"`{errors.RECORD_HINT}`")
-    direct = table_row_with(f"`{errors.RECORD_FORMAT_HINT}`")
-    for command in ("`bt run`", "`bt validate --data`", "`bt data fetch`", "`bt report`"):
-        assert command in gate and command not in direct, command
-    for command in ("`bt validate`", "`bt approve`"):
-        assert command in direct and command not in gate, command
-    assert "`RecordError`" in gate and "`ApprovalFormatError`" in direct
-    assert "is not valid JSON in UTF-8" in gate and "schema_version must be 1, got 2" in gate
+    for name, (_, through_the_gate) in COMMANDS.items():
+        shown = f"`{DOCUMENTED[name]}`"
+        assert shown in damaged, name
+        assert (shown in gate) is through_the_gate, name
+    assert "`ApprovalFormatError`" in damaged and "`RecordError`" in damaged and "`RecordError`" in gate
+    messages = (
+        "is not valid JSON in UTF-8",
+        "must be an object with exactly the keys",
+        "schema_version must be 1, got 2",
+    )
+    for message in messages:
+        assert f"`{message}" in damaged, message
+    assert all(what.startswith(messages) for _, what in CONTENTS.values())  # the document names every message tested
+    assert "`cannot be read (...)`" in damaged
+    assert "this run used" in gate and "in a first `bt run`" in gate
+    assert "ApprovalFormatError" not in gate
+
+
+def test_the_exit_code_row_says_that_the_hint_of_a_damaged_record_is_the_same_everywhere() -> None:
+    row = table_row_with("approvals: an approval record that is not valid")
+    assert "the hint is the same in all of them" in row and "the hint differs" not in row
 
 
 def test_the_document_states_the_file_limits_of_the_review() -> None:
@@ -301,13 +320,15 @@ def test_report_has_no_strategies_dir_because_it_never_reads_the_working_file() 
     assert "--strategies-dir" not in section("bt report RUN_ID")
 
 
-# --- what the document says is not built is not built ---
+# --- bt signal check is a command, and only its handler runs the examples ---
 
 
-def test_bt_signal_check_is_not_a_command() -> None:
-    result = run_cli(["signal", "check", "spec.yaml"])
-    assert (result.code, result.out) == (2, "")
-    assert "**`bt signal check` and the agents are not built yet**" in TEXT
+def test_bt_signal_check_is_a_command_with_usage_errors_for_what_argparse_sees() -> None:
+    assert run_cli(["signal", "check"]).code == 2  # no SPEC
+    assert run_cli(["signal"]).code == 2  # no action
+    assert run_cli(["signal", "check", "spec.yaml", "--approvals-dir", "a"]).code == 2  # the record is never read
+    missing = run_cli(["signal", "check", "no-such-spec.yaml"])
+    assert (missing.code, missing.out) == (3, "")  # it got as far as reading the spec
 
 
 CASES_MODULE = "backtest_agent.coded.cases"
@@ -349,11 +370,11 @@ def importers_of_cases(src_root: Path) -> list[str]:
     return found
 
 
-def test_no_module_but_cases_py_imports_the_cases_module_so_no_command_can_run_the_examples() -> None:
-    """``bt signal check`` is the only planned caller of the functions of ``coded/cases.py`` (``cases_path``,
-    ``read_cases``, ``parse_cases`` and ``run_cases``) and it is not built: nothing imports the module, so nothing runs
-    ``cases.yaml`` and nothing raises ``CasesError`` in a command."""
-    assert importers_of_cases(ROOT / "src") == []
+def test_only_the_handler_of_bt_signal_check_imports_the_cases_module_so_no_other_command_runs_the_examples() -> None:
+    """``bt signal check`` is the only caller of the functions of ``coded/cases.py`` (``cases_path``, ``read_cases``,
+    ``parse_cases`` and ``run_cases``): exactly one module imports it, so no other command runs ``cases.yaml`` and
+    nothing else raises ``CasesError`` from it."""
+    assert importers_of_cases(ROOT / "src") == ["backtest_agent/cli/signal_check.py"]
     assert (ROOT / "src" / "backtest_agent" / "coded" / "cases.py").is_file()  # the scan looks at the right tree
 
 
