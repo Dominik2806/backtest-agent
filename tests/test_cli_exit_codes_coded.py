@@ -25,7 +25,8 @@ from backtest_agent.coded.errors import (
 from backtest_agent.spec import SIGNALS, Signal
 from backtest_agent.spec.errors import SignalContractError
 from cli_helpers import run_cli, write_spec
-from report_helpers import spec_for, world
+from report_helpers import spec_for
+from report_helpers import world as report_world
 from runner_helpers import LiteralProvider, UpDayParams
 
 STATIC = StaticCheckError([Finding(3, 1, "import", "import of 'os' is not allowed")])
@@ -102,6 +103,22 @@ def test_only_the_confirmation_names_the_command_with_the_hash() -> None:
         assert "--sha" not in (classify(other).hint or "")
 
 
+@pytest.mark.parametrize(
+    ("spec", "shown"),
+    [
+        ("strategies/rsi.yaml", "strategies/rsi.yaml"),
+        (r"C:\work\rsi_pullback-1.yaml", r"C:\work\rsi_pullback-1.yaml"),
+        ("my strategies/rsi.yaml", '"my strategies/rsi.yaml"'),
+        ("rsi (copy).yaml", '"rsi (copy).yaml"'),
+        ("a&b.yaml", '"a&b.yaml"'),
+    ],
+    ids=["plain", "windows", "space", "parentheses", "ampersand"],
+)
+def test_the_spec_path_of_the_hint_is_quoted_only_when_it_needs_quotes(spec: str, shown: str) -> None:
+    hint = classify(ConfirmationError(spec, "3f9a1c2e", "x")).hint
+    assert hint == f"read the code printed above; if you accept it, run: bt approve {shown} --code --sha 3f9a1c2e"
+
+
 def test_the_message_of_a_failed_static_check_lists_the_findings() -> None:
     failure = classify(STATIC)
     assert failure.message == (
@@ -135,7 +152,7 @@ def test_bt_run_on_a_built_in_signal_that_breaks_the_contract_is_code_9(tmp_path
         Signal("fixture_not_a_frame", UpDayParams, not_a_frame, "returns an int"),
     )
     path = write_spec(tmp_path, spec_for(signal="fixture_not_a_frame"))
-    result = run_cli(["run", str(path)], provider=LiteralProvider(world()))
+    result = run_cli(["run", str(path)], provider=LiteralProvider(report_world()))
     assert result.code == 9
     assert result.out == ""
     assert result.err.splitlines() == [
@@ -143,3 +160,4 @@ def test_bt_run_on_a_built_in_signal_that_breaks_the_contract_is_code_9(tmp_path
         "hint: a signal has to follow the signal contract (docs/strategy-spec.md)",
     ]
     assert not (tmp_path / "runs").exists()
+    assert not (tmp_path / "reports").exists()

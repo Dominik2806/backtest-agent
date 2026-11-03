@@ -35,6 +35,7 @@ from backtest_agent.journal import (
 from backtest_agent.spec.errors import SignalContractError, SpecError, SpecProblem, UnknownSignalError
 
 MAX_ISSUES_SHOWN = 10
+_NEEDS_QUOTES = re.compile(r"[^A-Za-z0-9_./\\:-]")
 APPROVAL_HINT = "approvals are made with bt approve; see docs/coded-signals.md"
 RECORD_HINT = "the approvals folder (--approvals-dir) has to hold the record and the archived code this run used"
 RECORD_FORMAT_HINT = "an approval record is not valid; restore it from version control (docs/coded-signals.md)"
@@ -123,6 +124,11 @@ def clean(message: str) -> str:
     return _CONTROL.sub("?", message)
 
 
+def _shell_word(path: str) -> str:
+    """The path as the hint prints it: in double quotes if it has a character outside the safe set."""
+    return f'"{path}"' if _NEEDS_QUOTES.search(path) else path
+
+
 def _validation_message(error: DataValidationError) -> str:
     issues = getattr(error.result, "errors", None)
     if not issues:
@@ -180,11 +186,8 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
     if isinstance(error, ApprovalFormatError):
         return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT)
     if isinstance(error, ConfirmationError):
-        return Failure(
-            ExitCode.GATE,
-            str(error),
-            f"read the code printed above; if you accept it, run: bt approve {error.spec} --code --sha {error.short}",
-        )
+        command = f"bt approve {_shell_word(error.spec)} --code --sha {error.short}"
+        return Failure(ExitCode.GATE, str(error), f"read the code printed above; if you accept it, run: {command}")
     if isinstance(error, NotApprovedError | ApprovalError):
         return Failure(ExitCode.GATE, str(error), APPROVAL_HINT)
     if isinstance(error, StaticCheckError | CasesError | GateError):
