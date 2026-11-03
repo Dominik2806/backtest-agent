@@ -11,6 +11,7 @@ from pathlib import Path
 
 from backtest_agent.cli.compare import MISSING, Difference
 from backtest_agent.cli.data import DataFetch, rows_with_data
+from backtest_agent.coded.status import ApprovalState
 from backtest_agent.data.validation import ValidationIssue
 from backtest_agent.engine import LoadedHistory
 from backtest_agent.journal import CodeVersion, RunRecord, RunSummary
@@ -142,16 +143,34 @@ def show_lines(record: RunRecord, runs_dir: Path, reports_dir: Path) -> list[str
     return lines
 
 
-def validate_lines(spec: StrategySpec, path: str) -> list[str]:
-    """The answer of ``bt validate``: the spec is valid, and the facts a reader checks before running it."""
+def signal_state_text(state: ApprovalState) -> str:
+    """The ``Signal:`` line of a coded spec: the three states of docs/coded-signals.md."""
+    if not state.idea:
+        return "coded, idea not approved"
+    if state.code_sha256 is None:
+        return "coded, idea approved, code not approved"
+    return f"coded, idea and code approved (sha {state.code_sha256[:8]})"
+
+
+def validate_lines(
+    spec: StrategySpec, path: str, state: ApprovalState | None = None, *, loaded: bool = False
+) -> list[str]:
+    """The answer of ``bt validate``: the spec is valid, and the facts a reader checks before running it.
+
+    A coded spec (``state`` is given) gets a ``Signal:`` line from the approval record. Its warm-up needs the code, so
+    it is ``n/a`` unless the gate loaded the signal (``loaded``, with ``--data``). A built-in spec has no such line.
+    """
+    not_loaded = state is not None and not loaded
+    warmup = "n/a (coded signal, not loaded)" if not_loaded else f"{fmt.integer(spec.warmup_rows, 'warmup_rows')} rows"
     return [
         f"OK: {text(path)} is a valid spec",
         line("Name", text(spec.name)),
         line("Family", text(spec.signal.id)),
+        *([line("Signal", signal_state_text(state))] if state is not None else []),
         line("Universe", ", ".join(text(s) for s in spec.universe)),
         line("Benchmark", text(spec.benchmark)),
         line("Period", period_text(spec)),
-        line("Warm-up", f"{fmt.integer(spec.warmup_rows, 'warmup_rows')} rows"),
+        line("Warm-up", warmup),
         line("Risk flags", codes_text([flag.code for flag in spec.risk_flags()])),
     ]
 

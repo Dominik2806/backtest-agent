@@ -21,10 +21,19 @@ from backtest_agent.coded.approvals import (
     record_path,
 )
 from backtest_agent.coded.errors import ApprovalError
+from backtest_agent.coded.loader import resolve_coded
 from backtest_agent.coded.static import check_source
 from backtest_agent.coded.working import read_working_file
-from backtest_agent.spec import load_spec
+from backtest_agent.spec import StrategySpec, load_spec
 from backtest_agent.spec.errors import SpecError, SpecProblem
+
+
+def resolve_for_run(spec: StrategySpec, args: argparse.Namespace) -> StrategySpec:
+    """The spec to run: a built-in spec as it is, a coded spec through the gate in run mode (``bt run``,
+    ``bt validate --data``, ``bt data fetch``). Only the gate may load code, and only approved code."""
+    if spec.signal.coded is None:
+        return spec
+    return resolve_coded(spec, approvals_dir=args.approvals_dir, strategies_dir=args.strategies_dir)
 
 
 def cmd_approve(args: argparse.Namespace, context: Context) -> ExitCode:

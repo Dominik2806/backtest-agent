@@ -6,11 +6,12 @@ from pathlib import Path
 
 from backtest_agent.cli import render
 from backtest_agent.cli.argtypes import positive_int, run_id_arg, sha_prefix
-from backtest_agent.cli.coded import cmd_approve
+from backtest_agent.cli.coded import cmd_approve, resolve_for_run
 from backtest_agent.cli.context import Context
 from backtest_agent.cli.data import fetch_data
 from backtest_agent.cli.errors import ExitCode, ReportedValidationErrors, ReportFolderExistsError
 from backtest_agent.cli.report import reproduce
+from backtest_agent.coded.status import approval_state
 from backtest_agent.experiment import run_experiment
 from backtest_agent.journal import get_run, list_runs, rebuild_index
 from backtest_agent.reporting import write_report
@@ -19,7 +20,7 @@ from backtest_agent.spec import load_spec
 
 def cmd_run(args: argparse.Namespace, context: Context) -> ExitCode:
     """The standard run: ``run_experiment`` evaluates, logs the run and writes the report."""
-    spec = load_spec(args.spec)
+    spec = resolve_for_run(load_spec(args.spec), args)  # a coded spec passes the gate before any data is requested
     provider = context.provider_factory(args.cache_dir)
     experiment = run_experiment(
         spec,
@@ -39,9 +40,16 @@ def cmd_run(args: argparse.Namespace, context: Context) -> ExitCode:
 
 
 def cmd_validate(args: argparse.Namespace, context: Context) -> ExitCode:
-    """Load and check a spec. Without ``--data``: no network, nothing is written."""
+    """Load and check a spec. Without ``--data``: no network, nothing is written, no code is loaded (a coded spec gets
+    its ``Signal:`` line from the approval record). With ``--data`` a coded spec passes the gate first."""
     spec = load_spec(args.spec)
-    lines = render.validate_lines(spec, args.spec)
+    coded = spec.signal.coded is not None
+    if coded and not args.data:
+        context.emit(*render.validate_lines(spec, args.spec, approval_state(spec, args.approvals_dir)))
+        return ExitCode.OK
+    spec = resolve_for_run(spec, args)
+    state = approval_state(spec, args.approvals_dir) if coded else None
+    lines = render.validate_lines(spec, args.spec, state, loaded=True)
     if not args.data:
         context.emit(*lines)
         return ExitCode.OK
@@ -54,7 +62,7 @@ def cmd_validate(args: argparse.Namespace, context: Context) -> ExitCode:
 
 def cmd_data_fetch(args: argparse.Namespace, context: Context) -> ExitCode:
     """Fetch the two requests of a run through the cache and print them; judging the data is ``validate --data``."""
-    spec = load_spec(args.spec)
+    spec = resolve_for_run(load_spec(args.spec), args)
     fetch = fetch_data(spec, context.provider_factory(args.cache_dir))
     context.emit(*render.data_fetch_lines(fetch))
     if fetch.error_count:
@@ -80,7 +88,7 @@ def cmd_report(args: argparse.Namespace, context: Context) -> ExitCode:
     folder = args.reports_dir / record.run_id
     if folder.exists() and not args.overwrite:
         raise ReportFolderExistsError(folder)
-    evaluation = reproduce(record, context.provider_factory(args.cache_dir))
+    evaluation = reproduce(record, context.provider_factory(args.cache_dir), args.approvals_dir)
     try:
         paths = write_report(
             evaluation,
@@ -132,6 +140,24 @@ def cmd_journal_rebuild(args: argparse.Namespace, context: Context) -> ExitCode:
     return ExitCode.OK
 
 
+def approvals_option(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--approvals-dir", type=Path, default=Path("approvals"), metavar="DIR", help="approvals folder (approvals)"
+    )
+
+
+def coded_options(parser: argparse.ArgumentParser) -> None:
+    """The two folders of a command that can run a coded signal: its approvals and its editable files."""
+    approvals_option(parser)
+    parser.add_argument(
+        "--strategies-dir",
+        type=Path,
+        default=Path("strategies/signals"),
+        metavar="DIR",
+        help="folder of the editable signal files (strategies/signals); only a file with an approved hash is used",
+    )
+
+
 def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser) -> None:
     """Add every command to the sub-parsers of the top-level parser."""
     run = sub.add_parser(
@@ -153,6 +179,7 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
     run.add_argument(
         "--cache-dir", type=Path, default=Path("data/cache"), metavar="DIR", help="price cache folder (data/cache)"
     )
+    coded_options(run)
     run.set_defaults(handler=cmd_run)
 
     approve = sub.add_parser(
@@ -174,16 +201,7 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
         metavar="HEX8",
         help="with --code: the first 8 hex of the hash that the command printed (either case)",
     )
-    approve.add_argument(
-        "--approvals-dir", type=Path, default=Path("approvals"), metavar="DIR", help="approvals folder (approvals)"
-    )
-    approve.add_argument(
-        "--strategies-dir",
-        type=Path,
-        default=Path("strategies/signals"),
-        metavar="DIR",
-        help="folder of the editable signal files (strategies/signals)",
-    )
+    coded_options(approve)
     approve.set_defaults(handler=cmd_approve)
 
     report = sub.add_parser(
@@ -209,6 +227,7 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
     report.add_argument(
         "--overwrite", action="store_true", help="replace the files of an existing report folder (default: refuse)"
     )
+    approvals_option(report)
     report.set_defaults(handler=cmd_report)
 
     journal = sub.add_parser(
@@ -273,6 +292,7 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
         metavar="DIR",
         help="price cache folder (data/cache); used with --data",
     )
+    coded_options(validate)
     validate.set_defaults(handler=cmd_validate)
 
     data = sub.add_parser(
@@ -293,4 +313,5 @@ def register(sub: "argparse._SubParsersAction", common: argparse.ArgumentParser)
     fetch.add_argument(
         "--cache-dir", type=Path, default=Path("data/cache"), metavar="DIR", help="price cache folder (data/cache)"
     )
+    coded_options(fetch)
     fetch.set_defaults(handler=cmd_data_fetch)
