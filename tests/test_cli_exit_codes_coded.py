@@ -2,8 +2,8 @@
 
 ``classify`` in ``cli/errors.py`` is the only place that decides a code. The expected codes, messages and hints
 are literals.
-The classes that ``bt approve`` and the gate raise are mapped here with one error each; the commands that raise them
-come in the next commits, and ``CasesError`` is raised by ``bt signal check``, which is not built yet.
+The classes that ``bt approve``, the gate and ``bt signal check`` raise are mapped here with one error each;
+``CasesError`` is raised by ``bt signal check`` only.
 """
 
 from pathlib import Path

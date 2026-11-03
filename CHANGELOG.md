@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Phase 10 part 3b (F-18), `bt signal check SPEC [--strategies-dir DIR]`: the check of a candidate coded signal before it is
+  approved. **It executes the working file, which nobody approved, in the process of the command, with the permissions of whoever
+  runs it and no time or memory limit** (known gap 6 of ADR 0018; the static check is a tripwire, not a sandbox). Order: the file
+  is read as bytes, the static check runs, `<id>.cases.yaml` is read as data, one consent line is written to stderr, and only then
+  `load_candidate` (new in `coded/loader.py`: a context manager that restores the registry however its block ends) loads the
+  candidate, the contract check runs on frames of 300 rows and the examples run. It reads no approvals, writes nothing and caches
+  nothing. Exit codes: 0, 2, 3 (no `coded` block, params that do not fit the model of the code), 9 (static check, contract,
+  examples, code that does not load, a file that cannot be read), 130. `CasesError` is raised for the first time. Only
+  `cli/signal_check.py` may call `load_candidate` or import `coded/cases.py` (source-tree tests). Not built: the agents, the deny
+  rule for `bt approve`, a subprocess with a time and memory limit. See `docs/cli.md`, `docs/coded-signals.md` and the
+  addendum of [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md). No new dependency.
+
 - Phase 10 part 3 (F-18), the commands. `bt approve SPEC (--idea | --code [--sha HEX8])` approves the idea `{signal id, brief}`
   and then the code of a coded spec: `--code` reads the working file once, refuses an unapproved idea (exit 8, nothing
   printed) and code that breaks the static check (exit 9), prints the whole file with line numbers, its size and its hash and
@@ -18,8 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`--approvals-dir`, `--strategies-dir`) before any data is requested; `bt report` resolves a stored coded spec in stored
   mode from the archive (`--approvals-dir`) and never reads the working file; `bt validate` prints a `Signal:` line from the
   approval record alone and loads nothing. Exit code 8 (refusals), exit code 9 (rejected code, `SignalContractError` for every
-  signal, a built-in one too: it was code 1) and exit code 5 for approval records and archives. `bt signal check` and the
-  agents are not built. See `docs/cli.md`, `docs/coded-signals.md` and [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md).
+  signal, a built-in one too: it was code 1) and exit code 5 for approval records and archives. `bt signal check` follows in
+  part 3b and the agents after it. See `docs/cli.md`, `docs/coded-signals.md` and [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md).
   New files: `src/backtest_agent/cli/coded.py`, `cli/context.py`, `coded/status.py`, `coded/working.py`; tests `tests/coded_cli_helpers.py`, `test_cli_approve.py`, `test_cli_docs_coded.py`, `test_cli_exit_codes_coded.py`, `test_cli_record_hints.py`, `test_cli_report_coded.py`, `test_cli_run_coded.py`, `test_cli_validate_coded.py`.
   No new dependency.
 
@@ -50,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md) (with the known gaps) describe it. No new dependency.
 
 ### Changed
+
+- One hint for a damaged approval record in every command that reads approvals: `bt validate`, `bt approve`, `bt run`, `bt validate
+  --data`, `bt data fetch` and `bt report` print `an approval record is not valid; restore it from version control`. Before, the
+  four gate commands printed the hint about the approvals folder and "this run used", also in a first run. A record or an archive
+  that is missing or changed keeps that hint. A record file that cannot be read gets the "not valid" hint and the real reason
+  in the message line. Exit code 5 is unchanged.
 
 - `SignalContractError` is now exit code 9 for every signal, built-in ones too; it was exit code 1 ("unexpected error").
   `bt run` of a signal that breaks the signal contract is the case that changes (Phase 10 part 3, `cli/errors.py`).

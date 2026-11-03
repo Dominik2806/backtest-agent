@@ -37,6 +37,7 @@ from backtest_agent.spec.errors import SignalContractError, SpecError, SpecProbl
 
 MAX_ISSUES_SHOWN = 10
 APPROVAL_HINT = "approvals are made with bt approve; see docs/coded-signals.md"
+# The hint of the gate for a record or an archive that is missing or changed; a damaged record gets RECORD_FORMAT_HINT.
 RECORD_HINT = "the approvals folder (--approvals-dir) has to hold the record and the archived code this run used"
 RECORD_FORMAT_HINT = "an approval record is not valid; restore it from version control (docs/coded-signals.md)"
 CODE_HINT = "the rules a coded signal has to follow are in docs/coded-signals.md"

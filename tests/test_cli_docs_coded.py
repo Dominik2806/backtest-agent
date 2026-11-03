@@ -1,9 +1,10 @@
 """docs/cli.md is true about ``bt approve`` and the coded commands (the claims of the documents of Phase 10 part 3).
 
 The worked example of the document is what the commands print; the exit-code table and the hints are the ones of
-``classify``; every option the document names exists; the known limits it states are the behaviour; and what it says
-is not built is not built. The expected blocks are literals (hashes and sizes: ``tests/coded_cli_helpers.py``,
-``tests/test_cli_approve.py``); the expected output is never computed with project code.
+``classify``; every option the document names exists; the known limits it states are the behaviour; and the examples
+run only in ``bt signal check`` (``tests/test_cli_docs_signal_check.py`` has the claims about that command). The
+expected blocks are literals (hashes and sizes: ``tests/coded_cli_helpers.py``, ``tests/test_cli_approve.py``); the
+expected output is never computed with project code.
 """
 
 import ast
@@ -319,7 +320,7 @@ def test_report_has_no_strategies_dir_because_it_never_reads_the_working_file() 
     assert "--strategies-dir" not in section("bt report RUN_ID")
 
 
-# --- what the document says is not built is not built ---
+# --- bt signal check is a command, and only its handler runs the examples ---
 
 
 def test_bt_signal_check_is_a_command_with_usage_errors_for_what_argparse_sees() -> None:

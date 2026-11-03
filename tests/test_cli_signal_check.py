@@ -197,6 +197,21 @@ def test_a_file_that_is_missing_is_exit_9_not_8_because_nothing_waits_for_an_app
     assert "docs/coded-signals.md" in err.splitlines()[-1]  # the hint of rejected code, not the one of an approval
 
 
+def test_a_working_file_that_is_not_a_regular_file_is_exit_9(cwd: Path) -> None:
+    write_spec(cwd, coded_spec(ID))
+    (cwd / "strategies" / "signals" / "x_signal.py").mkdir(parents=True)  # a folder where the file should be
+    err, _ = refuses(cwd, 9, "strategies/signals/x_signal.py cannot be read (")
+    assert consent_lines(err) == []
+
+
+def test_the_examples_run_with_the_params_of_the_cases_file_not_with_the_params_of_the_spec(cwd: Path) -> None:
+    """The spec says scale 0.0 (the contract check runs with it); the cases file has no params, so the examples run with
+    the default 1.0 * 0.5 and expect 0.5. Both pass; with the params of the spec the examples would see 0.0 and fail."""
+    candidate(cwd, params={"scale": 0.0})
+    result = run_cli(["signal", "check", "spec.yaml"])
+    assert (result.code, result.out.splitlines()[5]) == (0, "Cases:      ok (1 case in x_signal.cases.yaml)")
+
+
 def test_a_file_that_is_too_large_is_exit_9(cwd: Path) -> None:
     candidate(cwd, b"#" * (FILE_LIMIT + 1))
     err, _ = refuses(cwd, 9, "x_signal.py is larger than the limit; approved code is at most 64 KiB")

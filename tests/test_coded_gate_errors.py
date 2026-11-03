@@ -3,7 +3,7 @@
 One row per failure. The class is compared with ``type(error) is ...``, so a subclass or a raw exception of another
 kind fails the row, and after each failure the registry is what it was. The exit codes that ``bt`` will give these
 classes are not tested here; they are tested with the commands. The gate never runs ``cases.yaml``: ``CasesError`` is
-raised by ``bt signal check``, and a test checks that the loader imports nothing from ``coded.cases``.
+raised only by ``bt signal check``, and a test checks that the loader imports nothing from ``coded.cases``.
 """
 
 import ast

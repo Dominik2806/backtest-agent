@@ -419,10 +419,10 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 - Phase 10 part 3 (`feature/coded-signals-cli`): `bt approve` and the resolving of coded specs in the commands. The roadmap
   listed neither; `bt signal check` moves to its own pull request (part 3b) and the agents stay last. Deviations from the plan
   and from the first text of ADR 0018:
-  - **`bt signal check` is not part of this pull request.** It has to execute a candidate that is not approved yet, which the
-    ADR did not settle (ADR 0018 says only that the gate runs approved bytes); that needs its own decision and a changed rule for
-    the loader, so docs and ADR keep saying that it is not built. `CasesError` is mapped to exit code 9 by `classify`, but no
-    command raises it yet.
+  - **`bt signal check` was not part of this pull request; part 3b built it.** It has to execute a candidate that is not
+    approved yet, which the ADR did not settle (ADR 0018 said only that the gate runs approved bytes); that needed its own decision
+    and a changed rule for the loader, so the documents of part 3 said that it was not built. `CasesError` was mapped to exit code 9
+    by `classify`, but no command raised it until part 3b.
   - **Exit codes.** 8 is a refusal (`NotApprovedError`, `ApprovalError`, `ConfirmationError`), 9 is rejected code
     (`StaticCheckError`, `SignalContractError` for every signal, `GateError`, `CasesError`), 5 widens to `RecordError` and
     `ApprovalFormatError`. A bare `GateError` is 9, not 8: it never means that a person has to approve something. A malformed
@@ -463,6 +463,38 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
     `tests/coded_cli_helpers.py`, `tests/test_cli_approve.py`, `tests/test_cli_docs_coded.py`,
     `tests/test_cli_exit_codes_coded.py`, `tests/test_cli_record_hints.py`, `tests/test_cli_report_coded.py`,
     `tests/test_cli_run_coded.py`, `tests/test_cli_validate_coded.py`.
+- Phase 10 part 3b (`feature/coded-signals-check`): `bt signal check`, `load_candidate` and one hint for a damaged approval record. Done; the phase stays "In progress" and
+  the agents are pull request 4 (next). Deviations from the plan and from the first text of ADR 0018:
+  - **ADR 0018 had not settled how a candidate that nobody approved is executed.** The addendum of part 3b does: `load_candidate`
+    (a context manager in `coded/loader.py` that restores the registry however its block ends) is the second and last way to execute
+    strategy code; only `cli/signal_check.py` may call it and import `coded/cases.py` (source-tree tests); the command reads the file
+    as bytes, runs the static check and reads `cases.yaml` as data, writes one consent line to stderr and only then executes the
+    candidate; it reads no approvals, writes nothing and caches nothing. Known gap 6 is new: executing code that nobody approved.
+  - **In process, not in a subprocess; the hardening is not built.** A subprocess with a wall-clock limit and a memory limit is not
+    built. An agent that runs the command runs its own code with its own permissions, as it could with Python; the only limit of an
+    agent run is the timeout of its own tool; whether agents may run it unattended is decided in the agents part (pull request 4),
+    which must state it in `docs/agents.md`. The rule that denies `bt approve` to the agents does not exist yet either.
+  - **Exit codes.** `CasesError` is raised for the first time (9). A working file that is missing, not a regular file, unreadable or
+    too large is 9 in `bt signal check`, not 8 (nothing waits for an approval); the command has no exit code 8 or 5. Params of the
+    spec that do not fit the model of the candidate are 3.
+  - **Output.** `Next, if not done yet:` and two `bt approve` lines; the command does not read approvals and says nothing about their
+    state. The planned lines `Examples:` and `Cases:` are one line, `Cases: ok (1 case in x_signal.cases.yaml)`.
+  - **One hint for a damaged approval record** (the follow-up of part 3): `classify` reads the `__cause__` of a `RecordError`; the gate
+    already chained it (`from error`), so `loader.py` needed no change for that. An unreadable record file is a damaged record too and
+    gets the same hint; a missing or changed record or archive keeps the hint of the gate, also in a first `bt run`. Three tests of part 3
+    that expected the old hint changed.
+  - **Small moves:** `shell_word` moved from `cli/errors.py` to `cli/render.py` (the `Next` lines are built there); `pin_text` is shared
+    by `bt approve` and `bt signal check`.
+  - **Known limits, stated in `docs/cli.md`:** in-process execution without time or memory limit; only the registry is restored; the
+    examples run with the params of the cases file, the contract check with those of the spec.
+  - **Every file that existed before part 3b and was changed** (the new files are listed below). Lines added/deleted of the whole
+    branch, as `git diff main...HEAD --numstat --diff-filter=M` reports them (the entry is rewritten by a script until the numbers
+    are stable, because this file is one of them):
+    - source: `src/backtest_agent/cli/commands.py` (+30/-0: the `signal` group and `check SPEC [--strategies-dir DIR]` with the consent text in `--help`); `src/backtest_agent/cli/errors.py` (+6/-7: `classify` reads the cause of a `RecordError`; `shell_word` moved to `render.py`; a comment on `RECORD_HINT`); `src/backtest_agent/cli/render.py` (+52/-7: `executing_notice`, `signal_check_lines`, `pin_text` (shared with `bt approve`), `shell_word`); `src/backtest_agent/coded/errors.py` (+5/-2: docstrings of `RecordError` and `CasesError`); `src/backtest_agent/coded/loader.py` (+63/-0: `Candidate`, `load_candidate`, `_registered_once` (shared with `_load`));
+    - tests: `tests/test_cli_docs_coded.py` (+41/-20: `test_bt_signal_check_is_not_a_command` replaced; the importer guard of `coded/cases.py` names exactly `cli/signal_check.py`; the hint table is tied to the cases of `test_cli_record_hints.py`); `tests/test_cli_exit_codes_coded.py` (+2/-2: docstring); `tests/test_cli_help.py` (+17/-1: the help of `signal check` and its consent wording); `tests/test_cli_record_hints.py` (+156/-18: rewritten: one hint for a damaged record in all seven commands, and the records that keep the gate hint); `tests/test_cli_report_coded.py` (+4/-1: a damaged record now gets the format hint); `tests/test_cli_run_coded.py` (+1/-3: a damaged record now gets the format hint); `tests/test_coded_gate_errors.py` (+1/-1: docstring); `tests/test_coded_source_tree.py` (+60/-0: the rule that only `coded/loader.py` and `cli/signal_check.py` use `load_candidate`); `tests/test_docs_commands.py` (+12/-0: the forms of `bt signal check` that must and must not parse);
+    - documents: `CHANGELOG.md` (+20/-2: Added: `bt signal check`; Changed: one hint); `CLAUDE.md` (+13/-4: the rules of `bt signal check` and `load_candidate`); `README.md` (+5/-2: the command and its warning); `docs/ROADMAP.md` (+36/-9: this entry; the known limit of part 3 is removed); `docs/adr/0018-coded-signals-and-approval-gate.md` (+52/-6: status line, known gap 6, the addendum of part 3b, two sentences about `CasesError`); `docs/cli.md` (+135/-9: the section `bt signal check SPEC`, the exit-code rows, the table of hints); `docs/coded-signals.md` (+40/-13: the section "Checking a candidate", "Not built yet" shrinks to the agents and two hardening items).
+  - **New files** (all other files of the part): source: `src/backtest_agent/cli/signal_check.py` (`cmd_signal_check`, the only caller of `load_candidate` and the only importer of `coded/cases.py`); tests: `tests/test_cli_docs_signal_check.py` (the blocks of `docs/cli.md` against the command, the exit-code rows, the "not built" sentences, the rules of CLAUDE.md), `tests/test_cli_signal_check.py` (`bt signal check`: output, exit codes, consent line, canary, Ctrl-C, no cache), `tests/test_coded_candidate.py` (`load_candidate`).
+    Lines added: `src/backtest_agent/cli/signal_check.py` +59, `tests/test_cli_docs_signal_check.py` +256, `tests/test_cli_signal_check.py` +382, `tests/test_coded_candidate.py` +187.
 
 ---
 

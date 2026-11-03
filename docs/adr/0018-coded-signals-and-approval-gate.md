@@ -2,9 +2,9 @@
 
 - **Status:** Accepted. Built in parts: the `coded` block of the spec, the static check, the approval records, the contract
   check, the loader (the gate), the `cases.yaml` format, the check before a run, `bt approve` and the resolving commands
-  (`bt run`, `bt validate`, `bt data fetch`, `bt report` with a coded spec) are delivered; `bt signal check` and the agents
-  follow. `CasesError` is mapped to exit code 9, but only `bt signal check` raises it and that command is not built. The rules
-  below are fixed so that the later parts build to them.
+  (`bt run`, `bt validate`, `bt data fetch`, `bt report` with a coded spec) and, in Phase 10 part 3b, `bt signal check` with
+  `load_candidate` (see the addendum at the end) are delivered; the agents are not built yet. `CasesError` is exit code 9 and
+  only `bt signal check` raises it. The rules below are fixed so that the later parts build to them.
 
 ## Context
 
@@ -97,8 +97,8 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
     `GateError` (the code did not load, or its params model is not usable; exit code 9). `resolve_coded` raises nothing else except
     `KeyboardInterrupt` and `GeneratorExit`; `tests/test_coded_gate_errors.py` has one row for every documented failure and
     checks the exact class. `CasesError` is not among them: it is raised by `coded/cases.py`, which only `bt signal check`
-    will call (`bt` maps it to exit code 9, like `StaticCheckError` and `SignalContractError`; that command is not built, so no
-    command raises it yet), and a test checks that the loader does not import it. The mapping is in `cli/errors.py` and
+    calls (`bt` maps it to exit code 9, like `StaticCheckError` and `SignalContractError`; it is raised by `bt signal check` and
+    by no other command), and a test checks that the loader does not import it. The mapping is in `cli/errors.py` and
     tested: `SignalContractError` is exit code 9 for every signal, built-in ones too (it was code 1), and `GateError` is
     exit code 9 ("code rejected": it never means that a person has to approve something).
 - **One place where a spec finds its signal.** `Signal` has a field `sha256: str | None = None` (`None` for built-ins and
@@ -145,7 +145,7 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
 - **Exit codes** (defined only in `cli/errors.py`): 8 for a gate refusal, an approval error (a lock, an idea that is not
   approved) and a missing or wrong confirmation of `bt approve --code` (which requires `--sha` with the first 8 hex of the
   hash it printed); 9 for rejected code: a failed static check, a contract check (every signal), a `GateError`, and failed
-  examples (`CasesError`, raised only by `bt signal check`, not built); 5 for a record or an archive that is missing or
+  examples (`CasesError`, raised only by `bt signal check`); 5 for a record or an archive that is missing or
   changed and for a record that is not valid, as for every record that cannot be reproduced.
 
 ## Known gaps

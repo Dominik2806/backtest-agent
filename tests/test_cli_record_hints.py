@@ -121,6 +121,22 @@ def test_a_missing_record_in_stored_mode_keeps_the_gate_hint(run_id: str) -> Non
     ]
 
 
+@pytest.mark.parametrize(
+    "args",
+    [["run", "spec.yaml"], ["validate", "spec.yaml", "--data"], ["data", "fetch", "spec.yaml"]],
+    ids=lambda a: a[0],
+)
+def test_a_missing_record_outside_stored_mode_is_exit_8_not_5(run_id: str, args: list[str]) -> None:
+    """docs/cli.md: a record that is missing is exit code 5 only in stored mode (bt report)."""
+    Path("approvals", "hold_a.json").unlink()
+    result, _ = run(run_id, args)
+    assert (result.code, result.out) == (8, "")
+    assert result.err.splitlines()[-2:] == [
+        "bt: error: the idea of 'hold_a' is not approved: there is no approval record",
+        "hint: approvals are made with bt approve; see docs/coded-signals.md",
+    ]
+
+
 @pytest.mark.parametrize("command", [name for name, (_, gate) in COMMANDS.items() if gate], ids=lambda n: n)
 @pytest.mark.parametrize("damage", ["missing", "changed"])
 def test_a_missing_or_changed_archive_keeps_the_gate_hint(run_id: str, command: str, damage: str) -> None:

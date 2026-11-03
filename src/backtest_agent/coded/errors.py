@@ -45,9 +45,12 @@ class NotApprovedError(GateError):
 
 class RecordError(GateError):
     """The approvals folder cannot supply what the spec needs, or it was changed (a record or an archive is missing or
-    does not match its hash); in stored mode (``bt report``) this is a record that cannot be reproduced, exit code 5."""
+    does not match its hash); in stored mode (``bt report``) this is a record that cannot be reproduced, exit code 5. A
+    damaged record is wrapped with ``raise RecordError(...) from error`` (``cli/errors.py`` reads the cause for its
+    hint)."""
 
 
 class CasesError(Exception):
     """The ``cases.yaml`` of a coded signal is missing or not valid, or the signal does not give its examples; the
-    message lists every problem. Like a failed contract check this is exit code 9 of ``bt signal check``."""
+    message lists every problem. Like a failed contract check this is exit code 9 of ``bt signal check``, the only
+    command that raises it."""

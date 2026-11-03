@@ -164,6 +164,7 @@ uv run bt run strategies/sma_crossover.yaml               # evaluate, log the ru
 uv run bt journal list                                    # the logged runs, newest first
 uv run bt journal show RUN_ID                             # one run: summary, code version, data hashes, paths
 uv run bt journal rebuild                                 # build the journal index again from the run folders
+uv run bt signal check spec.yaml                          # EXECUTES the unapproved candidate file, then checks it (see docs/cli.md)
 uv run bt approve spec.yaml --idea                        # a person approves the idea of a coded spec
 uv run bt approve spec.yaml --code                        # show the code of its signal and its hash (exit 8: not approved yet)
 uv run bt approve spec.yaml --code --sha 3f9a1c2e         # approve exactly the code that was shown
@@ -175,8 +176,10 @@ folder to count your runs together. `bt report RUN_ID` writes the report of a lo
 run still reproduces from the cached data (see the quickstart above and [docs/cli.md](docs/cli.md)). A spec with a `coded`
 block (a signal that an agent writes, [docs/coded-signals.md](docs/coded-signals.md)) runs only after a person approved its
 idea and its code with `bt approve`: `bt run`, `bt validate --data` and `bt data fetch` load the approved code, `bt report`
-the archived code of the run, and `bt validate` only reports what the approval record says. `bt signal check` and the agents
-are not built yet.
+the archived code of the run, and `bt validate` only reports what the approval record says. `bt signal check` checks a
+candidate before it is approved and **executes the file, which nobody approved yet**, in the process of the command, with your
+permissions and no time or memory limit (the static check is a tripwire, not a sandbox; read [docs/cli.md](docs/cli.md) first).
+The agents are not built yet.
 
 ## What is inside
 
