@@ -1,8 +1,10 @@
 # 0018: Coded signals and the approval gate
 
 - **Status:** Accepted. Built in parts: the `coded` block of the spec, the static check, the approval records, the contract
-  check, the loader (the gate), the `cases.yaml` format and the check before a run are delivered; `bt approve`,
-  `bt signal check` and the agents follow. The rules below are fixed so that the later parts build to them.
+  check, the loader (the gate), the `cases.yaml` format, the check before a run, `bt approve` and the resolving commands
+  (`bt run`, `bt validate`, `bt data fetch`, `bt report` with a coded spec) are delivered; `bt signal check` and the agents
+  follow. `CasesError` is mapped to exit code 9, but only `bt signal check` raises it and that command is not built. The rules
+  below are fixed so that the later parts build to them.
 
 ## Context
 
@@ -89,15 +91,16 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
     matching idea entry, as in the stored mode), or else the latest approved hash of the matching idea.
   - Before any of that, the idea must be approved: an id without a record, or a brief that differs from every approved one,
     is refused. A refusal happens before any file is compiled.
-  - The gate raises `NotApprovedError` (a person has to approve something; planned exit code 8), `RecordError` (the
-    approvals folder cannot supply what the spec needs or was changed; planned exit code 5 in stored mode),
-    `StaticCheckError` and `SignalContractError` (planned exit code 9), `SpecError` (the params do not fit; exit code 3) and
-    `GateError` (the code did not load, or its params model is not usable). `resolve_coded` raises nothing else except
+  - The gate raises `NotApprovedError` (a person has to approve something; exit code 8), `RecordError` (the
+    approvals folder cannot supply what the spec needs or was changed; exit code 5, in stored mode and in run mode),
+    `StaticCheckError` and `SignalContractError` (exit code 9), `SpecError` (the params do not fit; exit code 3) and
+    `GateError` (the code did not load, or its params model is not usable; exit code 9). `resolve_coded` raises nothing else except
     `KeyboardInterrupt` and `GeneratorExit`; `tests/test_coded_gate_errors.py` has one row for every documented failure and
     checks the exact class. `CasesError` is not among them: it is raised by `coded/cases.py`, which only `bt signal check`
-    calls (planned exit code 9, like `StaticCheckError` and `SignalContractError`), and a test checks that the loader does not
-    import it. The mapping to exit codes is built, and tested, with the commands; until then `bt run` prints a
-    `SignalContractError` as an unexpected error, exit code 1.
+    will call (`bt` maps it to exit code 9, like `StaticCheckError` and `SignalContractError`; that command is not built, so no
+    command raises it yet), and a test checks that the loader does not import it. The mapping is in `cli/errors.py` and
+    tested: `SignalContractError` is exit code 9 for every signal, built-in ones too (it was code 1), and `GateError` is
+    exit code 9 ("code rejected": it never means that a person has to approve something).
 - **One place where a spec finds its signal.** `Signal` has a field `sha256: str | None = None` (`None` for built-ins and
   fixtures); the loader registers through the normal decorator and then marks the entry. `SignalSpec.resolve_signal()` is
   the one place where a spec finds its signal: a coded spec without `code_sha256` is "not resolved", and one whose pin is not
@@ -139,9 +142,11 @@ synthetic data; the real look-ahead test is Phase 15). `Signal.generate` also re
 - **`cases.yaml`** (`coded/cases.py`): the examples of a coded signal as data, read with the safe YAML loader without
   aliases, duplicate keys or hidden characters, at most 256 KiB, 50 cases, 10 symbols and 400 rows, with at most 20 brackets open at once, counted over the whole text, quotes and comments included, so 21 unclosed brackets anywhere are refused (PyYAML needs quadratic time for a long run of opening brackets, so they are counted before the parser sees the text). The file must be a regular file. A difference, a case in which the code raises, or an invalid file is a
   `CasesError`. Only `bt signal check` runs the examples.
-- **Exit codes** (defined only in `cli/errors.py`): 8 for a gate refusal and a missing confirmation of `bt approve --code`
-  (which requires `--sha` with the first 8 hex of the hash it printed), 9 for a failed static check, contract check or
-  examples; a stored run whose record or archive is missing is exit code 5, as for every record that cannot be reproduced.
+- **Exit codes** (defined only in `cli/errors.py`): 8 for a gate refusal, an approval error (a lock, an idea that is not
+  approved) and a missing or wrong confirmation of `bt approve --code` (which requires `--sha` with the first 8 hex of the
+  hash it printed); 9 for rejected code: a failed static check, a contract check (every signal), a `GateError`, and failed
+  examples (`CasesError`, raised only by `bt signal check`, not built); 5 for a record or an archive that is missing or
+  changed and for a record that is not valid, as for every record that cannot be reproduced.
 
 ## Known gaps
 

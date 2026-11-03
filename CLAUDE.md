@@ -95,18 +95,26 @@ not a sandbox), `coded/approvals.py` (hashes, records, archive, the lock `approv
 a folder the run mode of `bt run`), `coded/contract.py` (the contract check on synthetic frames, `check_before_run` with 120
 rows), `coded/cases.py` (`cases.yaml`, the examples of a coded signal as data), `coded/errors.py`. `SignalSpec.resolve_signal()`
 is the one place where a spec finds its signal (the pin check); `Signal.sha256` is the hash of the code a registered signal
-was loaded from. Rules: `resolve_coded` raises only `NotApprovedError` (planned exit 8), `RecordError` (5 in stored mode),
-`StaticCheckError`/`SignalContractError` (9), `SpecError` (3) and `GateError` (`bt signal check` also raises `CasesError`,
-planned 9; the gate never runs `cases.yaml`), and the registry is exactly what it was whenever it raises; what a coded signal raises (`SystemExit` included, not `KeyboardInterrupt`/`GeneratorExit`) while it is
+was loaded from. Rules: `resolve_coded` raises only `NotApprovedError` (exit 8), `RecordError` (5),
+`StaticCheckError`/`SignalContractError` (9), `SpecError` (3) and `GateError` (9; `bt signal check`, **not built yet**, will
+also raise `CasesError`, which `classify` already maps to 9; the gate never runs `cases.yaml`), and the registry is exactly what it was whenever it raises; what a coded signal raises (`SystemExit` included, not `KeyboardInterrupt`/`GeneratorExit`) while it is
 loaded, checked or called through `Signal.generate` is a contract error (code reached anywhere else, such as
 `params.warmup_rows()` in `warmup_window`, is not covered: known gap 5 of the ADR); the params model of a coded signal has defaults that are numbers, text,
-true or false, or lists of those (no `None`, tuple or dict) and accepts them. The commands that map these errors to exit codes
-come with `bt approve` and `bt signal check`. Tests that register or load a signal use the fixtures of `tests/coded_helpers.py`
+true or false, or lists of those (no `None`, tuple or dict) and accepts them. `cli/errors.py` maps all of them: 8 for refusals
+(`NotApprovedError`, `ApprovalError`, `ConfirmationError`), 9 for rejected code (`SignalContractError` for **every** signal), 5 for
+`RecordError` and `ApprovalFormatError`; `classify` checks the subclasses of `GateError` and `ApprovalError` first. Commands:
+`cli/coded.py` (`cmd_approve`, and `resolve_for_run`, the one place where a command passes a coded spec through the gate in run
+mode: `bt run`, `bt validate --data`, `bt data fetch`), `cli/report.py` (`stored_coded_spec`: the stored mode of `bt report`),
+`coded/working.py` (`read_working_file`: bytes only, shared by the gate and `bt approve`), `coded/status.py` (`approval_state`: the
+`Signal:` line of `bt validate`, from the record alone: no file, no archive, nothing loaded), `cli/context.py` (`Context`).
+`bt approve` reads the file once and shows, hashes and archives those bytes; it imports and executes nothing; a person has to read
+the printed code, and no rule denies the command to an agent yet; `bt signal check` is not built. Tests that register or load a signal use the fixtures of `tests/coded_helpers.py`
 (the registry is restored, no module of a coded signal may appear in `sys.modules`, canary marker files are written under
 `tmp_path` only). `approvals/` and `strategies/signals/` are tracked, so public; they are LF
 (`.gitattributes`) and excluded from ruff (`extend-exclude`), because the bytes are hashed. A stale `approvals/.lock` is
 deleted by hand. Expected hashes in tests are literals computed with `hashlib` outside project code; the examples in
-`docs/coded-signals.md` are checked by `tests/test_coded_docs.py`.
+`docs/coded-signals.md` are checked by `tests/test_coded_docs.py`; the worked example of `bt approve` in `docs/cli.md`, its
+exit-code table, hints and option names by `tests/test_cli_docs_coded.py`.
 
 PowerShell 5.1 has no `&&`; chain commands with `;` and check `$LASTEXITCODE` where it matters.
 

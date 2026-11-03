@@ -203,4 +203,5 @@ def test_the_message_of_an_unresolved_spec_is_written_out_in_the_document_and_is
         coded_spec("x").signal.resolve_signal()
     message = str(info.value)
     assert message == "the coded signal 'x' is not resolved; it has to pass the approval gate first"
-    assert f"`bt: error: {message}`" in TEXT  # the bt validate section prints it, written out
+    assert f"`{message}`" in TEXT  # written out in the validate section; no command prints it any more
+    assert f"`bt: error: {message}`" not in TEXT

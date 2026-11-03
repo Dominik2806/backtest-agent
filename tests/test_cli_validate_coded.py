@@ -169,6 +169,19 @@ def test_the_signal_line_is_what_the_record_says_not_what_the_working_file_has(w
     assert not (workdir / "runs").exists() and not (workdir / "reports").exists()
 
 
+def test_validate_does_not_read_the_archive_either(workdir: Path) -> None:
+    """The Signal line is the record's: an archive that was changed or deleted still shows "approved"; the commands
+    that run code (``bt report`` for a stored run) are the ones that check the archive."""
+    approve_all(workdir, HOLD_A, "8b0b3234")
+    archive = workdir / "approvals" / "code" / f"{SHA_A}.py"
+    archive.write_bytes(archive.read_bytes() + b"# edited\n")
+    assert validate().out.splitlines() == head("coded, idea and code approved (sha 8b0b3234)")
+    archive.unlink()
+    result = validate()
+    assert (result.code, result.err) == (0, "")
+    assert result.out.splitlines() == head("coded, idea and code approved (sha 8b0b3234)")
+
+
 def test_validate_does_not_read_the_working_file(workdir: Path) -> None:
     approve_all(workdir, HOLD_A, "8b0b3234")
     (workdir / "strategies" / "signals" / "hold_a.py").unlink()

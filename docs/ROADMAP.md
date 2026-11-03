@@ -147,7 +147,7 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
 | 7 | `feature/report`, `feature/report-html` | Markdown and HTML report with charts and caveats (two parts) | F-14 | M | Done |
 | 8 | `feature/experiment-journal`, `feature/experiment-entry-point` | Run log with trial counter (two parts) | F-15 | S | Done |
 | 9 | `feature/cli`, `feature/cli-data`, `feature/cli-report` | `bt` command (three parts); release `v0.1.0` | F-16 | M | Done |
-| 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | Planned |
+| 10 | `feature/agents-architect-coder` | Strategy architect and signal coder subagents | F-17, F-18 | M | In progress |
 | 11 | `feature/agents-auditor-interpreter` | Bias auditor and report interpreter subagents | F-19, F-20 | M | Planned |
 | 12 | `feature/backtest-command` | `/backtest` command with approval gate; release `v0.2.0` | F-21 | M | Planned |
 | 13 | `feature/oos-walkforward` | Out-of-sample split and walk-forward analysis | F-22, F-23 | L | Planned |
@@ -416,6 +416,27 @@ Effort is a rough guess with Claude Code: S is one or two hours, M is half a day
       and the cases example were added);
     - documents: `CHANGELOG.md` (+23/-0), `CLAUDE.md` (+20/-5), `docs/ROADMAP.md` (+38/-0),
       `docs/adr/0018-coded-signals-and-approval-gate.md` (+84/-33), `docs/coded-signals.md` (+153/-9).
+- Phase 10 part 3 (`feature/coded-signals-cli`): `bt approve` and the resolving of coded specs in the commands. The roadmap
+  listed neither; `bt signal check` moves to its own pull request (part 3b) and the agents stay last. Deviations from the plan
+  and from the first text of ADR 0018:
+  - **`bt signal check` is not part of this pull request.** It has to execute a candidate that is not approved yet, which the
+    ADR did not settle (ADR 0018 says only that the gate runs approved bytes); that needs its own decision and a changed rule for
+    the loader, so docs and ADR keep saying that it is not built. `CasesError` is mapped to exit code 9 by `classify`, but no
+    command raises it yet.
+  - **Exit codes.** 8 is a refusal (`NotApprovedError`, `ApprovalError`, `ConfirmationError`), 9 is rejected code
+    (`StaticCheckError`, `SignalContractError` for every signal, `GateError`, `CasesError`), 5 widens to `RecordError` and
+    `ApprovalFormatError`. A bare `GateError` is 9, not 8: it never means that a person has to approve something. A malformed
+    `--sha` and `--sha` with `--idea` are usage errors (2).
+  - **`bt validate` of a coded spec** prints a `Signal:` line from the approval record alone and `Warm-up: n/a`; it reads
+    neither the working file nor the archive. `bt validate --data` and `bt data fetch` pass the gate in run mode, since the window of
+    the data needs the warm-up. The Phase 10 row of the status tables says "In progress" (it said "Planned").
+  - **Moves and small additions:** `read_working_file` moved from `coded/loader.py` to `coded/working.py` unchanged (the commands
+    read the file through it); `Context` moved to `cli/context.py` so that `cli/coded.py` can use it; `coded/status.py` reads the
+    record for `bt validate`; `UsageError` is an exit-2 error for what argparse cannot see; the hint of a missing or wrong `--sha`
+    repeats the folder options that were given. `bt approve` never edits the spec, so the pin is a line the person adds.
+  - **Known limits, stated in `docs/cli.md`:** the review prints a backslash as it is (a literal `\u00e9` and a real `é` look the same);
+    the operating system's reason in `cannot be read (...)` is localized; PowerShell expands `$` and the backtick inside the
+    double quotes of the hint; `bt approve` is a person's command and no rule yet denies it to an agent.
 
 ---
 

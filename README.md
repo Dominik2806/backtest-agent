@@ -25,8 +25,9 @@ the same as one.
 The project is built in phases, see the [roadmap status](#roadmap-status). Today the project skeleton, the data
 layer, the strategy spec, the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage), the
 performance metrics of a run next to its buy-and-hold benchmark (Phase 6), the Markdown and HTML reports with charts
-and caveats (Phase 7), the run journal with its trial counter (Phase 8), and the `bt` command line (Phase 9) exist; the
-other features described above arrive in the phases named in the [roadmap](docs/ROADMAP.md).
+and caveats (Phase 7), the run journal with its trial counter (Phase 8), the `bt` command line (Phase 9), and `bt approve`
+with the approval gate for coded signals (Phase 10, in progress) exist; the other features described above arrive in the
+phases named in the [roadmap](docs/ROADMAP.md).
 
 ## Requirements
 
@@ -163,12 +164,19 @@ uv run bt run strategies/sma_crossover.yaml               # evaluate, log the ru
 uv run bt journal list                                    # the logged runs, newest first
 uv run bt journal show RUN_ID                             # one run: summary, code version, data hashes, paths
 uv run bt journal rebuild                                 # build the journal index again from the run folders
+uv run bt approve spec.yaml --idea                        # a person approves the idea of a coded spec
+uv run bt approve spec.yaml --code                        # show the code of its signal and its hash (exit 8: not approved yet)
+uv run bt approve spec.yaml --code --sha 3f9a1c2e         # approve exactly the code that was shown
 ```
 
 `bt run`, `bt data fetch` and `bt validate --data` fetch prices from yfinance (cached under `data/cache/`), so they need
 a network connection the first time. The journal and the trial counter belong to one `--runs-dir`: run from the same
 folder to count your runs together. `bt report RUN_ID` writes the report of a logged run again, after checking that the
-run still reproduces from the cached data (see the quickstart above and [docs/cli.md](docs/cli.md)).
+run still reproduces from the cached data (see the quickstart above and [docs/cli.md](docs/cli.md)). A spec with a `coded`
+block (a signal that an agent writes, [docs/coded-signals.md](docs/coded-signals.md)) runs only after a person approved its
+idea and its code with `bt approve`: `bt run`, `bt validate --data` and `bt data fetch` load the approved code, `bt report`
+the archived code of the run, and `bt validate` only reports what the approval record says. `bt signal check` and the agents
+are not built yet.
 
 ## What is inside
 
@@ -182,7 +190,7 @@ run still reproduces from the cached data (see the quickstart above and [docs/cl
 | Reporting | `write_report(evaluation, reports_dir, generated_at=...)` writes `reports/<run-id>/report.md`, a self-contained `report.html` and the equity and drawdown charts as SVG files: spec, data hashes and validation, risk flags with explanations, metrics next to the benchmark, costs, monthly returns, trade statistics and a fixed section of caveats. See [docs/report.md](docs/report.md) | [`src/backtest_agent/reporting/`](src/backtest_agent/reporting) |
 | Journal | `run_experiment(spec, provider, runs_dir=..., generated_at=...)` evaluates, logs the run under `runs/<run-id>/` (`run.json`, SQLite index) and, with `reports_dir`, writes the report with its trial line; trial counter per strategy family (runs and distinct variants). See [docs/journal.md](docs/journal.md) | [`src/backtest_agent/journal/`](src/backtest_agent/journal), [`experiment.py`](src/backtest_agent/experiment.py) |
 | Robustness (planned) | Out-of-sample, walk-forward, sensitivity, regimes, deflated Sharpe | [`src/backtest_agent/robustness/`](src/backtest_agent/robustness) |
-| CLI | The `bt` command: `run`, `validate` (also `--data`), `data fetch`, `report`, `journal list`, `show`, `rebuild` (Phase 9). See [docs/cli.md](docs/cli.md) | [`src/backtest_agent/cli/`](src/backtest_agent/cli) |
+| CLI | The `bt` command: `run`, `validate` (also `--data`), `data fetch`, `report`, `journal list`, `show`, `rebuild` (Phase 9) and `approve` (Phase 10). See [docs/cli.md](docs/cli.md) | [`src/backtest_agent/cli/`](src/backtest_agent/cli) |
 | Agents (planned) | The Claude Code subagents and the `/backtest` command | see [roadmap](docs/ROADMAP.md) |
 
 How the parts fit together: [docs/architecture.md](docs/architecture.md). Why they are built this way:
@@ -227,7 +235,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 7 | Markdown and HTML report with charts and caveats | Done |
 | 8 | Run log with trial counter | Done |
 | 9 | `bt` command; release `v0.1.0` | Done |
-| 10 | Strategy architect and signal coder subagents | Planned |
+| 10 | Strategy architect and signal coder subagents | In progress |
 | 11 | Bias auditor and report interpreter subagents | Planned |
 | 12 | `/backtest` command with approval gate; release `v0.2.0` | Planned |
 | 13 | Out-of-sample split and walk-forward analysis | Planned |

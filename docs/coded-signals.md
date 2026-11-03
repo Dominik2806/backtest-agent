@@ -10,10 +10,10 @@ and nothing is imported before it was approved. The project is educational and n
 > their `cases.yaml`, every file in `approvals/` (records and archived code) and the briefs inside the specs. Never put
 > anything private in a brief or in code.
 
-This document describes what exists after Phase 10 part 2b: the `coded` block of the spec, the hashes, the approval
-records, the static check, the gate that loads approved code, the check before a run and the `cases.yaml` format. The
-commands `bt approve` and `bt signal check` and the agents come in later parts of the phase; where this document mentions
-them it says so.
+This document describes what exists after Phase 10 part 3: the `coded` block of the spec, the hashes, the approval
+records, the static check, the gate that loads approved code, the check before a run, the `cases.yaml` format, the command
+`bt approve` and the handling of a coded spec in `bt run`, `bt validate`, `bt data fetch` and `bt report`. The command
+`bt signal check` and the agents come in later parts of the phase; where this document mentions them it says so.
 
 ## What is approved
 
@@ -43,6 +43,25 @@ The code hash of the two bytes lines `x = 1`, LF, `y = 2`, LF (a file with CRLF 
 `8353afe579a16d27abc038055bf713459ba6ef418c65b143b526a09dd529e500`. A file without a final line break is hashed as it is:
 the five bytes `x = 1` give `8ff436def1451285599a1b1ad70800493b8dcafde2912e1a38345633054e4c26`. All of these were computed
 with `hashlib` and written out by hand, not with project code, so you can recompute them.
+
+## Approving: `bt approve`
+
+Approval is a decision of a person, made in two steps with `bt approve SPEC` ([cli.md](cli.md), "`bt approve SPEC`"):
+
+1. `bt approve SPEC --idea` approves the idea `{signal_id, brief}` of the spec and appends it to `approvals/<id>.json`.
+2. `bt approve SPEC --code` reads `strategies/signals/<id>.py` once and, if the idea is approved and the static check passes,
+   prints the whole file with line numbers, its size and its hash and stops with exit code 8. The person reads it and repeats
+   the command with `--sha` and the first 8 hex characters of the hash. Only then are the bytes that were shown archived and
+   listed for the idea. A missing or different `--sha` shows the review again and writes nothing.
+
+The command never imports, compiles or executes the file, and it never edits the spec. Code can only be approved for an
+approved idea, and an idea without approved code runs nothing. Approving the same idea or the same code again changes nothing.
+
+**Who may run `bt approve`.** A person, and a person must read the printed code: the command cannot check that anybody did. An
+agent with a shell could run both steps itself and the approval would mean nothing, so the agent that writes a signal must not
+run `bt approve`. Today only the discipline of the person enforces that; a later part of the phase adds a rule that denies the
+command to the agents, and that rule does not exist yet. An approval means that a person read this code. It does not make the
+code safe: the static check is a tripwire and not a sandbox (below, and the known gaps of the ADR).
 
 ## The coded block of a spec
 
@@ -81,11 +100,11 @@ signal:
 
 | Path | What | Written by |
 |---|---|---|
-| `strategies/signals/<id>.py` | the candidate code, editable | the signal coder agent |
-| `strategies/signals/<id>.cases.yaml` | hand-calculated examples as data (see `cases.yaml` below) | the signal coder agent |
-| `approvals/<id>.json` | the append-only approval history of one signal id | the approval commands |
-| `approvals/code/<sha256>.py` | the approved code, LF line ends; the file name is its hash | the approval commands |
-| `approvals/.lock` | exists only while an approval runs; git-ignored | the approval commands |
+| `strategies/signals/<id>.py` | the candidate code, editable | a person, or the signal coder agent once it exists |
+| `strategies/signals/<id>.cases.yaml` | hand-calculated examples as data (see `cases.yaml` below) | a person, or the signal coder agent once it exists |
+| `approvals/<id>.json` | the append-only approval history of one signal id | `bt approve` |
+| `approvals/code/<sha256>.py` | the approved code, LF line ends; the file name is its hash | `bt approve` |
+| `approvals/.lock` | exists only while an approval runs; git-ignored | `bt approve` |
 
 The archive is what runs, not the editable file: the gate reads the archived bytes once, checks their hash and runs exactly
 those bytes, so nothing can change between the review and the run, and an old run can be reproduced after the working file
@@ -142,7 +161,7 @@ that an agent wrote.
 
 An approval reads the record, changes it and writes it back. Two at once could lose an entry, or both write the same
 temporary file. So an approval takes `approvals/.lock`, an empty file created exclusively, and removes it when it is done,
-also after an error. If it finds the file, it stops with `another approval is in progress (.lock exists in the approvals
+also after an error. If it finds the file, `bt approve` stops with exit code 8 and `another approval is in progress (.lock exists in the approvals
 folder); if no other bt approve is running, delete that file and try again`, and nothing is written.
 
 A **stale lock** remains only if a process was killed while it held the lock (a crash, a power cut, a closed terminal).
@@ -213,7 +232,7 @@ because every refusal happens **before any file is compiled**:
 | `strategies_dir` | The file `<id>.py` | The spec pins a hash | Result |
 |---|---|---|---|
 | `None` (stored mode, `bt report`) | never read | required | the pin must be listed for the idea, else a `RecordError` (a record that cannot be reproduced, exit code 5); no pin: `RecordError` |
-| a folder (run mode, `bt run`) | exists | no | its hash must be listed for the idea; that archived hash runs. Otherwise `code not approved: the file has sha <first 8 hex>` (`NotApprovedError`, exit code 8) |
+| a folder (run mode: `bt run`, `bt validate --data`, `bt data fetch`) | exists | no | its hash must be listed for the idea; that archived hash runs. Otherwise `code not approved: the file has sha <first 8 hex>` (`NotApprovedError`, exit code 8) |
 | a folder | exists | yes, equal to the file's | the same, the hash must be listed |
 | a folder | exists | yes, different | `the spec pins <8 hex> but strategies/signals/<id>.py has sha <8 hex>` (exit code 8), **even if the file's hash is approved** |
 | a folder | does not exist | yes | the pin is used; it must be listed |
@@ -253,18 +272,19 @@ So the claim is: a `SystemExit` (or any other error) that the code raises while 
 cover code that behaves differently after the gate has passed it (state), reached through `params.warmup_rows()` in
 `warmup_window` and through a params model that the engine uses directly (known gap 5 of the ADR).
 
-### Errors and the exit codes planned for `bt`
+### Errors and the exit codes
 
-The gate, `resolve_coded`, raises `NotApprovedError` (something has to be approved: planned exit code **8**),
-`RecordError` (the approvals folder cannot supply what the spec needs or was changed: planned exit code **5** in stored
-mode), `StaticCheckError` and `SignalContractError` (the code is not acceptable: planned exit code **9**), `SpecError` (the
-params do not fit the params model of the code: exit code 3) and `GateError` (the code did not load or its params model is
-not usable). It raises nothing else, and it does not run `cases.yaml`: `bt signal check` does, and it also raises
-`CasesError` (planned exit code 9, like `StaticCheckError` and `SignalContractError`). The commands that map these to exit
-codes (`bt approve`, `bt signal check`, and the changes of `bt run` and `bt report`) are not built yet; the mapping is
-tested with them; until then `bt run` shows a `SignalContractError` as an unexpected error, exit
-code 1, and a coded spec that was not resolved is exit code 3 (`the coded signal 'x' is not resolved; it has to pass the
-approval gate first`).
+The gate, `resolve_coded`, raises `NotApprovedError` (something has to be approved: exit code **8**), `RecordError` (the
+approvals folder cannot supply what the spec needs or was changed, for example an archive that is missing or does not match its
+hash: exit code **5**, in the stored mode of `bt report` and in the run mode too), `StaticCheckError` and `SignalContractError`
+(the code is not acceptable: exit code **9**), `SpecError` (the params do not fit the params model of the code: exit code 3) and
+`GateError` (the code did not load or its params model is not usable: exit code **9**, "code rejected"). It raises nothing
+else, and it does not run `cases.yaml`: `bt signal check` does, and it also raises `CasesError`, which `bt` maps to exit
+code 9 like `StaticCheckError` and `SignalContractError`. **`bt signal check` is not built yet, so no command raises
+`CasesError` today.** `bt approve` adds `ApprovalError` (exit code 8: another approval is running, the idea is not approved),
+`ApprovalFormatError` (a record that is not valid: exit code 5) and `ConfirmationError` (`--sha` missing or wrong: exit
+code 8). `SignalContractError` is exit code 9 for every signal, a built-in one too (it was code 1 before Phase 10). The
+mapping is in `cli/errors.py` and the table is in [cli.md](cli.md), "Exit codes".
 
 ## The params model of a coded signal
 
@@ -288,8 +308,8 @@ history, a single symbol), and its declared `warmup_rows` is honest, which also 
 Every error names the signal and the frame, for example `rsi_pullback on the calendars frame: ...`.
 
 There is **no sampling and no time rule**: every check runs on every row, so the same code and params give the same answer
-on every machine. Measured on the development machine, the check makes 250 calls of the function and takes 0.27 to 0.8 s (0.27 to 0.37 s for signals like the built-in ones, 0.75 to 0.79 s for a heavy one with seven rolling statistics); `bt signal check` uses
-frames of 300 rows (610 calls, 0.9 to 1.9 s) and the examples of `cases.yaml`. A signal that needs more than about 10 ms
+on every machine. Measured on the development machine, the check makes 250 calls of the function and takes 0.27 to 0.8 s (0.27 to 0.37 s for signals like the built-in ones, 0.75 to 0.79 s for a heavy one with seven rolling statistics); `bt signal check` (not built yet)
+is planned to use frames of 300 rows (610 calls, 0.9 to 1.9 s) and the examples of `cases.yaml`. A signal that needs more than about 10 ms
 per call exceeds three seconds in the check on its own; nothing can interrupt a function that is running (known gap 4). The
 same code with the same params is checked once per process (the cache key is the pair hash and params); a failed check is
 not remembered. This is not the look-ahead test on real data (Phase 15).
@@ -325,17 +345,26 @@ Calculated by hand: AAA row 0 is its first trading row (warm-up of one row: 0); 
 - The examples run through `Signal.generate`, so the output rules and the zero rows hold in them too. A difference is
   listed with the case, the symbol, the row, the date and both values (at most ten, then `... and N more`); a case in which
   the code raises is a failed case; two values are equal within 1e-9.
-- The examples are run by `bt signal check`, not by a run.
+- The examples are run by `bt signal check` (not built yet), not by a run.
 
-## What `bt validate` will say
+## What `bt validate` says
 
-`bt validate` reads a spec without importing anything. For a spec with a `coded` block it will print a `Signal:` line from
-the approval record alone (it never loads code): `Signal:     coded, idea not approved`, `Signal:     coded, idea approved,
-code not approved`, or `Signal:     coded, idea and code approved (sha <8 hex>)`, and it exits 0 in all three cases. Today it exits with code 3 and prints `bt: error: the coded signal 'x' is not resolved; it has to pass the approval gate first`, because it cannot show the warm-up of a signal that is not loaded.
+`bt validate` reads a spec without importing anything. For a spec with a `coded` block it prints a `Signal:` line after
+`Family:`, from the approval record alone (`approvals/<id>.json`): it reads neither the working file nor the archive and
+loads no code. The warm-up needs the code, so it is `Warm-up:    n/a (coded signal, not loaded)`. The line is one of
+`Signal:     coded, idea not approved` (no record, or another brief), `Signal:     coded, idea approved,
+code not approved` (a spec that pins a hash needs that hash approved; without a pin the latest approved code counts), or
+`Signal:     coded, idea and code approved (sha <8 hex>)`, and the exit code is 0 in all three states (a record that is not valid
+is exit code 5). Because the line is the record's, a working file edited after the approval still shows `approved`; `bt run`
+refuses that file, because the commands that run code check its hash. With `--data`, and in `bt data fetch`, the spec passes
+the gate first, since the window of the data needs the warm-up: exit code 8 before the approval, the real warm-up after it.
+
+An unresolved spec used outside the gate, from Python, still raises `UnknownSignalError` with the message
+`the coded signal 'x' is not resolved; it has to pass the approval gate first`; no command shows it any more.
 
 ## Not built yet
 
-The commands `bt approve` (the idea, and the code with `--sha`) and `bt signal check`, the lines of `bt validate` above, the
-mapping of the errors above to exit codes in `bt run` and `bt report`, and the agents that write the spec and the code.
-Everything in this document that is not marked as planned exists and is tested. A coded signal can be resolved and run from
-Python today (`resolve_coded`, then `run_backtest`); the commands make it a workflow.
+The command `bt signal check` (the static check, the contract check on frames of 300 rows and the examples of `cases.yaml`
+for a candidate before it is approved) and the agents that write the spec and the code. Everything in this document that is
+not marked as not built exists and is tested. A coded signal is approved with `bt approve`, run with `bt run` and reproduced
+with `bt report`; nothing in `bt` runs `cases.yaml` yet.
