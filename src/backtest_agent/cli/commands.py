@@ -6,7 +6,7 @@ from pathlib import Path
 
 from backtest_agent.cli import render
 from backtest_agent.cli.argtypes import positive_int, run_id_arg, sha_prefix
-from backtest_agent.cli.coded import cmd_approve, resolve_for_run
+from backtest_agent.cli.coded import DEFAULT_APPROVALS_DIR, DEFAULT_STRATEGIES_DIR, cmd_approve, resolve_for_run
 from backtest_agent.cli.context import Context
 from backtest_agent.cli.data import fetch_data
 from backtest_agent.cli.errors import ExitCode, ReportedValidationErrors, ReportFolderExistsError
@@ -142,7 +142,7 @@ def cmd_journal_rebuild(args: argparse.Namespace, context: Context) -> ExitCode:
 
 def approvals_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--approvals-dir", type=Path, default=Path("approvals"), metavar="DIR", help="approvals folder (approvals)"
+        "--approvals-dir", type=Path, default=DEFAULT_APPROVALS_DIR, metavar="DIR", help="approvals folder (approvals)"
     )
 
 
@@ -152,7 +152,7 @@ def coded_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--strategies-dir",
         type=Path,
-        default=Path("strategies/signals"),
+        default=DEFAULT_STRATEGIES_DIR,
         metavar="DIR",
         help="folder of the editable signal files (strategies/signals); only a file with an approved hash is used",
     )

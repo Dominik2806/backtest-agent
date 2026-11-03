@@ -6,6 +6,7 @@ The clock is read here, once, and nowhere in ``coded/``.
 """
 
 import argparse
+from pathlib import Path
 
 from backtest_agent.cli import render
 from backtest_agent.cli.context import Context
@@ -27,6 +28,9 @@ from backtest_agent.coded.working import read_working_file
 from backtest_agent.spec import StrategySpec, load_spec
 from backtest_agent.spec.errors import SpecError, SpecProblem
 
+DEFAULT_APPROVALS_DIR = Path("approvals")
+DEFAULT_STRATEGIES_DIR = Path("strategies/signals")
+
 
 def resolve_for_run(spec: StrategySpec, args: argparse.Namespace) -> StrategySpec:
     """The spec to run: a built-in spec as it is, a coded spec through the gate in run mode (``bt run``,
@@ -39,7 +43,9 @@ def resolve_for_run(spec: StrategySpec, args: argparse.Namespace) -> StrategySpe
 def cmd_approve(args: argparse.Namespace, context: Context) -> ExitCode:
     """Approve the idea of a coded spec (``--idea``) or its code (``--code``, confirmed with ``--sha``)."""
     if args.idea and args.sha is not None:
-        raise UsageError("--sha goes with --code; the idea needs no confirmation")
+        raise UsageError(
+            "--sha goes with --code; the idea needs no confirmation", "bt approve --help describes the arguments"
+        )
     spec = load_spec(args.spec)
     coded = spec.signal.coded
     if coded is None:
@@ -73,7 +79,12 @@ def cmd_approve(args: argparse.Namespace, context: Context) -> ExitCode:
             message = f"the code is not approved yet; confirm it with --sha {digest[:8]}"
         else:
             message = f"--sha {args.sha} is not the start of the hash of {shown}; the file has sha {digest[:8]}"
-        raise ConfirmationError(args.spec, digest[:8], message)
+        given = (
+            ("--approvals-dir", args.approvals_dir, DEFAULT_APPROVALS_DIR),
+            ("--strategies-dir", args.strategies_dir, DEFAULT_STRATEGIES_DIR),
+        )
+        folders = tuple((option, folder.as_posix()) for option, folder, default in given if folder != default)
+        raise ConfirmationError(args.spec, digest[:8], message, folders)
 
     record, digest, changed = approve_code(args.approvals_dir, signal_id, coded.brief, data, now)
     entry = record.idea(idea)

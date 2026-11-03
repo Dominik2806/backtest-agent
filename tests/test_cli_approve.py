@@ -6,6 +6,7 @@ throwaway script outside the project (no project code is used to compute an expe
 (``approvals``, ``strategies/signals``) are relative to it.
 """
 
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import datetime
@@ -122,8 +123,8 @@ def write_spec(workdir: Path, *, brief: str = BRIEF, pin: str | None = None, sig
     (workdir / "spec.yaml").write_text(yaml.safe_dump(spec.to_dict(), sort_keys=False), encoding="utf-8")
 
 
-def put(workdir: Path, data: bytes, signal_id: str = ID) -> Path:
-    folder = workdir / "strategies" / "signals"
+def put(workdir: Path, data: bytes, signal_id: str = ID, *, folder_name: str = "strategies/signals") -> Path:
+    folder = workdir / folder_name
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{signal_id}.py"
     path.write_bytes(data)
@@ -362,6 +363,45 @@ def test_ascii_escape_of_one_character(raw: str, shown: str) -> None:
     assert ascii_escape(raw) == shown
 
 
+# --- the hint repeats the folder options that were given ---
+
+CONFIRM = "hint: read the code printed above; if you accept it, run: bt approve spec.yaml --code --sha 2dd4906a"
+
+
+@pytest.mark.parametrize(
+    ("options", "shown"),
+    [
+        ((), ""),
+        (("--approvals-dir", "appr"), " --approvals-dir appr"),
+        (("--strategies-dir", "src/signals"), " --strategies-dir src/signals"),
+        (
+            ("--strategies-dir", "src_signals", "--approvals-dir", "appr"),
+            " --approvals-dir appr --strategies-dir src_signals",
+        ),
+        (("--approvals-dir", "my approvals"), ' --approvals-dir "my approvals"'),
+        (("--approvals-dir", "approvals", "--strategies-dir", "strategies/signals"), ""),
+    ],
+    ids=["defaults", "approvals", "strategies", "both-in-fixed-order", "space", "given-but-default"],
+)
+@pytest.mark.parametrize("sha", [[], ["--sha", "00000000"]], ids=["missing-sha", "wrong-sha"])
+def test_the_confirmation_hint_repeats_the_given_folders(
+    options: tuple[str, ...], shown: str, sha: list[str], spec: Path, workdir: Path
+) -> None:
+    folder = options[options.index("--strategies-dir") + 1] if "--strategies-dir" in options else "strategies/signals"
+    put(workdir, SOURCE, folder_name=folder)
+    assert run_cli(["approve", "spec.yaml", "--idea", *options], clock=at(0)).code == 0
+    result = run_cli(["approve", "spec.yaml", "--code", *sha, *options], clock=at(60))
+    assert result.code == 8
+    assert result.err.splitlines()[-1] == CONFIRM + shown
+    assert result.out.splitlines()[:5] == [
+        "Signal:     rsi_pullback",
+        f"File:       {folder}/rsi_pullback.py",
+        "Size:       399 bytes, 12 lines",
+        f"Sha256:     {SHA}",
+        "Static:     ok",
+    ]
+
+
 # --- refusals: nothing is printed when the idea is not approved ---
 
 
@@ -414,6 +454,24 @@ def test_code_that_breaks_the_static_check_is_code_9_and_prints_nothing(spec: Pa
         "  - line 2: import of 'os' is not allowed [import]",
         "hint: the rules a coded signal has to follow are in docs/coded-signals.md",
     ]
+    assert tree(workdir) == ["approvals/rsi_pullback.json"]
+
+
+@pytest.mark.parametrize("sha", [[], ["--sha", "00000000"], ["--sha", "2dd4906a"]], ids=["review", "wrong", "right"])
+def test_a_working_file_that_is_not_utf_8_is_a_static_check_error_and_nothing_else(
+    sha: list[str], spec: Path, workdir: Path
+) -> None:
+    """The bytes are refused by the static check before anything decodes them: exit code 9, never 1, no traceback."""
+    approved_idea()
+    put(workdir, b"x = '\xff'\n")
+    result = run_cli(["approve", "spec.yaml", "--code", *sha])
+    assert (result.code, result.out) == (9, "")
+    assert result.err.splitlines() == [
+        "bt: error: the signal source breaks 1 rule of the static check:",
+        "  - the source is not UTF-8 (invalid start byte at byte 5) [encoding]",
+        "hint: the rules a coded signal has to follow are in docs/coded-signals.md",
+    ]
+    assert "Traceback" not in result.err
     assert tree(workdir) == ["approvals/rsi_pullback.json"]
 
 
@@ -573,7 +631,7 @@ def test_bt_approve_never_executes_the_code(workdir: Path, world, static_check_o
     source = canary_source("canary_signal")
     put(workdir, source, "canary_signal")
     assert run_cli(["approve", "spec.yaml", "--idea"]).code == 0
-    sha = __import__("hashlib").sha256(source.replace(b"\r\n", b"\n")).hexdigest()
+    sha = hashlib.sha256(source.replace(b"\r\n", b"\n")).hexdigest()
     review = run_cli(["approve", "spec.yaml", "--code"])
     assert review.code == 8
     approved = run_cli(["approve", "spec.yaml", "--code", "--sha", sha[:8]])

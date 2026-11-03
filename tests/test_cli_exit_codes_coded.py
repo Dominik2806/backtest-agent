@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from backtest_agent.cli import ExitCode
-from backtest_agent.cli.errors import ConfirmationError, classify
+from backtest_agent.cli.errors import ConfirmationError, UsageError, classify
 from backtest_agent.coded.errors import (
     ApprovalError,
     ApprovalFormatError,
@@ -117,6 +117,22 @@ def test_only_the_confirmation_names_the_command_with_the_hash() -> None:
 def test_the_spec_path_of_the_hint_is_quoted_only_when_it_needs_quotes(spec: str, shown: str) -> None:
     hint = classify(ConfirmationError(spec, "3f9a1c2e", "x")).hint
     assert hint == f"read the code printed above; if you accept it, run: bt approve {shown} --code --sha 3f9a1c2e"
+
+
+@pytest.mark.parametrize("hint", ["bt approve --help describes the arguments", "another hint", None])
+def test_a_usage_error_carries_its_own_hint(hint: str | None) -> None:
+    failure = classify(UsageError("--sha goes with --code", hint))
+    assert (failure.code, failure.message, failure.hint) == (2, "--sha goes with --code", hint)
+
+
+def test_the_hint_of_a_confirmation_repeats_the_folders_with_quotes_where_needed() -> None:
+    error = ConfirmationError(
+        "spec.yaml", "3f9a1c2e", "x", [("--approvals-dir", "my approvals"), ("--strategies-dir", "src/signals")]
+    )
+    assert classify(error).hint == (
+        "read the code printed above; if you accept it, run: bt approve spec.yaml --code --sha 3f9a1c2e "
+        '--approvals-dir "my approvals" --strategies-dir src/signals'
+    )
 
 
 def test_the_message_of_a_failed_static_check_lists_the_findings() -> None:

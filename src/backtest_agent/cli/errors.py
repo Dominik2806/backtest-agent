@@ -76,17 +76,27 @@ class StoredSpecError(SpecError):
 
 
 class UsageError(Exception):
-    """A combination of arguments that argparse cannot see is wrong (exit code 2), such as ``--sha`` with ``--idea``."""
+    """A combination of arguments that argparse cannot see is wrong (exit code 2), such as ``--sha`` with ``--idea``.
+
+    ``hint`` is the second line of the error block (what to do), or ``None`` for no hint.
+    """
+
+    def __init__(self, message: str, hint: str | None = None) -> None:
+        self.hint = hint
+        super().__init__(message)
 
 
 class ConfirmationError(Exception):
     """``bt approve --code`` was not confirmed: ``--sha`` is missing, or it is not the hash of the file (exit code 8).
 
     ``spec`` is the spec path as the person typed it and ``short`` the first 8 hex of the hash of the file, so the hint
-    can name the exact command that confirms the code.
+    can name the exact command that confirms the code. ``folders`` are the ``(option, value)`` pairs of the folder
+    options that were given and are not the defaults (``--approvals-dir``, ``--strategies-dir``); the hint repeats them,
+    so the command it names reads the same folders.
     """
 
-    def __init__(self, spec: str, short: str, message: str) -> None:
+    def __init__(self, spec: str, short: str, message: str, folders: Sequence[tuple[str, str]] = ()) -> None:
+        self.folders = tuple(folders)
         self.spec = spec
         self.short = short
         super().__init__(message)
@@ -176,7 +186,7 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
             f"bt report {run_id} writes the report again without logging the run twice",
         )
     if isinstance(error, UsageError):
-        return Failure(ExitCode.USAGE, str(error), "bt approve --help describes the arguments")
+        return Failure(ExitCode.USAGE, str(error), error.hint)
     if isinstance(error, StoredSpecError):
         return Failure(
             ExitCode.SPEC,
@@ -193,6 +203,7 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
         return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT)
     if isinstance(error, ConfirmationError):
         command = f"bt approve {shell_word(error.spec)} --code --sha {error.short}"
+        command += "".join(f" {option} {shell_word(value)}" for option, value in error.folders)
         return Failure(ExitCode.GATE, str(error), f"read the code printed above; if you accept it, run: {command}")
     if isinstance(error, NotApprovedError | ApprovalError):
         return Failure(ExitCode.GATE, str(error), APPROVAL_HINT)
