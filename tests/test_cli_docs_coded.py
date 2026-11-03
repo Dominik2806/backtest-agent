@@ -304,10 +304,12 @@ def test_report_has_no_strategies_dir_because_it_never_reads_the_working_file() 
 # --- what the document says is not built is not built ---
 
 
-def test_bt_signal_check_is_not_a_command() -> None:
-    result = run_cli(["signal", "check", "spec.yaml"])
-    assert (result.code, result.out) == (2, "")
-    assert "**`bt signal check` and the agents are not built yet**" in TEXT
+def test_bt_signal_check_is_a_command_with_usage_errors_for_what_argparse_sees() -> None:
+    assert run_cli(["signal", "check"]).code == 2  # no SPEC
+    assert run_cli(["signal"]).code == 2  # no action
+    assert run_cli(["signal", "check", "spec.yaml", "--approvals-dir", "a"]).code == 2  # the record is never read
+    missing = run_cli(["signal", "check", "no-such-spec.yaml"])
+    assert (missing.code, missing.out) == (3, "")  # it got as far as reading the spec
 
 
 CASES_MODULE = "backtest_agent.coded.cases"
@@ -349,11 +351,11 @@ def importers_of_cases(src_root: Path) -> list[str]:
     return found
 
 
-def test_no_module_but_cases_py_imports_the_cases_module_so_no_command_can_run_the_examples() -> None:
-    """``bt signal check`` is the only planned caller of the functions of ``coded/cases.py`` (``cases_path``,
-    ``read_cases``, ``parse_cases`` and ``run_cases``) and it is not built: nothing imports the module, so nothing runs
-    ``cases.yaml`` and nothing raises ``CasesError`` in a command."""
-    assert importers_of_cases(ROOT / "src") == []
+def test_only_the_handler_of_bt_signal_check_imports_the_cases_module_so_no_other_command_runs_the_examples() -> None:
+    """``bt signal check`` is the only caller of the functions of ``coded/cases.py`` (``cases_path``, ``read_cases``,
+    ``parse_cases`` and ``run_cases``): exactly one module imports it, so no other command runs ``cases.yaml`` and
+    nothing else raises ``CasesError`` from it."""
+    assert importers_of_cases(ROOT / "src") == ["backtest_agent/cli/signal_check.py"]
     assert (ROOT / "src" / "backtest_agent" / "coded" / "cases.py").is_file()  # the scan looks at the right tree
 
 

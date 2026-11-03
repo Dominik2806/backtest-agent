@@ -84,6 +84,9 @@ def test_the_checker_itself_rejects_what_it_should() -> None:
         "uv run bt approve spec.yaml --idea --code",
         "uv run bt approve spec.yaml --code --sha zz",  # not 8 hex characters
         "uv run bt approve --idea",  # no spec
+        "uv run bt signal check",  # no spec
+        "uv run bt signal",  # no action
+        "uv run bt signal check spec.yaml --approvals-dir a",  # the record is never read
     ):
         with pytest.raises(AssertionError, match="does not parse"):
             parse(argv_of(bad))
@@ -95,6 +98,15 @@ def test_the_approve_forms_of_the_docs_parse() -> None:
         "uv run bt approve spec.yaml --code",
         "uv run bt approve spec.yaml --code --sha 3f9a1c2e",
         "uv run bt approve spec.yaml --code --sha 3F9A1C2E --approvals-dir a --strategies-dir strategies/signals",
+    ):
+        parse(argv_of(good))
+
+
+def test_the_signal_check_forms_of_the_docs_parse() -> None:
+    for good in (
+        "uv run bt signal check spec.yaml",
+        "uv run bt signal check spec.yaml --strategies-dir strategies/signals",
+        "uv run bt signal check --help",
     ):
         parse(argv_of(good))
 

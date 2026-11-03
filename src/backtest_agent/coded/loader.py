@@ -234,6 +234,8 @@ def load_candidate(spec: StrategySpec, source: bytes) -> Iterator[Candidate]:
     problem = coded_id_problem(signal_id)
     if problem is not None:
         raise GateError(problem)
+    # Redundant today: code_sha256, the static check and compile treat CRLF like LF. Kept so that the bytes that run are
+    # the bytes bt approve would archive.
     data = normalise_source(source)
     sha = code_sha256(data)
     check_source(data, signal_id)
