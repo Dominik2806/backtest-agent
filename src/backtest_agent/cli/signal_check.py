@@ -42,7 +42,7 @@ def cmd_signal_check(args: argparse.Namespace, context: Context) -> ExitCode:
         raise GateError(str(error)) from None
     data = normalise_source(raw)  # the bytes that are checked, run and hashed are the bytes bt approve would archive
     sha = code_sha256(data)
-    check_source(data, signal_id)
+    check_source(data, signal_id)  # runs again inside load_candidate, on purpose: neither place trusts the other
     cases_file = cases_path(args.strategies_dir, signal_id)
     cases = read_cases(cases_file, signal_id)  # still only data: a missing or invalid file stops here, nothing executed
 

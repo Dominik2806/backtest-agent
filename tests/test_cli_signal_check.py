@@ -177,22 +177,22 @@ def test_the_pin_line_compares_the_spec_with_the_file(cwd: Path) -> None:
 # --- the checks that stop it ---
 
 
-def refuses(cwd: Path, code: int, message: str) -> tuple[str, str]:
+def refuses(code: int, message: str) -> str:
     result = run_cli(["signal", "check", "spec.yaml"])
     assert (result.code, result.out) == (code, "")
     assert "bt: error: " in result.err and message in result.err, result.err
-    return result.err, result.err
+    return result.err
 
 
 def test_a_spec_without_a_coded_block_is_exit_3_and_nothing_is_executed(cwd: Path) -> None:
     write_spec(cwd, make_spec(signal="buy_and_hold", params={}))
-    err, _ = refuses(cwd, 3, "the spec has no coded block; only a coded signal is checked")
+    err = refuses(3, "the spec has no coded block; only a coded signal is checked")
     assert consent_lines(err) == []
 
 
 def test_a_file_that_is_missing_is_exit_9_not_8_because_nothing_waits_for_an_approval(cwd: Path) -> None:
     write_spec(cwd, coded_spec(ID))
-    err, error = refuses(cwd, 9, "strategies/signals/x_signal.py cannot be read (")
+    err = refuses(9, "strategies/signals/x_signal.py cannot be read (")
     assert consent_lines(err) == []
     assert "docs/coded-signals.md" in err.splitlines()[-1]  # the hint of rejected code, not the one of an approval
 
@@ -200,7 +200,7 @@ def test_a_file_that_is_missing_is_exit_9_not_8_because_nothing_waits_for_an_app
 def test_a_working_file_that_is_not_a_regular_file_is_exit_9(cwd: Path) -> None:
     write_spec(cwd, coded_spec(ID))
     (cwd / "strategies" / "signals" / "x_signal.py").mkdir(parents=True)  # a folder where the file should be
-    err, _ = refuses(cwd, 9, "strategies/signals/x_signal.py cannot be read (")
+    err = refuses(9, "strategies/signals/x_signal.py cannot be read (")
     assert consent_lines(err) == []
 
 
@@ -214,13 +214,13 @@ def test_the_examples_run_with_the_params_of_the_cases_file_not_with_the_params_
 
 def test_a_file_that_is_too_large_is_exit_9(cwd: Path) -> None:
     candidate(cwd, b"#" * (FILE_LIMIT + 1))
-    err, _ = refuses(cwd, 9, "x_signal.py is larger than the limit; approved code is at most 64 KiB")
+    err = refuses(9, "x_signal.py is larger than the limit; approved code is at most 64 KiB")
     assert consent_lines(err) == []
 
 
 def test_a_candidate_that_fails_the_static_check_is_exit_9_and_is_not_executed(cwd: Path) -> None:
     candidate(cwd, canary_source(ID))  # open() and os: refused by the real static check
-    err, _ = refuses(cwd, 9, "the signal source breaks")
+    err = refuses(9, "the signal source breaks")
     assert consent_lines(err) == [] and not (cwd / "marker.txt").exists()
 
 
@@ -239,7 +239,7 @@ def test_a_cases_file_that_is_missing_or_invalid_is_exit_9_before_anything_is_ex
 ) -> None:
     write_spec(cwd, coded_spec(CANARY_ID))
     put(cwd / "strategies" / "signals", CANARY_ID, canary_source(), cases)
-    err, _ = refuses(cwd, 9, message)
+    err = refuses(9, message)
     assert consent_lines(err) == []
     assert not (cwd / "marker.txt").exists()  # the canary would have written it
 
@@ -249,7 +249,7 @@ def test_a_cases_file_that_is_missing_or_invalid_is_exit_9_before_anything_is_ex
 
 def test_a_contract_failure_is_exit_9_and_the_consent_line_was_written_once(cwd: Path) -> None:
     candidate(cwd, good_source(ID, "2.0"))
-    err, _ = refuses(cwd, 9, "x_signal on the plain frame:")
+    err = refuses(9, "x_signal on the plain frame:")
     assert len(consent_lines(err)) == 1
     assert ID not in SIGNALS
 
@@ -277,7 +277,7 @@ def test_a_candidate_that_raises_when_it_is_loaded_is_exit_9_and_the_consent_lin
     cwd: Path, static_off: None, extra: str, message: str
 ) -> None:
     candidate_world(cwd, canary_source(extra=(extra,)))
-    err, _ = refuses(cwd, 9, message)
+    err = refuses(9, message)
     assert len(consent_lines(err)) == 1
     assert (cwd / "marker.txt").read_text(encoding="utf-8").splitlines() == ["imported 0.0"]
 
@@ -373,10 +373,86 @@ def test_the_same_code_and_params_are_checked_again_every_time_and_the_cache_of_
         return original(signal, params, frames)
 
     monkeypatch.setattr(signal_check, "check_signal_contract", spy)
-    key = (sha_of(canary_source()), repr(sorted({}.items())))
+    key = loader.checked_key(sha_of(canary_source()), {})  # the key the gate builds; the canary has no params
     loader._CHECKED.add(key)  # the gate has checked this code with these params before
     for _ in range(2):
         assert run_cli(["signal", "check", "spec.yaml"]).code == 0
     assert rows == [300, 300]  # twice, on the frames of 300 rows
     assert (cwd / "marker.txt").read_text(encoding="utf-8").splitlines() == ["imported 0.0", "imported 0.0"]
     assert loader._CHECKED == {key}  # nothing was added
+
+
+# --- nothing before the consent line can execute code ---
+
+
+def test_a_cases_file_with_a_python_tag_is_refused_as_data_and_creates_nothing(cwd: Path, static_off: None) -> None:
+    """The cases file is read before the consent line. Loaded with an unsafe YAML loader, this tag would call
+    ``builtins.open`` and create ``tagged.txt``; the safe loader refuses it. The canary behind it is not run either."""
+    write_spec(cwd, coded_spec(CANARY_ID))
+    tagged = (cwd / "tagged.txt").as_posix()
+    put(
+        cwd / "strategies" / "signals",
+        CANARY_ID,
+        canary_source(),
+        f"cases: !!python/object/apply:builtins.open ['{tagged}', w]\n",
+    )
+    err = refuses(9, "canary_signal.cases.yaml is not valid (1 problem):")
+    assert "(yaml): syntax error" in err
+    assert consent_lines(err) == []
+    assert not (cwd / "tagged.txt").exists() and not (cwd / "marker.txt").exists()
+
+
+# --- a spec with an id that is not allowed is refused before any file is read ---
+
+
+@pytest.mark.parametrize("bad", ["../evil", "con"])
+def test_a_spec_id_that_a_coded_signal_may_not_have_is_exit_3_before_any_file_is_read(
+    cwd: Path, monkeypatch: pytest.MonkeyPatch, static_off: None, bad: str
+) -> None:
+    data = coded_spec(ID).to_dict()
+    data["signal"]["id"] = bad
+    write_spec(cwd, data)
+    put(cwd / "strategies", "evil", canary_source("evil"), CANARY_CASES)  # what ../evil would reach
+
+    def read(path, shown):
+        raise AssertionError(f"the command read {shown}")
+
+    monkeypatch.setattr("backtest_agent.cli.signal_check.read_working_file", read)
+    result = run_cli(["signal", "check", "spec.yaml"])
+    assert (result.code, result.out) == (3, "")
+    assert "Invalid strategy spec" in result.err and "signal.id" in result.err
+    assert consent_lines(result.err) == [] and not (cwd / "marker.txt").exists()
+
+
+# --- a params model that cannot hold its own defaults ---
+
+OVER = "Field(1.0, ge=0.0, le=1.0)"
+
+
+def broken_defaults(replacement: str, old: str = "scale: float = " + OVER) -> bytes:
+    return good_source(ID, "0.5").decode().replace(old, replacement).encode()
+
+
+def test_a_default_that_the_model_of_the_candidate_does_not_accept_is_exit_9(cwd: Path) -> None:
+    """The default 2.0 is outside ``le=1.0`` and is not validated when the model is built, so the model takes the empty
+    params of the spec and then refuses its own dumped defaults: a ``GateError`` (the code is at fault), exit 9."""
+    candidate(cwd, broken_defaults("scale: float = Field(2.0, ge=0.0, le=1.0)"))
+    err = refuses(
+        9,
+        "the params model of the code does not accept its own defaults: scale: Input should be less than or equal to 1",
+    )
+    assert len(consent_lines(err)) == 1 and ID not in SIGNALS
+
+
+def test_a_default_that_a_spec_cannot_hold_is_exit_9(cwd: Path) -> None:
+    candidate(cwd, broken_defaults("scale: float | None = None"))
+    err = refuses(9, "the params model of the code has a default that a spec cannot hold: 'scale' is None")
+    assert len(consent_lines(err)) == 1
+
+
+def test_an_out_of_range_default_with_validate_default_is_exit_3_not_9(cwd: Path) -> None:
+    """Current behaviour, reported in the review: with ``validate_default=True`` the empty params of the spec already
+    fail the model, so the error is a ``SpecError`` naming ``signal.params.scale`` (exit 3); the code is at fault."""
+    candidate(cwd, broken_defaults("scale: float = Field(2.0, ge=0.0, le=1.0, validate_default=True)"))
+    err = refuses(3, "signal.params.scale: Input should be less than or equal to 1")
+    assert len(consent_lines(err)) == 1

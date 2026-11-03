@@ -152,14 +152,21 @@ def test_a_missing_or_changed_archive_keeps_the_gate_hint(run_id: str, command: 
     assert result.err.splitlines()[-2:] == [f"bt: error: {what}", f"hint: {GATE_HINT}"]
 
 
-def test_a_missing_archive_in_a_first_bt_run_keeps_the_this_run_used_wording(tmp_path: Path, monkeypatch) -> None:
-    """The wording "this run used" stays for a missing archive even when there is no earlier run (docs/cli.md)."""
+@pytest.mark.parametrize("damage", ["missing", "changed"])
+def test_a_missing_or_changed_archive_in_a_first_bt_run_keeps_the_this_run_used_wording(
+    tmp_path: Path, monkeypatch, damage: str
+) -> None:
+    """ "This run used" stays for a missing or changed archive even when there is no earlier run (docs/cli.md)."""
     monkeypatch.chdir(tmp_path)
     write_hold_spec(tmp_path)
     approve_all(tmp_path, HOLD_A, "8b0b3234")
-    Path("approvals", "code", f"{SHA_A}.py").unlink()
+    archive = Path("approvals", "code", f"{SHA_A}.py")
+    if damage == "missing":
+        archive.unlink()
+    else:
+        archive.write_bytes(HOLD_A + b"# edited\n")
     result = run_cli(["run", "spec.yaml"], provider=LiteralProvider(r3b_world()))
-    assert not Path("runs").exists()
+    assert (result.code, not Path("runs").exists()) == (5, True)
     assert result.err.splitlines()[-1] == f"hint: {GATE_HINT}"
 
 

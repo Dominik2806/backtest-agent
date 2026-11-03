@@ -175,6 +175,5 @@ def test_a_record_that_is_not_valid_is_exit_5(run_id: str, tmp_path: Path) -> No
     result = report(run_id, "--overwrite")
     assert (result.code, result.out) == (5, "")
     assert result.err.splitlines()[0].startswith("bt: error: hold_a.json: ")
-    assert (
-        result.err.splitlines()[-1] == FORMAT_HINT
-    )  # the same hint as bt validate and bt approve (test_cli_record_hints.py)
+    # the same hint as bt validate and bt approve (test_cli_record_hints.py)
+    assert result.err.splitlines()[-1] == FORMAT_HINT

@@ -196,7 +196,8 @@ test on real data is Phase 15.
 
 The rules above settle how approved code is loaded. They did not settle `bt signal check`, which has to run a file that no
 person approved yet: the static check, the contract check on frames of 300 rows and the examples of `cases.yaml`, so that a
-person knows what they are about to approve. These rules are added; nothing above changes.
+person knows what they are about to approve. These rules are added. No rule above changes; only the sentences that said
+that the command is not built were corrected.
 
 - **`load_candidate(spec, source)` in `coded/loader.py` is the second, and last, way to execute strategy code.** It is a
   context manager that yields a `Candidate` (the registered signal, marked with the hash of the LF form of the file; the

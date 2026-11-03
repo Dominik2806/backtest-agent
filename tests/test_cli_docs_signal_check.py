@@ -112,7 +112,7 @@ def test_the_section_states_what_the_command_does_and_does_not_do() -> None:
         "a candidate can be checked before its idea is approved",
         "A candidate is checked again every time",
         "is exit code 9, **not 8**: nothing is waiting for an approval here",
-        "**Up to here nothing was executed and nothing was written to stderr.**",
+        "**Up to here nothing was executed and the consent line has not been written.**",
         "The command never exits with 8 or 5.",
         "`--strategies-dir` when it was given and is not the default",
         "`bt approve --code` still shows the whole file, still refuses an unapproved idea (exit code 8) and "
@@ -172,18 +172,34 @@ OLD_PHRASES = (
 
 
 def tracked_text_files() -> list[Path]:
+    """Every file that could still say it: documents, source and tests (not this file, which names the phrases)."""
     found = [ROOT / "README.md", ROOT / "CLAUDE.md", ROOT / "CHANGELOG.md", *sorted((ROOT / "docs").rglob("*.md"))]
-    return found + sorted((ROOT / "src").rglob("*.py")) + sorted((ROOT / "tests").glob("*.py"))
+    found += sorted((ROOT / "src").rglob("*.py")) + sorted((ROOT / "tests").glob("*.py"))
+    return [path for path in found if path != Path(__file__).resolve()]
 
 
-@pytest.mark.parametrize("path", tracked_text_files(), ids=lambda p: p.relative_to(ROOT).as_posix())
-def test_no_file_says_that_bt_signal_check_is_not_built(path: Path) -> None:
-    if path.name == "test_cli_docs_signal_check.py":
-        return  # this file names the phrases it forbids
-    text = " ".join(path.read_text(encoding="utf-8").split())
-    assert NOT_BUILT.search(text) is None, NOT_BUILT.search(text).group(0)
-    for phrase in OLD_PHRASES:
-        assert phrase not in text, phrase
+def offences(files: list[Path], root: Path) -> list[str]:
+    """``<file>: <phrase>`` for every file that says that ``bt signal check`` is not built."""
+    found = []
+    for path in files:
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        name = path.relative_to(root).as_posix()
+        found += [f"{name}: {m.group(0)}" for m in NOT_BUILT.finditer(text)]
+        found += [f"{name}: {phrase}" for phrase in OLD_PHRASES if phrase in text]
+    return found
+
+
+def test_no_file_says_that_bt_signal_check_is_not_built() -> None:
+    files = tracked_text_files()
+    assert len(files) > 150 and ROOT / "docs" / "cli.md" in files and Path(__file__).resolve() not in files
+    assert offences(files, ROOT) == []
+
+
+def test_a_file_that_says_it_is_named_with_its_phrase(tmp_path: Path) -> None:
+    clean, dirty = tmp_path / "clean.md", tmp_path / "dirty.md"
+    clean.write_text("`bt signal check` is built; the agents are not built yet.\n", encoding="utf-8")
+    dirty.write_text("The agents and `bt signal check` (not built yet) come later.\n", encoding="utf-8")
+    assert offences([clean, dirty], tmp_path) == ["dirty.md: signal check` (not built"]
 
 
 def test_the_checker_itself_finds_the_old_wording() -> None:
@@ -254,3 +270,16 @@ def test_the_changelog_and_the_readme_name_the_command_and_the_changed_hint() ->
     assert "It executes the working file, which nobody approved" in flat.replace("**", "")
     assert "One hint for a damaged approval record in every command that reads approvals" in flat
     assert "uv run bt signal check spec.yaml" in README and "EXECUTES the unapproved candidate file" in README
+
+
+def test_the_adr_addendum_says_what_it_changed_above_and_the_readme_lists_the_command() -> None:
+    assert (
+        "No rule above changes; only the sentences that said that the command is not built were corrected."
+        in FLAT["adr"]
+    )
+    assert "nothing above changes" not in FLAT["adr"]
+    assert (
+        "`bt approve` and `bt signal check` with the approval gate for coded signals (Phase 10, in progress) exist"
+        in FLAT["readme"]
+    )
+    assert "`rebuild` (Phase 9), `approve` and `signal check` (Phase 10)" in FLAT["readme"]

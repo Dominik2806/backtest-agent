@@ -552,8 +552,7 @@ stops:
    large is exit code 9, **not 8**: nothing is waiting for an approval here.
 3. The static check. Findings are exit code 9.
 4. `<id>.cases.yaml` is read and validated as data. A file that is missing or not valid is exit code 9.
-5. **Up to here nothing was executed and nothing was written to stderr.** Now one line is written to stderr, the consent
-   line (below).
+5. **Up to here nothing was executed and the consent line has not been written.** Now it is written to stderr (below).
 6. The candidate is loaded: the static check runs again, then the file is executed. The params of the spec are validated by the
    params model of the code; params that do not fit it are exit code 3. Code that raises while it is loaded, `SystemExit`
    included, is exit code 9.

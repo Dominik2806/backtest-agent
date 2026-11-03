@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   signal, a built-in one too: it was code 1) and exit code 5 for approval records and archives. `bt signal check` follows in
   part 3b and the agents after it. See `docs/cli.md`, `docs/coded-signals.md` and [ADR 0018](docs/adr/0018-coded-signals-and-approval-gate.md).
   New files: `src/backtest_agent/cli/coded.py`, `cli/context.py`, `coded/status.py`, `coded/working.py`; tests `tests/coded_cli_helpers.py`, `test_cli_approve.py`, `test_cli_docs_coded.py`, `test_cli_exit_codes_coded.py`, `test_cli_record_hints.py`, `test_cli_report_coded.py`, `test_cli_run_coded.py`, `test_cli_validate_coded.py`.
+  New files: `src/backtest_agent/cli/signal_check.py`; tests `tests/test_cli_docs_signal_check.py`, `tests/test_cli_signal_check.py`, `tests/test_coded_candidate.py`.
   No new dependency.
 
 - Phase 10 part 2b (F-18), the gate. `coded/loader.py` is the only module in `src/` that compiles or executes strategy code
@@ -69,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that is missing or changed keeps that hint. A record file that cannot be read gets the "not valid" hint and the real reason
   in the message line. Exit code 5 is unchanged.
 
+- Phase 10 part 3b: every file that existed before part 3b and was changed (lines added/deleted of the whole branch,
+  `git diff main...HEAD --numstat --diff-filter=M`): source `src/backtest_agent/cli/commands.py` (+30/-0), `src/backtest_agent/cli/errors.py` (+6/-7), `src/backtest_agent/cli/render.py` (+52/-7), `src/backtest_agent/coded/errors.py` (+5/-2), `src/backtest_agent/coded/loader.py` (+69/-1); tests `tests/test_cli_docs_coded.py` (+41/-20), `tests/test_cli_exit_codes_coded.py` (+2/-2), `tests/test_cli_help.py` (+17/-1), `tests/test_cli_record_hints.py` (+163/-18), `tests/test_cli_report_coded.py` (+3/-1), `tests/test_cli_run_coded.py` (+1/-3), `tests/test_coded_gate_errors.py` (+1/-1), `tests/test_coded_source_tree.py` (+60/-0), `tests/test_docs_commands.py` (+12/-0); documents `CHANGELOG.md` (+23/-2), `CLAUDE.md` (+13/-4), `README.md` (+8/-5), `docs/ROADMAP.md` (+36/-9), `docs/adr/0018-coded-signals-and-approval-gate.md` (+53/-6), `docs/cli.md` (+134/-9), `docs/coded-signals.md` (+40/-13).
 - `SignalContractError` is now exit code 9 for every signal, built-in ones too; it was exit code 1 ("unexpected error").
   `bt run` of a signal that breaks the signal contract is the case that changes (Phase 10 part 3, `cli/errors.py`).
 - Phase 10 part 3: every file that existed before part 3 and was changed (lines added/deleted,

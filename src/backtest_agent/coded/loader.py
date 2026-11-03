@@ -109,8 +109,13 @@ def clear_checked() -> None:
     _CHECKED.clear()
 
 
+def checked_key(sha: str, params: dict) -> tuple[str, str]:
+    """The key of ``_CHECKED``: the hash of the code and its validated params (the check depends on both)."""
+    return (sha, repr(sorted(params.items())))
+
+
 def _check_contract_once(signal: Signal, params: dict, sha: str) -> None:
-    key = (sha, repr(sorted(params.items())))
+    key = checked_key(sha, params)
     if key in _CHECKED:
         return
     check_before_run(signal, signal.parse_params(params))  # raises SignalContractError; nothing is remembered then
