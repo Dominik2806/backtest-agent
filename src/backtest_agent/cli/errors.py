@@ -2,7 +2,8 @@
 
 ``classify`` is the only place that decides which code an error class gets. The order of the checks matters:
 ``JournalFormatError`` is both a ``JournalError`` and a ``ValueError`` and ``ExperimentReportError`` a
-``RuntimeError``, so the specific classes come first and everything unknown is code 1.
+``RuntimeError``, ``RecordError`` and ``NotApprovedError`` are ``GateError`` subclasses and ``ApprovalFormatError``
+is an ``ApprovalError``, so the specific classes come first and everything unknown is code 1.
 """
 
 import re
@@ -14,6 +15,15 @@ from pathlib import Path
 
 from backtest_agent.cli import render
 from backtest_agent.cli.compare import Difference, change_kind
+from backtest_agent.coded.errors import (
+    ApprovalError,
+    ApprovalFormatError,
+    CasesError,
+    GateError,
+    NotApprovedError,
+    RecordError,
+    StaticCheckError,
+)
 from backtest_agent.data.errors import DataError, DataValidationError
 from backtest_agent.experiment import ExperimentReportError
 from backtest_agent.journal import (
@@ -22,9 +32,14 @@ from backtest_agent.journal import (
     JournalIndexStale,
     RunNotFoundError,
 )
-from backtest_agent.spec.errors import SpecError, SpecProblem, UnknownSignalError
+from backtest_agent.spec.errors import SignalContractError, SpecError, SpecProblem, UnknownSignalError
 
 MAX_ISSUES_SHOWN = 10
+APPROVAL_HINT = "approvals are made with bt approve; see docs/coded-signals.md"
+RECORD_HINT = "the approvals folder (--approvals-dir) has to hold the record and the archived code this run used"
+RECORD_FORMAT_HINT = "an approval record is not valid; restore it from version control (docs/coded-signals.md)"
+CODE_HINT = "the rules a coded signal has to follow are in docs/coded-signals.md"
+CONTRACT_HINT = "a signal has to follow the signal contract (docs/strategy-spec.md)"
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
@@ -59,6 +74,19 @@ class StoredSpecError(SpecError):
         Exception.__init__(self, "\n".join(lines))
 
 
+class ConfirmationError(Exception):
+    """``bt approve --code`` was not confirmed: ``--sha`` is missing, or it is not the hash of the file (exit code 8).
+
+    ``spec`` is the spec path as the person typed it and ``short`` the first 8 hex of the hash of the file, so the hint
+    can name the exact command that confirms the code.
+    """
+
+    def __init__(self, spec: str, short: str, message: str) -> None:
+        self.spec = spec
+        self.short = short
+        super().__init__(message)
+
+
 class ReportFolderExistsError(FileExistsError):
     """``bt report`` refuses to write into an existing report folder without ``--overwrite`` (exit code 5)."""
 
@@ -76,6 +104,8 @@ class ExitCode(IntEnum):
     JOURNAL = 5
     REPORT_FAILED = 6
     CHANGED = 7
+    GATE = 8
+    CODE = 9
     INTERRUPTED = 130
 
 
@@ -145,6 +175,22 @@ def classify(error: BaseException, *, runs_dir: Path | None = None) -> Failure:
         return Failure(ExitCode.SPEC, str(error), "the fields of a spec are described in docs/strategy-spec.md")
     if isinstance(error, UnknownSignalError):
         return Failure(ExitCode.SPEC, str(error.args[0]) if error.args else "unknown signal")
+    if isinstance(error, RecordError):
+        return Failure(ExitCode.JOURNAL, str(error), RECORD_HINT)
+    if isinstance(error, ApprovalFormatError):
+        return Failure(ExitCode.JOURNAL, str(error), RECORD_FORMAT_HINT)
+    if isinstance(error, ConfirmationError):
+        return Failure(
+            ExitCode.GATE,
+            str(error),
+            f"read the code printed above; if you accept it, run: bt approve {error.spec} --code --sha {error.short}",
+        )
+    if isinstance(error, NotApprovedError | ApprovalError):
+        return Failure(ExitCode.GATE, str(error), APPROVAL_HINT)
+    if isinstance(error, StaticCheckError | CasesError | GateError):
+        return Failure(ExitCode.CODE, str(error), CODE_HINT)
+    if isinstance(error, SignalContractError):
+        return Failure(ExitCode.CODE, str(error), CONTRACT_HINT)
     if isinstance(error, RunChangedError):
         untouched = "the stored run is untouched; "
         hint = untouched + (
