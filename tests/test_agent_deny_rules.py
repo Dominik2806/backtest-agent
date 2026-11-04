@@ -100,6 +100,16 @@ COVERED = [
 # The PowerShell tool has the same rules, case-insensitive.
 COVERED_POWERSHELL_ONLY = ["BT VERB spec.yaml", "Uv Run Bt VERB spec.yaml", "BT.EXE VERB spec.yaml"]
 
+# Explicit rules that are redundant ON PURPOSE (deny only): the semantics of a leading ``*`` are not documented, so the
+# plain forms stay even though the wide rules match the same spellings in our reading. They are exempt from the "needed"
+# test below; each must exist for both tools and match its own spelling on its own.
+REDUNDANT_ON_PURPOSE = {
+    "uv run bt approve *": "uv run bt approve spec.yaml",
+    "python -m backtest_agent approve *": "python -m backtest_agent approve spec.yaml",
+    "py -m backtest_agent approve *": "py -m backtest_agent approve spec.yaml",
+    "python3 -m backtest_agent approve *": "python3 -m backtest_agent approve spec.yaml",
+}
+
 # Spellings that the rules do NOT match. They are known gaps (docs/agents.md); the hook of the agents and the reading of
 # the person are the other layers. Asserted so that a document cannot claim that these are blocked.
 GAPS = [
@@ -200,10 +210,21 @@ def test_removing_any_one_rule_leaves_a_covered_spelling_unmatched(kind: str) ->
     """The test fails if a rule is removed or incomplete: every rule has a spelling that only it matches."""
     rules = rules_of(kind)
     spellings = covered_spellings(kind)
+    exempt = {f"{tool}({pattern})" for tool in TOOLS for pattern in REDUNDANT_ON_PURPOSE} if kind == "deny" else set()
     for index, rule in enumerate(rules):
+        if rule in exempt:
+            continue
         without = rules[:index] + rules[index + 1 :]
         lost = [(tool, command) for tool, command in spellings if not Matcher.blocked_by(without, tool, command)]
         assert lost, f"{kind} rule {rule!r} is not needed by any covered spelling: remove it or add its spelling"
+
+
+@pytest.mark.parametrize("tool", TOOLS)
+@pytest.mark.parametrize("pattern", sorted(REDUNDANT_ON_PURPOSE))
+def test_each_redundant_rule_exists_and_matches_its_own_spelling(tool: str, pattern: str) -> None:
+    rule = f"{tool}({pattern})"
+    assert rule in rules_of("deny"), f"{rule} was removed; the plain forms stay on purpose"
+    assert Matcher.blocked_by([rule], tool, REDUNDANT_ON_PURPOSE[pattern])
 
 
 @pytest.mark.parametrize("kind", ["deny", "ask"])
