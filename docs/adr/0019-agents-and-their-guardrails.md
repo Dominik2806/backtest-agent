@@ -19,10 +19,10 @@ command (not a security boundary; a full path, `sh -c` and a quoted word are nam
 (only exit code 2 blocks, any other failure lets the call through unless the hook says `"onFailure": "block"`, which needs 2.1.295
 or later); hooks in `settings.json` that run also with `-p` and in an untrusted folder, while hooks in the frontmatter of a project
 agent are skipped until the folder is trusted; and an `agent_type` in the input of a call made inside a subagent. Observed by the
-maintainer on 2.1.318, on one machine, with a logging hook and a probe agent, not with this script on one of the two agents: a
-settings-level hook gets `agent_id` and `agent_type` (the name from the agent file) for a subagent call, also a background one, none
-in the main session, and `permission_mode` on every call; and `"onFailure": "block"` blocked a write when the hook exited 1, while the
-same hook without the key only warned.
+maintainer on 2.1.318, on one machine: a settings-level hook gets `agent_id` and `agent_type` (the name from the agent file) for a
+subagent call, also a background one, none in the main session, and `permission_mode` on every call; and `"onFailure": "block"`
+blocked a write when the hook exited 1, while the same hook without the key only warned. A later probe of the two real agents with
+this script is in "Observations" of `docs/agents.md`.
 
 ## Decision
 
@@ -41,7 +41,8 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
   exact sequence of words made of letters, digits, `_`, `.`, `/`, `-` and single spaces; everything else, a backslash included, is
   refused. Read, Glob and Grep get no objection. The hook reads the bytes of stdin and decodes them as UTF-8 itself. It exits 0
   without output or exits 2 with a reason, and **never prints a `permissionDecision`**, because an "allow" could skip the ask rule.
-  It fails closed: an error of the script is exit 2.
+  It fails closed: an error of the script is exit 2, and a tool name it does not know is refused, with one exception: the
+  internal tool `SubagentHandback`, by which a subagent returns its final message (observed once, not documented), is allowed.
 - **Registered in `settings.json` and in the frontmatter of each agent file.** The `settings.json` entry runs also with
   `-p` and in an untrusted folder, carries `"onFailure": "block"` (a script that cannot start would otherwise let the call through)
   and decides by the `agent_type` of the call; a call without it, or of another agent, gets no decision, and the shell line does not
@@ -97,5 +98,5 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
 - A new spelling or a new allowed command needs a row in a table test and a mutation table; `tests/test_agents_docs.py` fails when
   `docs/agents.md` names a test that does not exist or makes a claim with neither a test nor `(not tested)`.
 - The two agent files exist and are tied to the hook by tests (`tests/test_agent_files.py`); the example specs, the fake agents
-  and an end-to-end test without a real model follow. The hook has not yet been observed on a call of a real agent (not tested).
+  and an end-to-end test without a real model follow. The hook has been observed on calls of real agents (see "Observations" in `docs/agents.md`; once, one machine, not a test).
   A matcherless frontmatter entry starts the hook on every tool call of its agent; the measured cost is in `docs/agents.md`.

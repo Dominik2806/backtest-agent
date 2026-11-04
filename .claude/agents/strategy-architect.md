@@ -38,7 +38,7 @@ questions. Use `delay_bars` of at least 1, the costs, a benchmark and fixed date
 ## Commands you may run
 
 ```text
-bt validate strategies/drafts/<name>.yaml
+uv run bt validate strategies/drafts/<name>.yaml
 ```
 
 Run it until the spec is valid. Run nothing else: no backtest, no data fetch.
@@ -46,7 +46,7 @@ Run it until the spec is valid. Run nothing else: no backtest, no data fetch.
 ## For the person only, never run these
 
 ```text
-bt approve strategies/drafts/<name>.yaml --idea
+uv run bt approve strategies/drafts/<name>.yaml --idea
 ```
 
 ## After a refusal
@@ -57,4 +57,4 @@ permission mode.
 ## Your final message
 
 Say what you wrote, your assumptions and the open questions. End with: Next, for you: read the spec and its brief, then run
-`bt approve strategies/drafts/<name>.yaml --idea` yourself; after that, ask the signal-coder for the code.
+`uv run bt approve strategies/drafts/<name>.yaml --idea` yourself; after that, ask the signal-coder for the code.

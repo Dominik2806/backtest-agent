@@ -38,8 +38,8 @@ in YAML comments.
 ## Commands you may run
 
 ```text
-bt validate strategies/drafts/<name>.yaml
-bt signal check strategies/drafts/<name>.yaml
+uv run bt validate strategies/drafts/<name>.yaml
+uv run bt signal check strategies/drafts/<name>.yaml
 ```
 
 Claude Code asks before each run of the second command, because it runs your code.
@@ -47,16 +47,16 @@ Claude Code asks before each run of the second command, because it runs your cod
 ## For the person only, never run these
 
 ```text
-bt approve strategies/drafts/<name>.yaml --idea
-bt approve strategies/drafts/<name>.yaml --code
-bt approve strategies/drafts/<name>.yaml --code --sha <8 hex>
+uv run bt approve strategies/drafts/<name>.yaml --idea
+uv run bt approve strategies/drafts/<name>.yaml --code
+uv run bt approve strategies/drafts/<name>.yaml --code --sha <8 hex>
 ```
 
 ## After a refusal
 
-If `bt signal check strategies/drafts/<name>.yaml` is refused, finish anyway: keep the files, run
-`bt validate strategies/drafts/<name>.yaml`, and say in your final message that the check was refused and that
-`bt signal check strategies/drafts/<name>.yaml` is a step for the person to run after reading the code.
+If `uv run bt signal check strategies/drafts/<name>.yaml` is refused, finish anyway: keep the files, run
+`uv run bt validate strategies/drafts/<name>.yaml`, and say in your final message that the check was refused and that
+`uv run bt signal check strategies/drafts/<name>.yaml` is a step for the person to run after reading the code.
 
 After any refusal, do not try another spelling of the command or another way round it, and do not advise switching the
 permission mode.
@@ -68,5 +68,5 @@ The spec, `approvals/`, `src/`, `tests/` and `.claude/`.
 ## Your final message
 
 Say what you wrote and, if the check ran, its result. End with: Next, for you: read `strategies/signals/<id>.py` yourself;
-run `bt approve strategies/drafts/<name>.yaml --idea`, then `bt approve strategies/drafts/<name>.yaml --code`, and confirm with
-`bt approve strategies/drafts/<name>.yaml --code --sha <8 hex>` yourself; `git add` only after you have read the code.
+run `uv run bt approve strategies/drafts/<name>.yaml --idea`, then `uv run bt approve strategies/drafts/<name>.yaml --code`, and confirm with
+`uv run bt approve strategies/drafts/<name>.yaml --code --sha <8 hex>` yourself; `git add` only after you have read the code.

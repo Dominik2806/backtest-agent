@@ -156,6 +156,7 @@ def test_the_details_paragraphs_are_true_of_the_hook_source() -> None:
     assert "sys.stdin.buffer.read()" in HOOK_SOURCE and "reconfigure" not in HOOK_SOURCE
     assert "`RSIPUL~1.py`" in details and r"~[0-9]" in HOOK_SOURCE and "below_project" in HOOK_SOURCE
     assert "Write, Edit, MultiEdit, NotebookEdit, Bash and PowerShell" in text
+    assert 'HANDBACK_TOOL = "SubagentHandback"' in HOOK_SOURCE and "Grep and `SubagentHandback`" in text
     assert 'READ_TOOLS = ("Read", "Glob", "Grep")' in HOOK_SOURCE and "allows Read, Glob and Grep" in text
     assert len([p for p in details.split("\n\n") if p.strip()]) == 6  # the heading, the intro and four details
 
@@ -350,7 +351,24 @@ def test_one_layer_count_everywhere() -> None:
 def test_the_observations_are_stated_as_seen_once_and_not_with_this_script() -> None:
     section = flat(AGENTS[AGENTS.index("## Observations") : AGENTS.index("## Details of the hook")])
     assert "Claude Code 2.1.318, on one machine" in section and "a logging hook and a user-level probe agent" in section
-    assert "They were not seen with this script on a call of one of the two agents" in section
+    assert "the rest in one probe of the two real agents with this script" in section
+    assert "Each is observed once, Claude Code 2.1.318, one machine, not a test" in section
+    for fact in (
+        "`SubagentHandback`.** Claude Code gives every subagent an internal tool of this name",
+        "every background agent ended without returning a result",
+        "the settings entry did not, because of its matcher",
+        "Every subagent started from the main session ran in the background",
+        "`bt` alone was not on the PATH of the agent (exit code 127)",
+        "No agent retried a refused call",
+        "The frontmatter copy fired on every tool call of its agent",
+        "**Not observed:** the default mode and the ask prompt",
+        "a foreground agent, `onFailure` in the frontmatter copy, and the `acceptEdits` and `plan` modes",
+    ):
+        assert fact in section, fact
+    gaps = flat(AGENTS[AGENTS.index("## Known gaps") :])
+    assert "Internal tool names are observed, not documented" in gaps and "stall visibly" in gaps
+    assert "the hook has been observed on calls of real agents" in flat(ADR19).lower()
+    assert "has not yet been observed" not in flat(ADR19) and "was not seen" not in section
     assert "`agent_id` and `agent_type`" in section and "A main-session call has neither" in section
     assert "Every call carries `permission_mode`" in section
     assert '`"onFailure": "block"` blocked a Write when the hook exited 1' in section

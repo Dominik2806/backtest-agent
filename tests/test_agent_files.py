@@ -37,9 +37,10 @@ SETTINGS_MATCHER = set(SETTINGS["hooks"]["PreToolUse"][0]["matcher"].split("|"))
 PLACEHOLDERS = {"<name>": "trend", "<id>": "hold_a", "<8 hex>": "3f9a1c2e"}
 INSTRUCTIONS = "These are instructions, not enforcement: a hook limits what you write and run."
 SENTENCE_A = (
-    "If `bt signal check strategies/drafts/<name>.yaml` is refused, finish anyway: keep the files, run "
-    "`bt validate strategies/drafts/<name>.yaml`, and say in your final message that the check was refused and that "
-    "`bt signal check strategies/drafts/<name>.yaml` is a step for the person to run after reading the code."
+    "If `uv run bt signal check strategies/drafts/<name>.yaml` is refused, finish anyway: keep the files, run "
+    "`uv run bt validate strategies/drafts/<name>.yaml`, and say in your final message that the check was refused and "
+    "that `uv run bt signal check strategies/drafts/<name>.yaml` is a step for the person to run after reading the "
+    "code."
 )
 SENTENCE_B = (
     "After any refusal, do not try another spelling of the command or another way round it, and do not advise "
@@ -185,7 +186,51 @@ def test_matcherless_entry_gets_refused_tool_names(name: str, tmp_path: Path) ->
         with pytest.raises(hook.Refused, match="may not use"):
             hook.decide(name, payload(tool, command="bt validate strategies/drafts/x.yaml"), ROOT)
     done = run_command(frontmatter_command(name), json.dumps(payload("ToolSearch", query="x")), cwd=tmp_path)
-    assert done.returncode == 2 and b"does not know it" in done.stderr
+    assert done.returncode == 2 and b"ToolSearch" in done.stderr and b"docs/agents.md" in done.stderr
+
+
+# The internal tool by which a subagent returns its final message: observed once (Claude Code 2.1.318), not documented.
+# The payload has the shape of the observed one (agent_type, agent_id, permission_mode "auto", a "message" field).
+HANDBACK = {"message": "I wrote strategies/drafts/x.yaml and bt validate accepts it."}
+
+
+def handback_payload(name: str) -> dict:
+    found = payload("SubagentHandback", name, mode="auto", **HANDBACK)
+    found["agent_id"] = "aea1dfb11c2220754"
+    return found
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_subagent_handback_is_allowed_in_process_and_through_the_files_own_line(name: str, cwd: Path) -> None:
+    hook.decide(name, handback_payload(name), ROOT)  # raises Refused if the hook would refuse it
+    done = run_command(frontmatter_command(name), json.dumps(handback_payload(name)), cwd=cwd)
+    assert (done.returncode, done.stdout, done.stderr) == (0, b"", b"")
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_a_second_internal_name_is_still_refused_with_the_tool_named(name: str, cwd: Path) -> None:
+    other = payload("SendMessage", name, mode="auto", message="x")
+    with pytest.raises(hook.Refused, match="SendMessage.*docs/agents.md"):
+        hook.decide(name, other, ROOT)
+    done = run_command(frontmatter_command(name), json.dumps(other), cwd=cwd)
+    assert done.returncode == 2 and b"SendMessage" in done.stderr and b"docs/agents.md" in done.stderr
+
+
+def test_subagent_handback_is_not_in_the_settings_matcher() -> None:
+    """The settings entry is not widened: it never saw the tool, and the frontmatter copy allows it."""
+    assert "SubagentHandback" not in SETTINGS_MATCHER
+    assert SETTINGS_MATCHER == {"Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "PowerShell"}
+    assert hook.HANDBACK_TOOL == "SubagentHandback" and hook.HANDBACK_TOOL not in hook.READ_TOOLS
+
+
+def test_an_unknown_agent_name_gets_no_allowance_for_the_handback(tmp_path: Path) -> None:
+    data = json.dumps(handback_payload("someone-else"))
+    env = {"CLAUDE_PROJECT_DIR": str(ROOT)}
+    assert hook.run(["someone-else"], data, env) == 2  # an argument the hook does not know
+    done = run_command(derived_command("someone-else"), data, cwd=tmp_path)
+    assert done.returncode == 2 and b"unknown agent" in done.stderr
+    # the settings entry (no argument) gives no decision to another agent_type, as before: it is not an allowance
+    assert hook.run([], data, env) == 0
 
 
 # --- the prompts ---
@@ -217,7 +262,8 @@ def test_person_commands_are_refused_for_the_agent_and_parse(name: str) -> None:
         with pytest.raises(hook.Refused):
             hook.check_bash(name, command, "default")
         assert Matcher.blocked_by(rules_of("deny"), "Bash", command), command
-        assert shlex.split(command)[0] == "bt" and parses(shlex.split(command)[1:]), command
+        words = shlex.split(command)
+        assert words[:3] == ["uv", "run", "bt"] and parses(words[3:]), command
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -287,7 +333,11 @@ def test_agent_files_cannot_widen_the_hook() -> None:
     assert paths == {"$CLAUDE_PROJECT_DIR/.claude/hooks/restrict_writes.py"} and len(paths) == 1
     # (c) every tool that the settings matcher or a file can route to the hook is refused with the worst call of
     #     its kind, except the three read tools, which the documents call unrestricted
-    reachable = SETTINGS_MATCHER | {tool.strip() for name in NAMES for tool in agent_file(name)[0]["tools"].split(",")}
+    reachable = (
+        SETTINGS_MATCHER
+        | {tool.strip() for name in NAMES for tool in agent_file(name)[0]["tools"].split(",")}
+        | {"SubagentHandback"}
+    )
     worst = {
         "file_path": "src/x.py",
         "content": "x",
@@ -302,9 +352,12 @@ def test_agent_files_cannot_widen_the_hook() -> None:
             except hook.Refused:
                 continue
             passes.add(tool)
-    assert passes == {"Read", "Glob", "Grep"}
+    #     SubagentHandback is the one internal tool the hook allows besides the read tools: it is how a subagent returns
+    #     its message (observed once, not documented); it writes and runs nothing. It is not in the settings matcher.
+    assert passes == {"Read", "Glob", "Grep", "SubagentHandback"}
     # (d) every tool a file lists, apart from the read tools, is matched by the settings entry and known to the hook
     for name in NAMES:
         listed = {tool.strip() for tool in agent_file(name)[0]["tools"].split(",")}
         assert listed - set(hook.READ_TOOLS) <= SETTINGS_MATCHER
+        assert "SubagentHandback" not in listed
         assert listed <= set(hook.READ_TOOLS) | set(hook.WRITE_TOOLS) | {"Bash"}
