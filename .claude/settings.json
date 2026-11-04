@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(bt approve *)",
+      "Bash(* bt approve *)",
+      "Bash(*/bt approve *)",
+      "Bash(bt.exe approve *)",
+      "Bash(*/bt.exe approve *)",
+      "Bash(* backtest_agent approve *)",
+      "PowerShell(bt approve *)",
+      "PowerShell(* bt approve *)",
+      "PowerShell(*/bt approve *)",
+      "PowerShell(bt.exe approve *)",
+      "PowerShell(*/bt.exe approve *)",
+      "PowerShell(* backtest_agent approve *)"
+    ],
+    "ask": [
+      "Bash(bt signal check *)",
+      "Bash(* bt signal check *)",
+      "Bash(*/bt signal check *)",
+      "Bash(bt.exe signal check *)",
+      "Bash(*/bt.exe signal check *)",
+      "Bash(* backtest_agent signal check *)",
+      "PowerShell(bt signal check *)",
+      "PowerShell(* bt signal check *)",
+      "PowerShell(*/bt signal check *)",
+      "PowerShell(bt.exe signal check *)",
+      "PowerShell(*/bt.exe signal check *)",
+      "PowerShell(* backtest_agent signal check *)"
+    ]
+  }
+}
