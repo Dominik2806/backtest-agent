@@ -200,3 +200,19 @@ def test_an_allowed_write_with_content_that_is_not_in_the_console_code_page_is_n
     data = payload("Write", CODER, **{"file_path": ALLOWED["file_path"], "content": "# Á → €"})
     done = run_script([], json.dumps(data, ensure_ascii=False).encode("utf-8"))
     assert (done.returncode, done.stdout, done.stderr) == (0, b"", b"")
+
+
+# --- the hook looks at no permission mode (docs/agents.md, "Details of the hook") ---
+
+
+@pytest.mark.parametrize(
+    "mode", ["default", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk", None, 5, ""]
+)
+def test_the_decision_does_not_depend_on_a_permission_mode(capsys, mode) -> None:
+    check = payload("Bash", CODER, command="bt signal check strategies/drafts/x.yaml")
+    for data, expected in (
+        (payload("Write", CODER, **ALLOWED), 0),
+        (payload("Write", CODER, **FORBIDDEN), 2),
+        (check, 0),
+    ):
+        assert call([], data | {"permission_mode": mode}, capsys)[0] == expected

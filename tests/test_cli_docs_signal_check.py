@@ -216,9 +216,12 @@ def test_the_agents_are_still_not_built_and_the_documents_say_so() -> None:
     assert "The agents are not built yet" in FLAT["readme"]
     assert "**The agents are not built yet**" in FLAT["cli"]
     not_built = CODED[CODED.index("## Not built yet") :]
-    assert not_built.count("\n- ") == 3
-    assert "The agents that write the spec and the code" in not_built
-    assert "The rule that denies `bt approve` to the agents" in not_built
+    assert not_built.count("\n- ") == 2
+    assert "The agent files that write the spec and the code" in not_built
+    assert (
+        "The rule that denies `bt approve` to the agents" not in not_built
+    )  # it exists since part 4a (docs/agents.md)
+    assert "It also decides whether the agents may run" not in not_built
     assert "in a subprocess with a wall-clock limit and a memory limit" in not_built
     assert "bt signal check" in not_built  # and the section no longer lists the command itself as missing
     assert "The command `bt signal check`" not in not_built
@@ -260,7 +263,8 @@ def test_claude_md_names_the_one_module_that_the_source_tree_tests_allow() -> No
     assert "**Only `cli/signal_check.py` may use `load_candidate` or import `coded/cases.py`**" in flat
     assert "`tests/test_coded_source_tree.py` and `tests/test_cli_docs_coded.py`" in flat
     assert "caches nothing" in flat and "never 8" in flat
-    assert "Not built: the agents, the deny rule for `bt approve`" in flat
+    assert "Not built: the agent files, and running a candidate in a subprocess" in flat
+    assert "no rule denies the command to an agent yet" not in flat
 
 
 def test_the_changelog_and_the_readme_name_the_command_and_the_changed_hint() -> None:

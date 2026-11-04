@@ -59,9 +59,10 @@ approved idea, and an idea without approved code runs nothing. Approving the sam
 
 **Who may run `bt approve`.** A person, and a person must read the printed code: the command cannot check that anybody did. An
 agent with a shell could run both steps itself and the approval would mean nothing, so the agent that writes a signal must not
-run `bt approve`. Today only the discipline of the person enforces that; a later part of the phase adds a rule that denies the
-command to the agents, and that rule does not exist yet. An approval means that a person read this code. It does not make the
-code safe: the static check is a tripwire and not a sandbox (below, and the known gaps of the ADR).
+run `bt approve`. Two fences stand in the way of an agent ([agents.md](agents.md)): a deny rule in `.claude/settings.json` for
+`bt approve` in the spellings listed there, and the hook of the agents, which lets them run only `bt validate` and, for the signal
+coder, `bt signal check`. Neither is a boundary; the person who reads the code is. An approval means that a person read this code. It
+does not make the code safe: the static check is a tripwire and not a sandbox (below, and the known gaps of the ADR).
 
 ## The coded block of a spec
 
@@ -100,7 +101,7 @@ signal:
 
 | Path | What | Written by |
 |---|---|---|
-| `strategies/signals/<id>.py` | the candidate code, editable | a person, or the signal coder agent once it exists |
+| `strategies/signals/<id>.py` | the candidate code, editable | a person, or the signal coder agent once it exists (the hook lets it write only here) |
 | `strategies/signals/<id>.cases.yaml` | hand-calculated examples as data (see `cases.yaml` below) | a person, or the signal coder agent once it exists |
 | `approvals/<id>.json` | the append-only approval history of one signal id | `bt approve` |
 | `approvals/code/<sha256>.py` | the approved code, LF line ends; the file name is its hash | `bt approve` |
@@ -368,8 +369,8 @@ agent with a shell could pass a flag as easily, and a prompt would break the tes
 own (the frames, params and examples cross a pipe; a time limit and a memory limit that work on Windows). **Not built:** running
 the candidate in a subprocess with a wall-clock limit and a memory limit. An agent that runs the command runs its own code with its
 own permissions; the only limit of an agent run is the timeout of its own tool; whether agents may run it unattended is decided in
-the agents part (pull request 4) and stated in `docs/agents.md`. The rule that denies `bt approve` to the agents does not exist
-yet either.
+the agents part (pull request 4) and stated in `docs/agents.md`: the signal coder may run it, not unattended in the sense of
+[agents.md](agents.md), "May an agent run `bt signal check`?"; the strategy architect may not.
 
 ## What `bt validate` says
 
@@ -388,9 +389,8 @@ An unresolved spec used outside the gate, from Python, still raises `UnknownSign
 
 ## Not built yet
 
-- The agents that write the spec and the code (`strategy-architect` and `signal-coder`), with `docs/agents.md`: the next pull
-  request. It also decides whether the agents may run `bt signal check` unattended.
-- The rule that denies `bt approve` to the agents.
+- The agent files that write the spec and the code (`strategy-architect` and `signal-coder`), the example specs and the
+  end-to-end test: the next pull request. The fences for them (the deny and ask rules, the hook, `docs/agents.md`) exist.
 - Running a candidate of `bt signal check` in a subprocess with a wall-clock limit and a memory limit.
 
 Everything else in this document exists and is tested. A coded signal is checked with `bt signal check`, approved with

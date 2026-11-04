@@ -179,7 +179,8 @@ idea and its code with `bt approve`: `bt run`, `bt validate --data` and `bt data
 the archived code of the run, and `bt validate` only reports what the approval record says. `bt signal check` checks a
 candidate before it is approved and **executes the file, which nobody approved yet**, in the process of the command, with your
 permissions and no time or memory limit (the static check is a tripwire, not a sandbox; read [docs/cli.md](docs/cli.md) first).
-The agents are not built yet.
+The agents are not built yet; the fences for them (deny and ask rules, a write-restriction hook) exist, see
+[docs/agents.md](docs/agents.md).
 
 ## What is inside
 

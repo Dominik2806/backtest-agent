@@ -26,3 +26,4 @@ To add one, copy [0000-template.md](0000-template.md) to the next free number an
 | [0016](0016-command-line.md) | Command line: argparse, `cli/` package, injected provider and clock, `run_experiment`, exit codes, provider guard, `bt report` design | Accepted |
 | [0017](0017-signal-runtime-contract.md) | Runtime check of the signal's zero rows (before the first trading row and during warm-up) | Accepted |
 | [0018](0018-coded-signals-and-approval-gate.md) | Coded signals: the `coded` spec block, idea and code approvals, append-only records, archive, static check, loader rules, known gaps | Accepted |
+| [0019](0019-agents-and-their-guardrails.md) | The agents and their guardrails: deny and ask rules, the write-restriction hook, `bt signal check` for agents, drafts | Accepted |

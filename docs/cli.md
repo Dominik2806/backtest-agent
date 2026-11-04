@@ -512,9 +512,11 @@ UTF-8 is a finding too).
 
 **Who runs `bt approve`.** A person, and a person has to read the printed code before the second command: nothing in the
 command checks that anybody did. An agent that has a shell could run both commands itself, and then the approval would mean
-nothing, so the agent that writes a signal must not run `bt approve`. Today only the discipline of the person enforces that. A later pull
-request adds a rule that denies the command to the agents; that rule does not exist yet. The static check is a tripwire and an
-approval does not make code safe: it means that a person read this code ([coded-signals.md](coded-signals.md)).
+nothing, so the agent that writes a signal must not run `bt approve`. Two layers stand in the way of an agent
+([agents.md](agents.md)): `.claude/settings.json` denies `bt approve` in the spellings listed there (a text rule, which does not catch
+every spelling, and which also applies to Claude Code's own session), and the hook of the agents lets them run only `bt validate` and,
+for the signal coder, `bt signal check`. Both are fences, not boundaries: the person who reads the code is the defence. The static check
+is a tripwire and an approval does not make code safe: it means that a person read this code ([coded-signals.md](coded-signals.md)).
 
 **Known limits.**
 
@@ -637,8 +639,9 @@ that a person can read with less effort.
 
 **Who runs `bt signal check`.** A person, for a file they wrote or received. An agent that runs the command runs its own code
 with its own permissions, as it could with Python; the only limit of an agent run is the timeout of its own tool; whether agents
-may run it unattended is decided in the agents part (pull request 4) and stated in `docs/agents.md`. The rule that denies
-`bt approve` to the agents does not exist yet either.
+may run it unattended is decided in the agents part (pull request 4) and stated in `docs/agents.md`: they may not; the signal coder may
+run it, and the only thing in the way of a run that nobody sees is an ask rule of `.claude/settings.json`
+([agents.md](agents.md), "May an agent run `bt signal check`?").
 
 **Known limits.**
 

@@ -225,7 +225,8 @@ that the command is not built were corrected.
   open for this command, and gap 6 is the price. **Hardening that is NOT built:** running the candidate in a subprocess with a
   wall-clock limit and a memory limit. An agent that runs the command runs its own code with its own permissions, as it could with
   Python; the only limit of an agent run is the timeout of its own tool. Whether agents may run the command unattended is decided
-  in the agents part (pull request 4), which must state it in `docs/agents.md`.
+  in the agents part (pull request 4), which must state it in `docs/agents.md`. It is stated there and decided in
+  [ADR 0019](0019-agents-and-their-guardrails.md).
 - **A candidate can be checked before its idea is approved, and the command does not read `approvals/`.** The order is write,
   check, approve the idea, approve the code (`bt approve --code` refuses an unapproved idea). A damaged record cannot fail a
   check, and "writes nothing, approves nothing" holds by construction.
