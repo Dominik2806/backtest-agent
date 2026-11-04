@@ -3,7 +3,7 @@
 - **Status:** Accepted. Built in parts: the `coded` block of the spec, the static check, the approval records, the contract
   check, the loader (the gate), the `cases.yaml` format, the check before a run, `bt approve` and the resolving commands
   (`bt run`, `bt validate`, `bt data fetch`, `bt report` with a coded spec) and, in Phase 10 part 3b, `bt signal check` with
-  `load_candidate` (see the addendum at the end) are delivered; the agents are not built yet. `CasesError` is exit code 9 and
+  `load_candidate` (see the addendum at the end) are delivered; the agent files exist (ADR 0019). `CasesError` is exit code 9 and
   only `bt signal check` raises it. The rules below are fixed so that the later parts build to them.
 
 ## Context

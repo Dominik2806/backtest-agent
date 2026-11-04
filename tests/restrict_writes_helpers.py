@@ -6,6 +6,7 @@ They build inputs and run the script; no expected value of a test is computed he
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / ".claude" / "hooks" / "restrict_writes.py"
@@ -61,9 +63,34 @@ def settings_command() -> str:
     return hook["command"]
 
 
-def frontmatter_command(agent: str) -> str:
-    """The command line of the copy in the frontmatter of an agent (the agent name is the argument)."""
-    return f'uv run --no-project python -I "$CLAUDE_PROJECT_DIR/.claude/hooks/restrict_writes.py" {agent}'
+AGENTS_DIR = ROOT / ".claude" / "agents"
+
+
+def split_agent_file(text: str) -> tuple[dict, str]:
+    """(frontmatter, body) of an agent file: a YAML block between two lines of three dashes, then the prompt."""
+    text = text.replace("\r\n", "\n")
+    assert text.startswith("---\n"), "an agent file starts with its frontmatter"
+    head, body = text[4:].split("\n---\n", 1)
+    return yaml.safe_load(head), body
+
+
+def agent_file(name: str, root: Path = ROOT) -> tuple[dict, str]:
+    return split_agent_file((root / ".claude" / "agents" / f"{name}.md").read_text(encoding="utf-8"))
+
+
+def frontmatter_command(agent: str, root: Path = ROOT) -> str:
+    """The command line that the agent's OWN file carries (read from the file, not built from a template)."""
+    frontmatter, _ = agent_file(agent, root)
+    (group,) = frontmatter["hooks"]["PreToolUse"]
+    (handler,) = group["hooks"]
+    return handler["command"]
+
+
+def derived_command(agent: str) -> str:
+    """The command line that the settings entry implies for ``agent``: its uv command and script path, plus the name."""
+    found = re.search(r'uv run .*?restrict_writes\.py"', settings_command())
+    assert found, "the settings line holds the uv command"
+    return f"{found[0]} {agent}"
 
 
 def git_bash() -> str:

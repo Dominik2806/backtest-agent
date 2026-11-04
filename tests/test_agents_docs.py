@@ -177,9 +177,15 @@ def test_the_hook_source_never_prints_a_decision() -> None:
     assert "permissionDecision" not in code and "print(" not in code
 
 
-def test_the_agent_files_do_not_exist_yet_and_the_document_says_so() -> None:
-    assert not (ROOT / ".claude" / "agents").exists()
-    assert "the agent files in `.claude/agents/`" in flat(AGENTS) and "(planned, files not built yet)" in AGENTS
+def test_the_agent_files_exist_and_the_document_says_so() -> None:
+    assert sorted(path.name for path in (ROOT / ".claude" / "agents").iterdir()) == [
+        "signal-coder.md",
+        "strategy-architect.md",
+    ]
+    status = flat(AGENTS[AGENTS.index("## Status") : AGENTS.index("## The two agents")])
+    assert "the two agent files `.claude/agents/strategy-architect.md` and `.claude/agents/signal-coder.md`" in status
+    assert "from part 4b so far the two agent files" in status and "no agent file" not in status
+    assert "(planned, files not built yet)" not in AGENTS and "\n## The two agents\n" in AGENTS
 
 
 # --- what the documents must say, and what they must not ---
@@ -230,6 +236,10 @@ def test_adr_0019_is_in_the_index_and_has_its_sections() -> None:
     headings = re.findall(r"^## (.+)$", ADR19, flags=re.MULTILINE)
     assert headings == ["Context", "Decision", "Known gaps", "Consequences"]
     assert "- **Status:** Accepted." in ADR19
+    adr = flat(ADR19)
+    assert "the two agent files, and then the example specs" in adr
+    assert "The two agent files exist and are tied to the hook by tests (`tests/test_agent_files.py`)" in adr
+    assert "Part 4b adds the agent files" not in adr and "do not exist before" not in adr
 
 
 def test_claude_md_describes_the_guardrails_and_their_tests() -> None:
@@ -239,6 +249,11 @@ def test_claude_md_describes_the_guardrails_and_their_tests() -> None:
     assert "unless the entry has `onFailure` `block`" in text and "fenced from it" in text
     assert "**It never prints a `permissionDecision`**" in text and '`"onFailure": "block"`' in text
     assert "`tests/test_agent_deny_rules.py`, `tests/test_restrict_writes*.py`" in text
+    assert "`signal-coder.md` list exactly `Read, Glob, Grep, Write, Edit, Bash`" in text
+    assert (
+        "carry a matcherless copy of the hook entry with the agent name as argument (`tests/test_agent_files.py`)"
+        in text
+    )
     assert "`strategies/drafts/` is git-ignored" in text and "`(not tested)` (`tests/test_agents_docs.py`)" in text
 
 
@@ -289,13 +304,36 @@ def test_the_background_case_is_said_not_to_be_covered() -> None:
 
 def test_the_gaps_bullet_says_that_the_claim_about_substitutions_is_not_tested() -> None:
     text = say(AGENTS)
-    assert "which our matcher does not (that Claude Code's documentation says this is not tested)." in text
+    assert "which our matcher does not (that Claude Code's documentation says so is not tested)." in text
+    assert "documentation says this is not tested" not in text
 
 
-def test_the_tools_paragraph_says_that_the_frontmatter_copy_will_have_no_matcher() -> None:
+def test_the_tools_paragraph_says_that_the_frontmatter_copy_has_no_matcher() -> None:
     text = say(AGENTS)
-    assert "for the frontmatter copy, which will have no matcher (part 4b), by the hook" in text
-    assert "which has no matcher" not in text
+    assert "for the frontmatter copy, which has no matcher, by the hook" in text
+    assert "will have no matcher" not in text
+
+
+def test_the_cost_of_a_matcherless_entry_is_stated_as_measured_once_here_and_not_for_ci() -> None:
+    text = say(AGENTS)
+    assert "A matcherless entry starts the hook on every tool call of its agent, Read, Glob and Grep included." in text
+    assert "Measured once on this Windows machine, not for CI" in text
+    assert "Cost, measured once on this Windows machine, not for CI" in text
+    assert "94 to 141 ms" in text and "156 ms (in parallel) to 237 ms (one after the other)" in text
+    assert "measured once on one machine" not in text
+
+
+def test_the_known_gaps_say_that_reads_are_not_restricted_to_paths() -> None:
+    gaps = say(AGENTS[AGENTS.index("## Known gaps") : AGENTS.index("\n## Tests\n")])
+    assert "Read, Glob and Grep are not restricted to paths" in gaps
+    assert "`.env`, `approvals/`" in gaps and "no `Read` deny rule is set" in gaps
+    assert "costs a hook start on every tool call" in gaps
+
+
+def test_the_two_agents_section_names_the_files_and_what_is_not_tested() -> None:
+    section = say(AGENTS[AGENTS.index("## The two agents") : AGENTS.index("## The fences")])
+    assert "`.claude/agents/strategy-architect.md`" in section and "`.claude/agents/signal-coder.md`" in section
+    assert "What a real run of either agent does is not tested" in section
 
 
 def test_one_layer_count_everywhere() -> None:

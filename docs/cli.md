@@ -11,8 +11,8 @@ stay pure and write nothing. The code is in `src/backtest_agent/cli/`; the decis
 (Phase 9): part 1 `run`, `validate` (spec only) and the journal commands, part 2 `data fetch` and `validate --data`, part 3
 `report` (exit code 7) and the README quickstart. `approve`, the exit codes 8 and 9 and the handling of a spec with a `coded`
 block in `run`, `validate`, `data fetch` and `report` came with Phase 10 (F-18); `signal check`, the one command that runs
-`cases.yaml` and the one that executes a file nobody approved, came with part 3b. **The agents are not built yet**
-([coded-signals.md](coded-signals.md), "Not built yet").
+`cases.yaml` and the one that executes a file nobody approved, came with part 3b. **The agent files exist** (Phase 10 part 4b,
+[agents.md](agents.md)); what is not built yet is listed in [coded-signals.md](coded-signals.md), "Not built yet".
 
 ## Starting `bt`
 
@@ -637,9 +637,11 @@ interrupted. The command never exits with 8 or 5.
 refuses an unapproved idea (exit code 8) and still needs the `--sha`. A candidate that passes is not safe; it is a candidate
 that a person can read with less effort.
 
-**Who runs `bt signal check`.** A person, for a file they wrote or received. An agent that runs the command runs its own code
-with its own permissions, as it could with Python; the only limit of an agent run is the timeout of its own tool; whether agents
-may run it unattended is decided in the agents part (pull request 4) and stated in `docs/agents.md`. The signal coder may run `bt signal check` only in the default permission mode; the hook refuses it otherwise (enforced). The hook cannot see whether an agent runs in the background; whether Claude Code shows the ask prompt to a person for a background agent in the default mode was not tested. The ask rule is a second layer.
+**Who runs `bt signal check`.** A person, for a file they wrote or received. An agent that runs the command runs its own code with its own
+permissions, as it could with Python; the only limit of an agent run is the timeout of its own tool; whether agents may run it unattended
+is decided in the agents part (pull request 4) and stated in `docs/agents.md`. The signal coder may run `bt signal check` only in the
+default permission mode; the hook refuses it otherwise (enforced). The hook cannot see whether an agent runs in the background; whether
+Claude Code shows the ask prompt to a person for a background agent in the default mode was not tested. The ask rule is a second layer.
 ([agents.md](agents.md), "May an agent run `bt signal check`?").
 
 **Known limits.**
