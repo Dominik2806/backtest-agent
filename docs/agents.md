@@ -15,10 +15,10 @@ itself, it says so.
 ## Status
 
 Phase 10 is complete (parts 4a and 4b). What exists: from part 4a the deny and ask rules, the hook `restrict_writes.py` with its
-entry in `.claude/settings.json`, and the git-ignored folder `strategies/drafts/`; from part 4b the two agent files `.claude/agents/strategy-architect.md` and
-`.claude/agents/signal-coder.md`, the three example specs in `strategies/examples/`, the fake agents (`tests/fake_agents.py`) and the
-end-to-end test (`tests/test_agents_end_to_end.py`). The tests of this repository run the hook on calls that they write; the hook
-was seen on calls of real agents once (see "Observations").
+entry in `.claude/settings.json`, and the git-ignored folder `strategies/drafts/`; from part 4b the two agent files
+`.claude/agents/strategy-architect.md` and `.claude/agents/signal-coder.md`, the three example specs in `strategies/examples/`, the
+fake agents (`tests/fake_agents.py`) and the end-to-end test (`tests/test_agents_end_to_end.py`). The tests of this repository run
+the hook on calls that they write; the hook was seen on calls of real agents once (see "Observations").
 
 ## The two agents
 
@@ -60,14 +60,16 @@ was seen on calls of real agents once (see "Observations").
   `tests/test_agents_end_to_end.py::test_from_idea_to_run_with_the_real_hook_and_the_real_bt`)
 - The refusals leave nothing behind: the architect's writes outside its drafts and its commands other than `bt validate`, the coder's
   `bt approve` in three spellings and its writes outside its two files, `bt signal check` in every mode but the default, and tools the
-  hook does not know. After the refused check the coder finishes with one validate, one check and no other spelling. (test:
+  hook does not know. When the fake coder's check is refused, both lines of the hook refuse it, the two signal files stay, the
+  handback is allowed and nothing is approved; what a real coder does after a refusal was observed once (see "Observations"), not
+  tested. (test:
   `tests/test_agents_end_to_end.py::test_the_architect_writes_only_a_draft`,
   `tests/test_agents_end_to_end.py::test_the_architect_runs_only_validate`,
   `tests/test_agents_end_to_end.py::test_the_coder_cannot_approve_anything`,
   `tests/test_agents_end_to_end.py::test_the_coder_writes_only_its_signal_and_its_examples`,
   `tests/test_agents_end_to_end.py::test_the_coders_signal_check_is_refused_outside_the_default_mode`,
   `tests/test_agents_end_to_end.py::test_the_same_check_is_allowed_in_the_default_mode`,
-  `tests/test_agents_end_to_end.py::test_after_the_refusal_the_coder_finishes_without_a_second_attempt`,
+  `tests/test_agents_end_to_end.py::test_a_refused_check_leaves_the_files_approves_nothing_and_the_handback_is_allowed`,
   `tests/test_agents_end_to_end.py::test_an_unknown_tool_is_refused_and_the_agent_still_hands_back`)
 
 ## The fences
@@ -373,7 +375,7 @@ observed once, Claude Code 2.1.318, one machine, not a test.** (not tested)
   agent returns its final message. It is not in the `tools` list of the files and not in the documentation we read. The frontmatter
   copy saw it (the settings entry did not, because of its matcher). Before the fix the hook refused it ("may not use
   SubagentHandback: the hook does not know it"), and every background agent ended without returning a result: the architect after 4
-  attempts, the coder after 5 to 9: the agents retried the refused handback 4 to 9 times each. The hook now allows it for the two
+  attempts, the coder after 5 to 9: the agents called the refused handback 4 to 9 times each. The hook now allows it for the two
   agents. (not tested; the allowance is tested with a payload of the observed shape)
 - After the fix (clone at commit `5c0d8b2`, `uv` on the PATH, session in `auto` mode): the architect's draft came back with its
   assumptions and open questions, and its validate was `uv run bt validate`; the coder's `uv run bt signal check` was refused with
@@ -398,12 +400,11 @@ observed once, Claude Code 2.1.318, one machine, not a test.** (not tested)
   Whether it honours `shell` there is not separately established. (not tested)
 - In all runs the only internal tool name seen on agent calls was `SubagentHandback`; `Agent`, `ToolSearch` and `SendMessage`
   appeared only with `agent_type` null (the main session). (not tested)
-
 - In the main session, the ask rule `Bash(* bt signal check *)` raised a prompt even in `auto` mode: "Ask rule ... overrides auto mode
   for this command" (the words as the maintainer reported them; the full prompt was not captured). The same rule matched a heredoc
-  that only contained those words. The rules match the text of a command, so a command that merely mentions `bt signal check` (a
-  heredoc, a commit message, documentation or test text) is a false positive. Observed once, Claude Code 2.1.318, one machine, not
-  a test. (not tested)
+  that only contained those words; that was observed. A commit message, documentation or test text would match in the same way,
+  because the rules match the text of a command, but that was not observed. Such a match is a false positive. Observed once, Claude
+  Code 2.1.318, one machine, not a test. (not tested)
 
 **Not observed:** the default mode, the ask prompt (and so whether a prompt reaches a person for a background agent), a foreground
 agent, the `acceptEdits` and `plan` modes, the payload that the architect's frontmatter copy receives, and a Glob call of the

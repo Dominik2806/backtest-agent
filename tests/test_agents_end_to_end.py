@@ -13,6 +13,7 @@ with the hook is in docs/agents.md, "Observations".
 """
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ from fake_agents import (
     FakeCoder,
     Transcript,
     bash,
+    kill_tree,
     make_project,
     write,
 )
@@ -139,6 +141,9 @@ def test_a_brief_changed_after_the_idea_is_not_the_approved_idea(project: Path) 
     before = tree(project)
     result = run_cli(["run", SPEC], provider=LiteralProvider(world()), clock=at(0))
     assert result.code == 8 and result.out == ""
+    assert result.err.splitlines()[0] == (
+        "bt: error: the brief of 'hold_a' changed since it was approved: no approved idea has this brief"
+    )
     assert tree(project) == before  # no run, no report
 
 
@@ -244,18 +249,33 @@ def test_the_same_check_is_allowed_in_the_default_mode(project: Path) -> None:
     assert check.outcome.code == 0
 
 
-def test_after_the_refusal_the_coder_finishes_without_a_second_attempt(project: Path) -> None:
+def test_a_refused_check_leaves_the_files_approves_nothing_and_the_handback_is_allowed(project: Path) -> None:
     FakeArchitect(project).draft()
     transcript = FakeCoder(project, HOLD_A, mode="auto").code()
+    validate, check = transcript.of("Bash")
+    assert validate.performed
+    both_lines_refused(check)
     assert (project / "strategies" / "signals" / "hold_a.py").read_bytes() == HOLD_A
     assert (project / "strategies" / "signals" / "hold_a.cases.yaml").is_file()
-    assert transcript.commands() == [VALIDATE, CHECK]  # one validate, ONE check, no other spelling
-    assert transcript.of("Bash")[0].performed and transcript.of("Bash")[1].refused
-    message = transcript.last.call.tool_input["message"]
-    assert "The check was refused" in message and f"{CHECK} is a step for you to run after reading the code" in message
-    assert "mode" not in message  # no advice to switch the permission mode
-    ended_with_the_handback(transcript)
     assert not (project / "approvals").exists()
+    ended_with_the_handback(transcript)
+
+
+# --- a hook line that hangs ---
+
+
+def test_a_timeout_kills_and_reaps_both_processes(project: Path) -> None:
+    agent = FakeAgent("signal-coder", project)
+    agent.lines = ("sleep 30", "sleep 30")  # two hook lines that do not return
+    agent.hook_timeout = 1
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            agent.call(bash(VALIDATE))
+        assert len(agent.processes) == 2
+        assert [process.poll() is not None for process in agent.processes] == [True, True]  # killed and reaped
+    finally:
+        for process in agent.processes:  # a test that fails must not leave the sleepers behind either
+            kill_tree(process)
 
 
 # --- tools the hook does not know ---

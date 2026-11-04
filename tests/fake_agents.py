@@ -17,6 +17,7 @@ both mapped to it, and so is ``python -m backtest_agent ...``, so that a hook th
 import json
 import os
 import shutil
+import signal
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -113,8 +114,28 @@ class Transcript:
         return self.records[-1]
 
 
+def kill_tree(process: subprocess.Popen) -> None:
+    """Kill a process that is still running together with its children, and reap it. Never leaves one behind."""
+    if process.poll() is None:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True)
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        process.kill()  # a no-op if the tree kill already did it
+    process.wait()  # reaps the process
+    for stream in (process.stdin, process.stdout, process.stderr):
+        if stream is not None and not stream.closed:
+            stream.close()
+
+
 class FakeAgent:
     """A scripted agent with the name of one of the real agent files."""
+
+    hook_timeout = 120  # seconds for both lines of one call
+    processes: list[subprocess.Popen]
 
     def __init__(
         self,
@@ -146,21 +167,28 @@ class FakeAgent:
         return json.dumps(found)
 
     def ask_the_hook(self, call: Call) -> tuple[int, int, str]:
+        """Run both lines at once; on a timeout (or any error) kill and reap both, with their children."""
         env = {**os.environ, "CLAUDE_PROJECT_DIR": str(self.project)}
         data = self.payload(call).encode("utf-8")
         shell = git_bash()
-        started = [
-            subprocess.Popen(
-                [shell, "-c", line],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                cwd=self.project,
-            )
-            for line in self.lines
-        ]
-        done = [process.communicate(data, timeout=120) for process in started]
+        self.processes = started = []
+        try:
+            for line in self.lines:
+                started.append(
+                    subprocess.Popen(
+                        [shell, "-c", line],
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        env=env,
+                        cwd=self.project,
+                        start_new_session=os.name != "nt",
+                    )
+                )
+            done = [process.communicate(data, timeout=self.hook_timeout) for process in started]
+        finally:
+            for process in started:
+                kill_tree(process)
         codes = [process.returncode for process in started]
         reason = " | ".join(err.decode("utf-8", "replace").strip() for _, err in done if err.strip())
         return codes[0], codes[1], reason

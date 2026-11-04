@@ -364,7 +364,7 @@ def test_the_observations_are_stated_as_seen_once_and_not_with_this_script() -> 
         "`bt` alone was not on the PATH of the agent (exit code 127)",
         "None of the agents retried the refused Write or the refused Bash test call;"
         " they did retry the refused handback",
-        "the agents retried the refused handback 4 to 9 times each",
+        "the agents called the refused handback 4 to 9 times each",
         "The logger beside the signal coder's frontmatter copy saw Read, Write, Bash and `SubagentHandback` calls",
         "For the architect we know only that its copy fired and refused the handback",
         "This was not observed for the architect's frontmatter copy",
@@ -408,6 +408,14 @@ def test_the_fake_agents_section_names_existing_tests_and_says_what_is_not_model
     assert "do not model the ask rule, the deny rules, the `tools` list or the settings matcher" in text
     assert "synthetic `agent_id`" in text and "**no code**" in text
     assert (ROOT / "tests" / "fake_agents.py").is_file() and (ROOT / "tests" / "test_agents_end_to_end.py").is_file()
+    # the last bullet says what is tested (the refusal by both lines, the files, the handback, no approval) and that
+    # what a real coder does after a refusal was observed once and is not tested; it does not describe the script
+    assert "When the fake coder's check is refused, both lines of the hook refuse it" in text
+    assert "the two signal files stay, the handback is allowed and nothing is approved" in text
+    assert 'what a real coder does after a refusal was observed once (see "Observations"), not tested' in text
+    assert "After the refused check the coder finishes with one validate" not in text
+    assert "test_a_refused_check_leaves_the_files_approves_nothing_and_the_handback_is_allowed" in section
+    assert "test_after_the_refusal_the_coder_finishes_without_a_second_attempt" not in section
 
 
 def test_the_status_says_that_phase_10_is_complete_and_not_this_pull_request() -> None:
@@ -416,17 +424,21 @@ def test_the_status_says_that_phase_10_is_complete_and_not_this_pull_request() -
     assert "from part 4a the deny and ask rules" in flat(status) and "this pull request" not in status
     assert "so far" not in status and "does not exist yet" not in status and "come in" not in status
     assert "Two Claude Code subagents turn an idea" in flat(AGENTS) and "subagents will turn" not in flat(AGENTS)
+    assert max(len(line) for line in status.splitlines()) <= 140  # the paragraph is wrapped like the rest
 
 
 def test_the_ask_rule_observation_is_stated_as_seen_once_and_as_a_false_positive_on_text() -> None:
     section = flat(AGENTS[AGENTS.index("## Observations") : AGENTS.index("## Details of the hook")])
     assert "the ask rule `Bash(* bt signal check *)` raised a prompt even in `auto` mode" in section
-    assert (
-        '"Ask rule ... overrides auto mode for this command"' in section
-        and "The same rule matched a heredoc that only contained those words" in section
-    )
-    assert "a command that merely mentions `bt signal check`" in section and "is a false positive" in section
+    assert '"Ask rule ... overrides auto mode for this command"' in section
+    assert "The same rule matched a heredoc that only contained those words; that was observed" in section
+    assert "A commit message, documentation or test text would match in the same way" in section
+    assert "because the rules match the text of a command, but that was not observed" in section
+    assert "Such a match is a false positive" in section
     assert "Observed once, Claude Code 2.1.318, one machine, not a test. (not tested)" in section
+    raw = AGENTS[AGENTS.index("## Observations") : AGENTS.index("## Details of the hook")]
+    assert "\n\n- In the main session, the ask rule" not in raw  # the list is not split by a blank line
+    assert "\n\n- " not in raw[raw.index("- On calls of the two real agents") : raw.index("**Not observed:**")]
 
 
 def test_the_hook_source_does_not_look_at_background_or_sandbox_flags() -> None:

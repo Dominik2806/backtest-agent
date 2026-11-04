@@ -5,6 +5,8 @@ They are read by the agents as examples of the shape of a spec. The first uses a
 """
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,33 @@ EXAMPLES = ROOT / "strategies" / "examples"
 NAMES = ["trend_filter_etfs", "rsi_pullback", "vol_filtered_trend"]
 CODED = ["rsi_pullback", "vol_filtered_trend"]
 TREND = EXAMPLES / "trend_filter_etfs.yaml"
+SIGNAL_IDS = {
+    "trend_filter_etfs": "sma_crossover",
+    "rsi_pullback": "rsi_pullback",
+    "vol_filtered_trend": "vol_filtered_trend",
+}
+
+
+def tracked(*prefixes: str) -> list[str]:
+    """The files that git tracks under the given paths (the same call as the guard in test_no_invisible_characters).
+
+    The files of a coded example may exist on the disk of the maintainer once the example has been used for real; what
+    must never happen is that they are committed. Skips only where git itself is not available.
+    """
+    if shutil.which("git") is None:
+        pytest.skip("git is not available")
+    try:
+        done = subprocess.run(
+            ["git", "-c", "core.quotepath=off", "ls-files", "-z", "--", *prefixes],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        pytest.skip("git cannot be run")
+    if done.returncode != 0:  # not a repository (a source archive, for example)
+        pytest.skip("not a git repository")
+    return [name for name in done.stdout.split(chr(0)) if name]
 
 
 def text(name: str) -> str:
@@ -33,7 +62,7 @@ def test_the_examples_folder_holds_exactly_the_three_specs() -> None:
 def test_an_example_loads_has_no_risk_flag_and_waits_one_bar(name: str) -> None:
     spec = load_spec(EXAMPLES / f"{name}.yaml")
     assert spec.risk_flags() == () and spec.execution.delay_bars >= 1
-    assert spec.signal.id == name or name == "trend_filter_etfs"
+    assert spec.signal.id == SIGNAL_IDS[name]
     assert spec.benchmark in spec.universe and spec.period.start.isoformat() == "2012-01-01"
 
 
@@ -97,8 +126,11 @@ def test_a_coded_example_has_an_id_a_valid_brief_and_no_code(name: str) -> None:
     assert coded_id_problem(spec.signal.id) is None
     assert check_brief(spec.signal.coded.brief) == spec.signal.coded.brief.replace("\r\n", "\n")
     assert spec.signal.coded.code_sha256 is None  # no pin: nothing is approved
-    assert not (ROOT / "strategies" / "signals" / f"{name}.py").exists()
-    assert not (ROOT / "approvals" / f"{name}.json").exists()
+    # no code and no approval is committed (a file on the disk of the maintainer is not an error)
+    assert (
+        tracked(f"strategies/signals/{name}.py", f"strategies/signals/{name}.cases.yaml", f"approvals/{name}.json")
+        == []
+    )
 
 
 @pytest.mark.parametrize("name", CODED)
@@ -121,6 +153,14 @@ def test_the_briefs_name_every_parameter_and_the_history_needed() -> None:
         assert all(re.search(rf"\b{p}\b", brief) for p in parameters), name
         assert "Needs" in brief and "rows of history" in brief
         assert len(brief) <= 2000
+
+
+def test_the_rsi_brief_says_which_rsi() -> None:
+    brief = " ".join(load_spec(EXAMPLES / "rsi_pullback.yaml").signal.coded.brief.split())
+    assert "The RSI is the simple one: 100 minus 100 / (1 + RS)" in brief
+    assert (
+        "RS is the simple mean of the gains divided by the simple mean of the losses over the last window rows" in brief
+    )
 
 
 def test_a_brief_of_2001_characters_is_refused() -> None:

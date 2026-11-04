@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from backtest_agent.cli.parser import build_parser
+from fake_agents import SYNTHETIC_AGENT_ID
 from restrict_writes_helpers import (
     AGENTS_DIR,
     ROOT,
@@ -196,7 +197,7 @@ HANDBACK = {"message": "I wrote strategies/drafts/x.yaml and bt validate accepts
 
 def handback_payload(name: str) -> dict:
     found = payload("SubagentHandback", name, mode="auto", **HANDBACK)
-    found["agent_id"] = "a0000000000000000"
+    found["agent_id"] = SYNTHETIC_AGENT_ID
     return found
 
 

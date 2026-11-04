@@ -22,8 +22,9 @@ signal:
   coded:
     brief: >
       Hold a symbol while its RSI over window trading rows of that symbol is below entry_below, and hold nothing
-      otherwise. window is the RSI length in rows; entry_below is the RSI level. Exposure is 1.0 or 0.0. Needs
-      window rows of history.
+      otherwise. window is the RSI length in rows; entry_below is the RSI level. The RSI is the simple one: 100 minus
+      100 / (1 + RS), where RS is the simple mean of the gains divided by the simple mean of the losses over the last
+      window rows of that symbol. Exposure is 1.0 or 0.0. Needs window rows of history.
 
 execution:
   delay_bars: 1

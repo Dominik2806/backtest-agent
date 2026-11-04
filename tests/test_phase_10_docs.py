@@ -1,16 +1,12 @@
 """The records of Phase 10 part 4b: the ROADMAP entry, the CHANGELOG entry and the lists of files they name.
 
-The lists are checked against a literal (the files of the part) and, where git has a ``main`` to compare with,
-against ``git diff --name-only`` of the branch, so that a file added or changed later has to be listed. The numbers
-of the ROADMAP list (lines added/deleted) are rewritten by a script outside the repository until they are stable;
-they are not tested here.
+The lists are checked against a literal: the files of the part. Nothing here asks git, so the tests do not depend on
+the branch or on a ``main`` ref. The numbers of the ROADMAP list (lines added/deleted) are rewritten by a script outside
+the repository until they equal ``git diff main...HEAD --numstat``; they are not tested here.
 """
 
 import re
-import subprocess
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 ROADMAP = (ROOT / "docs" / "ROADMAP.md").read_text(encoding="utf-8")
@@ -78,27 +74,6 @@ def test_the_changelog_lists_are_the_files_of_the_part() -> None:
     assert changelog_lists() == (CHANGED, NEW)
 
 
-def git(*args: str) -> str | None:
-    try:
-        done = subprocess.run(["git", *args], capture_output=True, text=True, cwd=ROOT, timeout=60)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return done.stdout.strip() if done.returncode == 0 else None
-
-
-def test_the_lists_equal_the_files_the_branch_changed_since_main() -> None:
-    base, head = git("merge-base", "main", "HEAD"), git("rev-parse", "HEAD")
-    if base is None or head is None or base == head:
-        pytest.skip("no main to compare with, or this is main")
-    names = {}
-    for kind in ("M", "A"):
-        found = git("diff", base, "--name-only", f"--diff-filter={kind}")
-        assert found is not None
-        names[kind] = set(found.splitlines())
-    names["A"] |= {name for name in (git("ls-files", "--others", "--exclude-standard") or "").splitlines() if name}
-    assert (names["M"], names["A"]) == (CHANGED, NEW)
-
-
 def test_the_roadmap_entry_records_the_deviations_of_part_4b_and_none_of_the_earlier_ones() -> None:
     flat = " ".join(ENTRY.split())
     for needle in (
@@ -113,6 +88,24 @@ def test_the_roadmap_entry_records_the_deviations_of_part_4b_and_none_of_the_ear
         assert needle in flat, needle
     assert "became cases.yaml" not in flat and "became an allowlist hook" not in flat
     assert "tests became" not in flat and "Phase 10 is Done" in flat
+
+
+def test_the_roadmap_entry_names_a_test_for_each_done_when_criterion_or_says_it_is_not_shown() -> None:
+    flat = " ".join(ENTRY.split())
+    start = flat.index("The two 'Done when' criteria of Phase 10 are shown only in part, and never with a real model.")
+    text = flat[start : flat.index("(known gap 6 of ADR 0018).", start)]
+    for criterion in (
+        "'Three example ideas produce specs that pass `bt validate`'",
+        "'The coder's output passes the interface test'",
+        "'Uses no network access': not shown by the end-to-end test",
+        "'Cannot modify engine code'",
+    ):
+        assert criterion in text, criterion
+    assert "is shown with a scripted coder" not in flat
+    named = re.findall(r"`(tests/[A-Za-z0-9_]+\.py)::([A-Za-z0-9_]+)`", text)
+    assert len(named) == 6
+    for file, name in named:  # every test the entry names exists
+        assert re.search(rf"^def {name}\(", (ROOT / file).read_text(encoding="utf-8"), flags=re.MULTILINE), name
 
 
 def test_the_changelog_entry_is_dated_and_says_what_the_probe_found() -> None:

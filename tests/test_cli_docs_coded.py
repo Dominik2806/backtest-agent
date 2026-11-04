@@ -489,4 +489,4 @@ def test_the_status_tables_say_that_phase_10_is_done() -> None:
     assert re.search(r"^\| 10 \| `feature/agents-architect-coder` .*\| Done \|$", roadmap, flags=re.MULTILINE)
     assert "| 10 | Strategy architect and signal coder subagents | In progress |" not in readme
     section = roadmap[roadmap.index("## Phase 10: Strategy architect and signal coder") :]
-    assert section.split("\n\n")[2].startswith("**Status:** Done. It shipped in several sequential pull requests")
+    assert "**Status:** Done. It shipped in several sequential pull requests" in section.split("\n## ")[0]
