@@ -185,12 +185,18 @@ def test_the_agent_files_do_not_exist_yet_and_the_document_says_so() -> None:
 # --- what the documents must say, and what they must not ---
 
 
+WORDING_HEAD = (
+    "The signal coder may run `bt signal check` only in the default permission mode; "
+    "the hook refuses it otherwise (enforced)."
+)
+
+
 def test_the_binding_sentences_of_the_adr_are_kept() -> None:
     text = flat(AGENTS)
     assert "the only limit of an agent run is the timeout of its own tool" in text
     assert "The subprocess hardening, a wall-clock limit and a memory limit, is NOT built" in text
     assert "An agent that runs the command runs its own code with its own permissions" in text
-    assert "**Agents may not run it unattended." in AGENTS
+    assert "**" + WORDING_HEAD + "**" in flat(AGENTS)
     assert "**The strategy-architect may not; the signal-coder may.**" in AGENTS
     for name, document in (("agents", AGENTS), ("adr19", ADR19)):
         assert "precondition" not in document.lower(), name
@@ -238,23 +244,58 @@ def test_claude_md_describes_the_guardrails_and_their_tests() -> None:
 
 # --- the permission mode, the layer count, the observations and the links, in every document that says them ---
 
-PLAIN = "agents may not run it unattended; the signal coder may run it only in the default permission mode"
-SECOND_LAYER = "the hook refuses it otherwise; the ask rule is a second layer"
+WORDING = (
+    "The signal coder may run `bt signal check` only in the default permission mode; "
+    "the hook refuses it otherwise (enforced). "
+    "The hook cannot see whether an agent runs in the background; "
+    "whether Claude Code shows the ask prompt to a person for a background agent in the default mode was not tested. "
+    "The ask rule is a second layer."
+)
+ROADMAP = read("docs", "ROADMAP.md")
+ENTRY_START = "- Phase 10 part 4a (`feature/agents-guardrails`)"
+ENTRY = ROADMAP[ROADMAP.index(ENTRY_START) : ROADMAP.index("\n---\n\n## Phase 0")]
 
 
-def test_every_document_says_plainly_who_may_run_signal_check_and_when() -> None:
-    for name, document in (("cli", CLI), ("coded", CODED)):
-        text = flat(document).replace("mode, and the hook refuses", "mode, the hook refuses")
-        assert PLAIN in text and SECOND_LAYER in text, name
-    agents = flat(AGENTS)
-    assert (
-        "The signal coder may run `bt signal check` only in the default permission mode; the hook refuses it otherwise"
-        in agents
-    )
-    adr = flat(ADR19)
+def say(document: str) -> str:
+    """The text of a document as a reader sees it: one line, bold marks dropped."""
+    return flat(document).replace("**", "")
+
+
+def test_the_same_wording_says_who_may_run_signal_check_in_every_place() -> None:
+    places = {"agents": AGENTS, "adr19": ADR19, "cli": CLI, "coded": CODED, "roadmap entry": ENTRY}
+    for name, document in places.items():
+        assert WORDING in say(document), name
+
+
+def test_no_place_guarantees_that_agents_cannot_run_it_unattended() -> None:
+    places = {"agents": AGENTS, "adr19": ADR19, "cli": CLI, "coded": CODED, "roadmap entry": ENTRY, "claude": CLAUDE}
+    for name, document in places.items():
+        text = say(document).lower()
+        assert "may not run it unattended" not in text and "not unattended" not in text, name
+        assert "agents may not run" not in text, name
+        assert "attended-only" not in text and "because of the ask rule" not in text, name
+    assert "Whether agents may run the command unattended is decided" in flat(ADR18)  # the binding wording of ADR 0018
+
+
+def test_the_background_case_is_said_not_to_be_covered() -> None:
+    assert "The background case is not covered by the mode check" in say(AGENTS)
+    adr = say(ADR19)
+    assert "The background case is NOT covered by the mode check" in adr
+    assert "(the background case is NOT covered by the mode check)" in adr
+    assert "background agent was not tested, which is why" not in adr + say(AGENTS)
+    assert "and it cannot see whether an agent runs in the background" in say(AGENTS)
     assert "only when `permission_mode` of the call is `default`" in adr
-    assert "The ask rule of `settings.json` is a second layer" in adr
-    assert "attended-only" not in agents.lower() and "because of the ask rule" not in agents
+
+
+def test_the_gaps_bullet_says_that_the_claim_about_substitutions_is_not_tested() -> None:
+    text = say(AGENTS)
+    assert "which our matcher does not (that Claude Code's documentation says this is not tested)." in text
+
+
+def test_the_tools_paragraph_says_that_the_frontmatter_copy_will_have_no_matcher() -> None:
+    text = say(AGENTS)
+    assert "for the frontmatter copy, which will have no matcher (part 4b), by the hook" in text
+    assert "which has no matcher" not in text
 
 
 def test_one_layer_count_everywhere() -> None:

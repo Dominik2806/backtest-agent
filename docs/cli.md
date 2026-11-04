@@ -639,8 +639,7 @@ that a person can read with less effort.
 
 **Who runs `bt signal check`.** A person, for a file they wrote or received. An agent that runs the command runs its own code
 with its own permissions, as it could with Python; the only limit of an agent run is the timeout of its own tool; whether agents
-may run it unattended is decided in the agents part (pull request 4) and stated in `docs/agents.md`: agents may not run it unattended;
-the signal coder may run it only in the default permission mode, and the hook refuses it otherwise; the ask rule is a second layer
+may run it unattended is decided in the agents part (pull request 4) and stated in `docs/agents.md`. The signal coder may run `bt signal check` only in the default permission mode; the hook refuses it otherwise (enforced). The hook cannot see whether an agent runs in the background; whether Claude Code shows the ask prompt to a person for a background agent in the default mode was not tested. The ask rule is a second layer.
 ([agents.md](agents.md), "May an agent run `bt signal check`?").
 
 **Known limits.**

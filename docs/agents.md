@@ -80,7 +80,7 @@ before `bt approve --code --sha` is the defence that counts. (not tested)
   list is `GAPS`, `GAPS_BASH` and `GAPS_POWERSHELL` in `tests/test_agent_deny_rules.py`. It also holds a backtick substitution and,
   for PowerShell, a path with backslashes such as `.\.venv\Scripts\bt.exe approve spec.yaml`. The Claude Code documentation names a
   full path, `sh -c` and a quoted word as not caught, and says that it also checks command substitutions, which our matcher does
-  not. The hook below is what refuses all of them for the two agents. (test:
+  not (that Claude Code's documentation says this is not tested). The hook below is what refuses all of them for the two agents. (test:
   `tests/test_agent_deny_rules.py::test_the_known_gaps_are_not_matched`)
 
 ### The hook
@@ -177,19 +177,21 @@ Each refusal of a path has one test, named in its row. (test:
 - **The strategy-architect may not; the signal-coder may.** (test:
   `tests/test_restrict_writes.py::test_the_architect_may_not_check_a_signal_or_read_the_examples`,
   `tests/test_restrict_writes.py::test_the_coder_may_validate_and_check`)
-- **Agents may not run it unattended. The signal coder may run `bt signal check` only in the default permission mode; the hook
-  refuses it otherwise.** The ask rule of `.claude/settings.json` is a second layer: Claude Code asks before each run. A run in any
-  other mode, with the field missing or with a value that is not text, is refused with its own reason, and the architect's refusal
-  of the command is the same in every mode. (test: `tests/test_restrict_writes.py::test_the_coder_runs_signal_check_only_in_the_default_mode`,
+- **The signal coder may run `bt signal check` only in the default permission mode; the hook refuses it otherwise (enforced).** The
+  hook cannot see whether an agent runs in the background; whether Claude Code shows the ask prompt to a person for a background
+  agent in the default mode was not tested. The ask rule is a second layer. A run in any other mode, with the field missing or with a
+  value that is not text, is refused with its own reason, and the architect's refusal of the command is the same in every mode. (test:
+  `tests/test_restrict_writes.py::test_the_coder_runs_signal_check_only_in_the_default_mode`,
   `tests/test_restrict_writes.py::test_the_architects_refusal_of_signal_check_is_the_same_in_every_mode`,
   `tests/test_restrict_writes_protocol.py::test_the_coders_signal_check_runs_only_in_the_default_mode`,
-  `tests/test_restrict_writes_commandline.py::test_the_coders_signal_check_through_the_command_lines_needs_the_default_mode`)
+  `tests/test_restrict_writes_commandline.py::test_the_coders_signal_check_through_the_command_lines_needs_the_default_mode`; the
+  background case is not tested)
 - An agent that runs the command runs its own code with its own permissions, as it could with Python; the only limit of an agent
   run is the timeout of its own tool. The subprocess hardening, a wall-clock limit and a memory limit, is NOT built
   ([ADR 0018](adr/0018-coded-signals-and-approval-gate.md), addendum, known gap 6). (test:
   `tests/test_agents_docs.py::test_the_binding_sentences_of_the_adr_are_kept`)
-- The default mode is what lets the ask rule reach a person: whether Claude Code shows the prompt in `auto`, with `dontAsk`, under
-  `bypassPermissions` or in a background agent was not tested, which is why the hook refuses those modes. (not tested)
+- Whether Claude Code shows the ask prompt in `auto`, with `dontAsk` or under `bypassPermissions` was not tested, which is why the
+  hook refuses those modes. **The background case is not covered by the mode check**: the hook cannot see it. (not tested)
 - **Do not run these agents with `bypassPermissions`.** Whether PreToolUse hooks run under `bypassPermissions` was not tested, and the
   documentation does not say. (not tested)
 
@@ -277,8 +279,8 @@ with this script on a call of one of the two agents**; that is to be confirmed a
 These paragraphs are separate on purpose: each states one detail that may change, with its test. (not tested)
 
 The tools the hook sees. The settings entry matches Write, Edit, MultiEdit, NotebookEdit, Bash and PowerShell: the hook sees six
-tools, and the rest of what an agent can do is limited by the `tools:` list of its file and, for the frontmatter copy, which has no
-matcher, by the hook. For the two agents the hook decides on the first three by path and on Bash by command, allows Read, Glob and
+tools, and the rest of what an agent can do is limited by the `tools:` list of its file and, for the frontmatter copy, which will have no
+matcher (part 4b), by the hook. For the two agents the hook decides on the first three by path and on Bash by command, allows Read, Glob and
 Grep, and refuses NotebookEdit, PowerShell and every other tool name it is given. (test:
 `tests/test_restrict_writes_commandline.py::test_the_settings_entry_has_the_shape_the_design_needs`,
 `tests/test_restrict_writes.py::test_every_other_tool_is_refused`,
@@ -313,7 +315,8 @@ tested)
   inherited, is not documented. (not tested)
 - The settings entry decides by `agent_type`. If Claude Code sends another value for an agent than its file name, the settings entry
   gives no decision for it and only the frontmatter copy, in a trusted folder, holds. (not tested)
-- The permission mode is the mode of the session; the hook does not know whether a prompt will reach a person. (not tested)
+- The permission mode is the mode of the session; the hook does not know whether a prompt will reach a person, and it cannot see
+  whether an agent runs in the background. (not tested)
 - The static check is a tripwire, not a sandbox, and `bt signal check` runs unapproved code (known gaps of
   [ADR 0018](adr/0018-coded-signals-and-approval-gate.md)). (not tested)
 

@@ -48,11 +48,14 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
   even start `uv` for it, so the main session cannot be blocked by a broken `uv`. The frontmatter copy takes the agent name as an
   argument and does not depend on `agent_type`; it is a second layer for a trusted folder. Both fire for an agent call; the measured
   cost of two starts is under a quarter of a second.
-- **`bt signal check`: the coder may, the architect may not, and agents may not run it unattended.** The hook allows the exact forms
-  for the coder only when `permission_mode` of the call is `default`, and refuses any other value, a missing field or a value that is
-  not text, each with its own reason; the architect's refusal is the same in every mode, and `bt validate` and every write ignore the
-  mode. The ask rule of `settings.json` is a second layer. Whether Claude Code shows the prompt in `auto`, with `dontAsk`, under
-  `bypassPermissions` or in a background agent was not tested, which is why the hook asks for the default mode. The agents should not
+- **`bt signal check`: the coder may, the architect may not.** The signal coder may run `bt signal check` only in the default
+  permission mode; the hook refuses it otherwise (enforced). The hook cannot see whether an agent runs in the background; whether
+  Claude Code shows the ask prompt to a person for a background agent in the default mode was not tested. The ask rule is a second
+  layer. The hook allows the exact forms for the coder only when `permission_mode` of the call is `default`, and refuses any other
+  value, a missing field or a value that is not text, each with its own reason; the architect's refusal is the same in every mode,
+  and `bt validate` and every write ignore the mode. Whether Claude Code shows the prompt in `auto`, with `dontAsk` or under
+  `bypassPermissions` was not tested, which is why the hook asks for the default mode. The background case is NOT covered by the mode
+  check. The agents should not
   be run with `bypassPermissions`, and whether hooks run there was not tested either. As ADR 0018 says, an agent that runs the command
   runs its own code with its own permissions, the only limit of an agent run is the timeout of its own tool, and the subprocess
   hardening is NOT built.
@@ -77,7 +80,8 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
 
 1. The rules are text rules; a spelling that is not listed is not denied.
 2. `bypassPermissions`: whether hooks and ask rules hold is not documented and was not tested. The agents should not be run in it.
-   The permission mode is the mode of the session: the hook cannot know whether a prompt will reach a person.
+   The permission mode is the mode of the session: the hook cannot know whether a prompt will reach a person, and it cannot see a
+   background agent (the background case is NOT covered by the mode check).
 3. The hook is a fence a person can remove; it is not a boundary. The static check is a tripwire; `bt signal check` runs unapproved
    code in the process of the command (ADR 0018, gap 6).
 4. A hook that cannot start is a block only because of `"onFailure": "block"`, which is in the Claude Code documentation (2.1.295
