@@ -37,7 +37,15 @@ def cwd(request, tmp_path: Path) -> Path:
 def test_the_settings_entry_has_the_shape_the_design_needs() -> None:
     settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
     (entry,) = settings["hooks"]["PreToolUse"]
-    assert entry["matcher"] == "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell"
+    tools = entry["matcher"].split("|")
+    assert len(tools) == len(set(tools)) and set(tools) == {
+        "Write",
+        "Edit",
+        "MultiEdit",
+        "NotebookEdit",
+        "Bash",
+        "PowerShell",
+    }
     (hook,) = entry["hooks"]
     assert hook["type"] == "command" and hook["shell"] == "bash"
     assert hook["onFailure"] == "block"  # a hook that cannot start must block (Claude Code 2.1.295 or later)
@@ -67,29 +75,40 @@ def test_the_settings_line_does_not_start_the_hook_for_the_main_session(cwd: Pat
 
 
 def test_a_broken_environment_blocks_only_where_the_hook_is_needed(tmp_path: Path) -> None:
-    """With no uv on the PATH a call of an agent fails (exit 127, which "onFailure": "block" turns into a block) and
-    the main session is not touched at all."""
-    env = {"PATH": str(tmp_path)}  # nothing on it
-    # the shell is started by absolute path in run_command; only the PATH inside changes
-    agent_call = json.dumps(payload("Write", CODER, **FORBIDDEN))
-    main_call = json.dumps(payload("Write", **FORBIDDEN))
-    import os
-    import subprocess
+    """The ``uv run`` of the line is replaced by a command that does not exist: the shell says 127 for a call of an
+    agent, which only ``"onFailure": "block"`` turns into a block, and the main session never gets that far."""
+    command = settings_command()
+    assert command.count("uv run") == 1
+    broken = command.replace("uv run", "no-such-command-for-uv")
+    agent = run_command(broken, json.dumps(payload("Write", CODER, **FORBIDDEN)), cwd=tmp_path)
+    main = run_command(broken, json.dumps(payload("Write", **FORBIDDEN)), cwd=tmp_path)
+    assert (agent.returncode, agent.stdout) == (127, b""), agent.stderr
+    assert (main.returncode, main.stdout, main.stderr) == (0, b"", b"")
 
-    from restrict_writes_helpers import git_bash
 
-    def run(data: str):
-        return subprocess.run(
-            [git_bash(), "-c", settings_command()],
-            input=data.encode(),
-            capture_output=True,
-            env={**os.environ, "PATH": str(tmp_path), "CLAUDE_PROJECT_DIR": str(ROOT)} | env,
-            cwd=tmp_path,
-            timeout=60,
-        )
+def test_without_the_project_directory_variable_an_agent_call_exits_2_and_the_main_session_0(tmp_path: Path) -> None:
+    """The path of the script is then /.claude/hooks/restrict_writes.py, which does not exist: Python exits 2 for a
+    script it cannot open, so the call is blocked even without ``onFailure``."""
+    agent = run_command(
+        settings_command(), json.dumps(payload("Write", CODER, **ALLOWED)), cwd=tmp_path, unset=("CLAUDE_PROJECT_DIR",)
+    )
+    main = run_command(
+        settings_command(), json.dumps(payload("Write", **ALLOWED)), cwd=tmp_path, unset=("CLAUDE_PROJECT_DIR",)
+    )
+    assert (agent.returncode, agent.stdout) == (2, b""), agent.stderr
+    assert (main.returncode, main.stdout, main.stderr) == (0, b"", b"")
 
-    assert run(main_call).returncode == 0
-    assert run(agent_call).returncode not in (0, 2)  # 127: the shell cannot find uv; not a block by itself
+
+CHECK = {"command": "bt signal check strategies/drafts/x.yaml"}
+
+
+def test_the_coders_signal_check_through_the_command_lines_needs_the_default_mode(cwd: Path) -> None:
+    for line in (settings_command(), frontmatter_command(CODER)):
+        allowed = run_command(line, json.dumps(payload("Bash", CODER, **CHECK)), cwd=cwd)
+        assert (allowed.returncode, allowed.stdout, allowed.stderr) == (0, b"", b"")
+        refused = run_command(line, json.dumps(payload("Bash", CODER, mode="auto", **CHECK)), cwd=cwd)
+        assert (refused.returncode, refused.stdout) == (2, b"")
+        assert b"default permission mode" in refused.stderr
 
 
 # --- the frontmatter copy ---
@@ -147,7 +166,9 @@ def test_the_input_reaches_the_script_unchanged(tmp_path: Path) -> None:
     assert UV_PART in command
     out = tmp_path / "seen.bin"
     stub = command.replace(UV_PART, 'cat > "$OUT"')
-    data = (json.dumps(FORBIDDEN_CALL, indent=2, ensure_ascii=False) + "\n\n").replace("x.py", "é.py").encode("utf-8")
+    data = (
+        (json.dumps(FORBIDDEN_CALL, indent=2, ensure_ascii=False) + "\n\n").replace("x.py", "\u00e9.py").encode("utf-8")
+    )
     data = data.replace(b"\n", b"\r\n", 2) + b"  \n"
     done = run_command(stub, data, cwd=tmp_path, extra_env={"OUT": str(out)})
     assert done.returncode == 0, done.stderr

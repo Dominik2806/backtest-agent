@@ -29,11 +29,16 @@ def load_hook() -> ModuleType:
     return module
 
 
-def payload(tool: str, agent: str | None = None, **tool_input: object) -> dict:
-    """The JSON object a PreToolUse hook receives (the fields the script reads)."""
+MISSING = object()  # a payload without a permission_mode (as against the value None)
+
+
+def payload(tool: str, agent: str | None = None, *, mode: object = "default", **tool_input: object) -> dict:
+    """The JSON a PreToolUse hook receives (the fields the script reads); every call has a permission_mode."""
     found: dict = {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input}
     if agent is not None:
         found["agent_type"] = agent
+    if mode is not MISSING:
+        found["permission_mode"] = mode
     return found
 
 
@@ -75,11 +80,23 @@ def git_bash() -> str:
     return found
 
 
-def run_command(command: str, stdin: str | bytes, *, cwd: Path, extra_env: dict[str, str] | None = None):
-    """Run a hook command line the way Claude Code does (shell form: the shell gets the string), from ``cwd``."""
+def run_command(
+    command: str,
+    stdin: str | bytes,
+    *,
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
+    unset: tuple[str, ...] = (),
+):
+    """Run a hook command line the way Claude Code does (shell form: the shell gets the string), from ``cwd``.
+
+    CLAUDE_PROJECT_DIR is the project (a Windows path on Windows) unless it is named in ``unset``.
+    """
     assert shutil.which("uv"), "uv is needed to run the command line of the hook"
     data = stdin if isinstance(stdin, bytes) else stdin.encode("utf-8")
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(ROOT), **(extra_env or {})}
+    for name in unset:
+        env.pop(name, None)
     return subprocess.run([git_bash(), "-c", command], input=data, capture_output=True, env=env, cwd=cwd, timeout=120)
 
 

@@ -109,7 +109,7 @@ mode: `bt run`, `bt validate --data`, `bt data fetch`), `cli/report.py` (`stored
 (`cmd_signal_check`), `coded/status.py` (`approval_state`: the
 `Signal:` line of `bt validate`, from the record alone: no file, no archive, nothing loaded), `cli/context.py` (`Context`).
 `bt approve` reads the file once and shows, hashes and archives those bytes; it imports and executes nothing; a person has to read
-the printed code; the agents are kept from it by the rules of `.claude/settings.json` and the hook (below, `docs/agents.md`). `bt signal check` (`cli/signal_check.py`, ADR 0018 addendum, `docs/cli.md`)
+the printed code; the agents are fenced from it by the rules of `.claude/settings.json` and the hook (below, `docs/agents.md`). `bt signal check` (`cli/signal_check.py`, ADR 0018 addendum, `docs/cli.md`)
 **executes a candidate that nobody approved**, in the process of the command, with the permissions of whoever runs it and no time
 or memory limit (known gap 6): it reads the file as bytes, runs the static check and reads `cases.yaml` as data, writes ONE consent
 line to stderr, and only then calls `load_candidate`, checks the contract on frames of 300 rows and runs the examples; it reads no
@@ -133,14 +133,17 @@ and registers the PreToolUse hook `.claude/hooks/restrict_writes.py` with `"onFa
 SchemaStore schema does not know the key). The hook is standard library only, decides by the `agent_type` of the call (none, or
 another agent: silent exit 0, so the main session never starts `uv`), allows the `strategy-architect` only
 `strategies/drafts/<name>.yaml` and `bt validate` of a draft, and the `signal-coder` only `strategies/signals/<id>.py`,
-`<id>.cases.yaml`, `bt validate` and `bt signal check`. **It never prints a `permissionDecision`**: it exits 0 without output or exits 2
-with the reason on stderr (any other exit code lets a call through), and any error of the script is exit 2. A Bash command passes
-only if every character is in `[A-Za-z0-9_./ -]` and the words are one of the allowed forms; a backslash is refused. These are
-fences, not boundaries, and nothing says they hold under `bypassPermissions` (not tested). A change of a rule or of the hook needs a
-row in its table test (`tests/test_agent_deny_rules.py`, `tests/test_restrict_writes*.py`) and a mutation table at the stop; the
-reference matcher of the deny test is our reading of the documented semantics, not Claude Code's. `strategies/drafts/` is
-git-ignored (`.gitkeep` only); `strategies/signals/` and `approvals/` are tracked, so `git add` them only after reading the code.
-Documents tie each claim to a test or say `(not tested)` (`tests/test_agents_docs.py`).
+`<id>.cases.yaml`, `bt validate` and `bt signal check`, the last **only when `permission_mode` of the call is `default`** (any other
+value, a missing field or a non-string is refused; the ask rule is a second layer). Read, Glob and Grep get no objection; any other
+tool is refused. **It never prints a `permissionDecision`**: it exits 0 without output or exits 2 with the reason on stderr (any
+other exit code lets a call through unless the entry has `onFailure` `block`), and any error of the script is exit 2. A Bash
+command passes only if every character is in `[A-Za-z0-9_./ -]` and the words are one of the allowed forms; a backslash is refused.
+The `~digit` guard of 8.3 names looks below the project directory only. These are fences, not boundaries, and nothing says they hold
+under `bypassPermissions` (not tested). A change of a rule or of the hook needs a row in its table test
+(`tests/test_agent_deny_rules.py`, `tests/test_restrict_writes*.py`) and a mutation table at the stop; the reference matcher of the
+deny test is our reading of the documented semantics, not Claude Code's. `strategies/drafts/` is git-ignored (`.gitkeep` only);
+`strategies/signals/` and `approvals/` are tracked, so `git add` them only after reading the code. Documents tie each claim to a
+test or say `(not tested)` (`tests/test_agents_docs.py`).
 
 ## Workflow
 

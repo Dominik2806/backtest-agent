@@ -7,7 +7,9 @@ disagrees with the rules, or if a sentence about the hook is no longer true of i
 literals of the document; the hook line and the rules are read from the files they describe.
 """
 
+import ast
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -38,7 +40,7 @@ def flat(text: str) -> str:
 # --- every claim names a test, or says that it is not tested ---
 
 NAMED_TEST = re.compile(r"`(tests/[A-Za-z0-9_]+\.py)::([A-Za-z0-9_]+)`")
-TAG = re.compile(r"\(test:|\(not tested|not tested\)")
+NOT_TESTED = re.compile(r"\(not tested|not tested\)")
 FENCE = re.compile(r"^```.*?^```[^\n]*$", re.DOTALL | re.MULTILINE)
 
 
@@ -69,9 +71,18 @@ def claims(section: str) -> list[str]:
     return found
 
 
+def has_tag(claim: str) -> bool:
+    """A claim says ``(not tested)``, or has a ``(test:`` that is followed by at least one named test."""
+    claim = flat(claim)  # a tag may be broken over two lines
+    if NOT_TESTED.search(claim):
+        return True
+    start = claim.find("(test:")
+    return start >= 0 and NAMED_TEST.search(claim, start) is not None
+
+
 def untagged(text: str) -> list[str]:
     section = text[text.index("## The fences") : text.index("\n## Tests\n")]
-    return [flat(claim)[:70] for claim in claims(section) if not TAG.search(claim)]
+    return [flat(claim)[:70] for claim in claims(section) if not has_tag(claim)]
 
 
 def test_every_test_named_in_the_document_exists() -> None:
@@ -92,7 +103,13 @@ def test_every_claim_has_a_test_or_says_that_it_is_not_tested() -> None:
 
 def test_the_checker_finds_a_claim_without_a_tag() -> None:
     text = "## The fences\n\n- tagged. (test: `tests/a.py::b`)\n- loose claim\n- also loose (not tested)\n\n## Tests\n"
-    assert untagged(text) == ["- loose claim".removeprefix("- ")]
+    assert untagged(text) == ["loose claim"]
+    empty = (
+        "## The fences\n\n- names nothing. (test: )\n- names a word. (test: see the tests)\n"
+        "- ok (test: `tests/a.py::b`)\n\n## Tests\n"
+    )
+    assert untagged(empty) == ["names nothing. (test: )", "names a word. (test: see the tests)"]
+    assert has_tag("x (test: `tests/a.py::b`, `tests/c.py::d`)") and has_tag("x (not tested)") and not has_tag("x")
     assert claims("- one\n- two\n\nparagraph\n\n| a | b |\n\n```text\ncode\n```\n\n### heading") == [
         "one",
         "two",
@@ -113,7 +130,7 @@ ROW = re.compile(r"^\| `([^`]+)`[^|]*\| (yes|no) \|$", re.MULTILINE)
 
 def test_the_table_of_spellings_agrees_with_the_deny_rules() -> None:
     rows = ROW.findall(AGENTS)
-    assert len(rows) == 13 and {answer for _, answer in rows} == {"yes", "no"}
+    assert len(rows) == 17 and {answer for _, answer in rows} == {"yes", "no"}
     deny = rules_of("deny")
     wrong = [
         (command, answer) for command, answer in rows if Matcher.blocked_by(deny, "Bash", command) != (answer == "yes")
@@ -132,11 +149,27 @@ def test_the_table_checker_would_notice_a_flipped_row() -> None:
 
 def test_the_details_paragraphs_are_true_of_the_hook_source() -> None:
     details = AGENTS[AGENTS.index("## Details of the hook") : AGENTS.index("## Known gaps")]
-    assert "The hook reads no permission mode" in flat(details) and "permission_mode" not in HOOK_SOURCE
-    assert "The script reads its input as UTF-8" in flat(details) and 'reconfigure(encoding="utf-8")' in HOOK_SOURCE
-    assert "`RSIPUL~1.py`" in details and r"~[0-9]" in HOOK_SOURCE
-    assert "Write, Edit, MultiEdit, NotebookEdit, Bash and PowerShell" in flat(details)
-    assert len([p for p in details.split("\n\n") if p.strip()]) == 6  # intro, four details and the heading
+    text = flat(details)
+    assert "allowed only when `permission_mode` of the call is `default`" in text
+    assert 'payload.get("permission_mode", MISSING)' in HOOK_SOURCE and 'mode != "default"' in HOOK_SOURCE
+    assert "reads the bytes of stdin and decodes them as UTF-8 itself" in text
+    assert "sys.stdin.buffer.read()" in HOOK_SOURCE and "reconfigure" not in HOOK_SOURCE
+    assert "`RSIPUL~1.py`" in details and r"~[0-9]" in HOOK_SOURCE and "below_project" in HOOK_SOURCE
+    assert "Write, Edit, MultiEdit, NotebookEdit, Bash and PowerShell" in text
+    assert 'READ_TOOLS = ("Read", "Glob", "Grep")' in HOOK_SOURCE and "allows Read, Glob and Grep" in text
+    assert len([p for p in details.split("\n\n") if p.strip()]) == 6  # the heading, the intro and four details
+
+
+def test_the_hook_imports_only_the_standard_library() -> None:
+    modules = set()
+    for node in ast.walk(ast.parse(HOOK_SOURCE)):
+        if isinstance(node, ast.Import):
+            modules |= {alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            assert node.level == 0, "a relative import"
+            modules.add((node.module or "").split(".")[0])
+    assert {"json", "os", "re", "sys", "pathlib"} <= modules
+    assert modules <= sys.stdlib_module_names, sorted(modules - sys.stdlib_module_names)
 
 
 def test_the_hook_source_never_prints_a_decision() -> None:
@@ -146,7 +179,7 @@ def test_the_hook_source_never_prints_a_decision() -> None:
 
 def test_the_agent_files_do_not_exist_yet_and_the_document_says_so() -> None:
     assert not (ROOT / ".claude" / "agents").exists()
-    assert "the agent files in\n`.claude/agents/`" in AGENTS and "(planned, files not built yet)" in AGENTS
+    assert "the agent files in `.claude/agents/`" in flat(AGENTS) and "(planned, files not built yet)" in AGENTS
 
 
 # --- what the documents must say, and what they must not ---
@@ -157,7 +190,8 @@ def test_the_binding_sentences_of_the_adr_are_kept() -> None:
     assert "the only limit of an agent run is the timeout of its own tool" in text
     assert "The subprocess hardening, a wall-clock limit and a memory limit, is NOT built" in text
     assert "An agent that runs the command runs its own code with its own permissions" in text
-    assert "**Not unattended.**" in AGENTS and "**The strategy-architect may not; the signal-coder may.**" in AGENTS
+    assert "**Agents may not run it unattended." in AGENTS
+    assert "**The strategy-architect may not; the signal-coder may.**" in AGENTS
     for name, document in (("agents", AGENTS), ("adr19", ADR19)):
         assert "precondition" not in document.lower(), name
     assert "NOT built" in flat(ADR19)
@@ -195,12 +229,102 @@ def test_adr_0019_is_in_the_index_and_has_its_sections() -> None:
 def test_claude_md_describes_the_guardrails_and_their_tests() -> None:
     text = flat(CLAUDE)
     assert "Agent guardrails (`docs/agents.md`, ADR 0019)" in text
+    assert "**only when `permission_mode` of the call is `default`**" in text
+    assert "unless the entry has `onFailure` `block`" in text and "fenced from it" in text
     assert "**It never prints a `permissionDecision`**" in text and '`"onFailure": "block"`' in text
     assert "`tests/test_agent_deny_rules.py`, `tests/test_restrict_writes*.py`" in text
     assert "`strategies/drafts/` is git-ignored" in text and "`(not tested)` (`tests/test_agents_docs.py`)" in text
 
 
-@pytest.mark.parametrize("name", ["cli", "coded"])
-def test_cli_and_coded_signals_point_to_the_agents_document(name: str) -> None:
+# --- the permission mode, the layer count, the observations and the links, in every document that says them ---
+
+PLAIN = "agents may not run it unattended; the signal coder may run it only in the default permission mode"
+SECOND_LAYER = "the hook refuses it otherwise; the ask rule is a second layer"
+
+
+def test_every_document_says_plainly_who_may_run_signal_check_and_when() -> None:
+    for name, document in (("cli", CLI), ("coded", CODED)):
+        text = flat(document).replace("mode, and the hook refuses", "mode, the hook refuses")
+        assert PLAIN in text and SECOND_LAYER in text, name
+    agents = flat(AGENTS)
+    assert (
+        "The signal coder may run `bt signal check` only in the default permission mode; the hook refuses it otherwise"
+        in agents
+    )
+    adr = flat(ADR19)
+    assert "only when `permission_mode` of the call is `default`" in adr
+    assert "The ask rule of `settings.json` is a second layer" in adr
+    assert "attended-only" not in agents.lower() and "because of the ask rule" not in agents
+
+
+def test_one_layer_count_everywhere() -> None:
+    for name, document in (("agents", AGENTS), ("adr19", ADR19), ("cli", CLI), ("coded", CODED), ("claude", CLAUDE)):
+        text = flat(document)
+        assert "Three layers" not in text and "Two layers" not in text, name
+    assert "Two fences, the rules and the hook, and the person who reads the code" in flat(AGENTS)
+    assert "**Two fences, and a person.**" in ADR19
+    assert "Two fences stand in the way of an agent" in flat(CLI) and "Two fences stand in the way of an agent" in flat(
+        CODED
+    )
+
+
+def test_the_observations_are_stated_as_seen_once_and_not_with_this_script() -> None:
+    section = flat(AGENTS[AGENTS.index("## Observations") : AGENTS.index("## Details of the hook")])
+    assert "Claude Code 2.1.318, on one machine" in section and "a logging hook and a user-level probe agent" in section
+    assert "They were not seen with this script on a call of one of the two agents" in section
+    assert "`agent_id` and `agent_type`" in section and "A main-session call has neither" in section
+    assert "Every call carries `permission_mode`" in section
+    assert '`"onFailure": "block"` blocked a Write when the hook exited 1' in section
+    assert "without the key only gave a warning and the write went through" in section
+
+
+def test_the_status_says_which_part_and_not_this_pull_request() -> None:
+    status = AGENTS[AGENTS.index("## Status") : AGENTS.index("## The two agents")]
+    assert "Phase 10 part 4a" in status and "this pull request" not in status
+
+
+def test_the_hook_source_does_not_look_at_background_or_sandbox_flags() -> None:
+    assert "run_in_background" not in HOOK_SOURCE and "dangerouslyDisableSandbox" not in HOOK_SOURCE
+    assert "ignores `run_in_background` and `dangerouslyDisableSandbox`" in flat(AGENTS)
+
+
+def test_every_row_of_the_refusal_table_names_a_test() -> None:
+    table = AGENTS[AGENTS.index("| Refusal | Test |") : AGENTS.index("### Drafts and public files")]
+    rows = [line for line in table.splitlines() if line.startswith("| ") and not line.startswith(("| Refusal", "|---"))]
+    assert len(rows) == 13
+    for row in rows:
+        assert len(NAMED_TEST.findall(row)) == 1, row
+    assert missing_tests(table, ROOT) == []
+
+
+def paragraph(document: str, start: str) -> str:
+    begin = document.index(start)
+    end = document.find("\n\n", begin)
+    return document[begin : end if end >= 0 else len(document)]
+
+
+LINKS = [
+    ("cli", "**Who runs `bt approve`.**"),
+    ("cli", "**Who runs `bt signal check`.**"),
+    ("coded", "**Who may run `bt approve`.**"),
+    ("coded", "**In process, not in a subprocess.**"),
+]
+
+
+@pytest.mark.parametrize(
+    ("name", "start"), LINKS, ids=[f"{name}-{start.strip('*.').replace(' ', '-')}" for name, start in LINKS]
+)
+def test_each_paragraph_that_sends_the_reader_to_the_agents_document_has_its_own_link(name: str, start: str) -> None:
     document = {"cli": CLI, "coded": CODED}[name]
-    assert "[agents.md](agents.md)" in document
+    assert "[agents.md](agents.md)" in paragraph(document, start)
+
+
+def test_the_table_header_and_the_gaps_bullet_say_only_what_they_can_prove() -> None:
+    text = flat(AGENTS)
+    assert "| Command (Bash tool) | Matched by the rules (our reading of the syntax) |" in text
+    assert "Denied by the rules" not in text
+    assert "A spelling that is not in the table above is not denied" not in text
+    assert (
+        "A spelling that the rules do not match is not denied." in text
+        and "`GAPS` in `tests/test_agent_deny_rules.py`" in text
+    )

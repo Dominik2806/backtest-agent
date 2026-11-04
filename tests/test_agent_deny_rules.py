@@ -7,8 +7,10 @@ patterns" and "Compound commands"), not Claude Code's matcher: a table that pass
 we meant, not that Claude Code blocks the call. The spellings in ``GAPS`` are the ones the rules do not match (the docs
 name full paths, ``sh -c`` and quoted words as not caught); they are asserted so that no document can claim more.
 
-A rule that is removed must leave a spelling of ``COVERED`` unmatched (the mutation loop reads the rules from the
-file, it does not compare them with a copy). The matcher has tests with literal expectations of its own.
+A rule that is removed from the file makes ``test_every_covered_spelling_is_matched`` fail; a rule that no covered
+spelling needs (a redundant or an extra one, apart from the four that stay on purpose) makes
+``test_removing_any_one_rule_leaves_a_covered_spelling_unmatched`` fail. The rules are read from the file, never
+compared with a copy of themselves. The matcher has tests with literal expectations of its own.
 """
 
 import json
@@ -119,6 +121,19 @@ GAPS = [
     "bt\tVERB spec.yaml",  # a tab: likewise
     "QUOTED",  # documented as not caught: a quoted word
     "python -c \"from backtest_agent.cli import main; main(['VERBWORDS'])\"",  # no command word at all
+    "$(bt VERB spec.yaml)",  # our matcher does not look into a substitution (the Claude Code docs say theirs does)
+    "`bt VERB spec.yaml`",  # a backtick substitution: likewise
+    "(bt VERB spec.yaml)",  # a subshell: likewise
+    'eval "bt VERB spec.yaml"',  # eval of a string
+]
+# Backslash paths (PowerShell users write them): the rules have "/" in their path forms, so these are not matched.
+GAPS_POWERSHELL = [
+    ".\\.venv\\Scripts\\bt.exe VERB spec.yaml",
+    ".venv\\Scripts\\bt VERB spec.yaml",
+]
+GAPS_BASH = [
+    "BT VERB spec.yaml",  # Bash rules are case-sensitive (PowerShell ones are not)
+    "BT.EXE VERB spec.yaml",
 ]
 # Spellings of other commands that must not be matched (no over-blocking of the commands agents may run).
 NOT_THE_VERB = [
@@ -154,7 +169,8 @@ def gap_spellings(kind: str) -> list[tuple[str, str]]:
         for template in GAPS:
             command = quoted_last_word(kind) if template == "QUOTED" else spell(template, kind)
             found.append((tool, command))
-    found.append(("Bash", "BT.EXE " + VERBS[kind] + " spec.yaml"))  # Bash rules are case-sensitive
+    found += [("PowerShell", spell(template, kind)) for template in GAPS_POWERSHELL]
+    found += [("Bash", spell(template, kind)) for template in GAPS_BASH]
     return found
 
 
@@ -207,7 +223,10 @@ def test_other_commands_are_not_matched(kind: str) -> None:
 
 @pytest.mark.parametrize("kind", ["deny", "ask"])
 def test_removing_any_one_rule_leaves_a_covered_spelling_unmatched(kind: str) -> None:
-    """The test fails if a rule is removed or incomplete: every rule has a spelling that only it matches."""
+    """Every rule, the four redundant on purpose apart, is the only one to match some covered spelling.
+
+    This fails on a redundant or an extra rule. A rule that is removed or incomplete is seen by
+    ``test_every_covered_spelling_is_matched``, not by this test."""
     rules = rules_of(kind)
     spellings = covered_spellings(kind)
     exempt = {f"{tool}({pattern})" for tool in TOOLS for pattern in REDUNDANT_ON_PURPOSE} if kind == "deny" else set()
@@ -225,16 +244,6 @@ def test_each_redundant_rule_exists_and_matches_its_own_spelling(tool: str, patt
     rule = f"{tool}({pattern})"
     assert rule in rules_of("deny"), f"{rule} was removed; the plain forms stay on purpose"
     assert Matcher.blocked_by([rule], tool, REDUNDANT_ON_PURPOSE[pattern])
-
-
-@pytest.mark.parametrize("kind", ["deny", "ask"])
-def test_a_tool_without_rules_is_not_covered(kind: str) -> None:
-    """Dropping every PowerShell rule (or every Bash rule) must show up in the table."""
-    rules = rules_of(kind)
-    for tool in TOOLS:
-        kept = [rule for rule in rules if not rule.startswith(tool + "(")]
-        lost = [c for t, c in covered_spellings(kind) if t == tool and not Matcher.blocked_by(kept, t, c)]
-        assert lost, tool
 
 
 # --- the matcher itself, with literal expectations ------------------------------------------------------------------
@@ -276,3 +285,11 @@ def test_pattern_matches_is_case_sensitive_unless_asked() -> None:
 )
 def test_subcommands_split_and_strip(command: str, expected: list[str]) -> None:
     assert Matcher.subcommands(command) == expected
+
+
+def test_bt_has_no_global_options_so_no_flag_can_stand_between_bt_and_the_command() -> None:
+    """``bt --flag approve`` is no spelling: the top-level parser has only --help and --version (both exit)."""
+    from backtest_agent.cli.parser import build_parser
+
+    parser = build_parser()
+    assert {option for action in parser._actions for option in action.option_strings} == {"-h", "--help", "--version"}

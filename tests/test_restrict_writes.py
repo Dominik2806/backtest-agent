@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from backtest_agent.spec.coded_spec import coded_id_problem
-from restrict_writes_helpers import ARCHITECT, CODER, load_hook, make_dir_link, payload
+from restrict_writes_helpers import ARCHITECT, CODER, MISSING, load_hook, make_dir_link, payload
 
 hook = load_hook()
 
@@ -156,6 +156,25 @@ def test_a_trailing_dot_or_space_is_refused(project: Path, relative: str) -> Non
 )
 def test_an_8_3_short_name_is_refused(project: Path, relative: str) -> None:
     assert "8.3" in (write_refusal(CODER, project, relative) or "")
+
+
+def test_the_8_3_guard_looks_below_the_project_directory_only(tmp_path: Path) -> None:
+    """A project directory whose name has ~1 (CI runners have C:/Users/RUNNER~1/...) is accepted; below it ~1 is not."""
+    root = tmp_path / "PROJEC~1"
+    for folder in ("strategies/signals", "strategies/drafts"):
+        (root / folder).mkdir(parents=True)
+    assert write_refusal(CODER, root, "strategies/signals/x.py") is None
+    assert write_refusal(CODER, root, str(root / "strategies" / "signals" / "x.py")) is None
+    assert write_refusal(ARCHITECT, root, str(root / "strategies" / "drafts" / "x.yaml")) is None
+    assert "8.3" in (write_refusal(CODER, root, "STRATE~1/signals/x.py") or "")
+    assert "8.3" in (write_refusal(CODER, root, str(root / "STRATE~1" / "signals" / "x.py")) or "")
+    assert "8.3" in (write_refusal(CODER, root, str(root / "strategies" / "SIGNAL~1" / "x.py")) or "")
+
+
+def test_a_path_outside_the_project_with_a_short_name_is_still_refused(project: Path, tmp_path: Path) -> None:
+    other = tmp_path / "OTHER~1" / "strategies" / "signals"
+    other.mkdir(parents=True)
+    assert write_refusal(CODER, project, str(other / "x.py")) is not None
 
 
 def test_a_wrong_case_in_the_folder_is_the_same_folder_only_where_the_system_says_so(project: Path) -> None:
@@ -377,10 +396,18 @@ def test_a_command_that_is_not_text_is_refused(project: Path, command: object) -
 
 @pytest.mark.parametrize("agent", [ARCHITECT, CODER])
 @pytest.mark.parametrize(
-    "tool", ["NotebookEdit", "PowerShell", "Read", "WebFetch", "WebSearch", "Agent", "Glob", "mcp__x", ""]
+    "tool", ["NotebookEdit", "PowerShell", "WebFetch", "WebSearch", "Agent", "TodoWrite", "mcp__x", "read", "bash", ""]
 )
 def test_every_other_tool_is_refused(project: Path, agent: str, tool: str) -> None:
     assert refusal(agent, project, tool, notebook_path="n.ipynb", command="bt validate " + SPEC) is not None
+
+
+@pytest.mark.parametrize("agent", [ARCHITECT, CODER])
+@pytest.mark.parametrize("tool", ["Read", "Glob", "Grep"])
+def test_read_glob_and_grep_get_no_objection(project: Path, agent: str, tool: str) -> None:
+    """The hook limits what an agent writes and runs, not what it reads (docs/agents.md)."""
+    assert refusal(agent, project, tool, file_path="/etc/hosts", pattern="x", path="approvals") is None
+    assert refusal(agent, project, tool) is None
 
 
 @pytest.mark.parametrize("agent", [ARCHITECT, CODER])
@@ -436,3 +463,89 @@ def test_a_file_whose_real_path_is_somewhere_else_is_refused(project: Path, monk
 
     monkeypatch.setattr(hook.os.path, "realpath", moved)
     assert "link" in (write_refusal(CODER, project, "strategies/signals/x.py") or "")
+
+
+# --- bt signal check of the coder: only in the default permission mode ---
+
+CHECKS = [
+    f"bt signal check {SPEC}",
+    f"uv run bt signal check {SPEC}",
+    f"bt signal check {SPEC} --strategies-dir strategies/signals",
+    f"uv run bt signal check {SPEC} --strategies-dir strategies/signals",
+]
+VALIDATES = {
+    ARCHITECT: [f"bt validate {SPEC}", f"uv run bt validate {SPEC}"],
+    CODER: [f"bt validate {SPEC}", f"uv run bt validate {SPEC}", "bt validate strategies/examples/rsi_pullback.yaml"],
+}
+MODES = ["default", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk"]
+# (label, the value of permission_mode, the words the reason must contain)
+ODD_MODES = [
+    ("missing", MISSING, "has no permission_mode"),
+    ("None", None, "is not text"),
+    ("5", 5, "is not text"),
+    ("empty text", "", "permission_mode is ''"),
+    ("another case", "Default", "permission_mode is 'Default'"),
+    ("a space", "default ", "permission_mode is 'default '"),
+]
+
+
+def mode_refusal(agent: str, project: Path, command: str, mode: object) -> str | None:
+    try:
+        hook.decide(agent, payload("Bash", mode=mode, command=command), project)
+    except hook.Refused as reason:
+        return str(reason)
+    return None
+
+
+@pytest.mark.parametrize("command", CHECKS)
+def test_the_coder_runs_signal_check_only_in_the_default_mode(project: Path, command: str) -> None:
+    assert mode_refusal(CODER, project, command, "default") is None
+    for mode in MODES[1:]:
+        reason = mode_refusal(CODER, project, command, mode) or ""
+        assert f"permission_mode is '{mode}'" in reason and "default permission mode" in reason, mode
+    for label, mode, words in ODD_MODES:
+        reason = mode_refusal(CODER, project, command, mode) or ""
+        assert words in reason and "default permission mode" in reason, label
+
+
+@pytest.mark.parametrize("agent", [ARCHITECT, CODER])
+def test_bt_validate_is_allowed_in_every_permission_mode(project: Path, agent: str) -> None:
+    for command in VALIDATES[agent]:
+        for mode in [*MODES, None, 5, "", "nonsense", MISSING]:
+            assert mode_refusal(agent, project, command, mode) is None, (command, mode)
+
+
+@pytest.mark.parametrize("mode", [*MODES, None, 5, "", MISSING])
+@pytest.mark.parametrize("command", CHECKS)
+def test_the_architects_refusal_of_signal_check_is_the_same_in_every_mode(project: Path, mode, command) -> None:
+    """The architect has no signal check: its reason is the one of the grammar, never a message about the mode."""
+    reason = mode_refusal(ARCHITECT, project, command, mode)
+    assert reason == mode_refusal(ARCHITECT, project, command, "default")
+    assert reason == "strategy-architect may not run this command"
+
+
+@pytest.mark.parametrize("mode", [*MODES, None, 5, "", MISSING])
+def test_a_write_does_not_depend_on_the_permission_mode(project: Path, mode) -> None:
+    for agent, good, bad in (
+        (CODER, "strategies/signals/x.py", "src/x.py"),
+        (ARCHITECT, "strategies/drafts/x.yaml", "src/x.py"),
+    ):
+        assert refusal_in_mode(agent, project, good, mode) is None
+        assert refusal_in_mode(agent, project, bad, mode) is not None
+
+
+def refusal_in_mode(agent: str, project: Path, path: str, mode: object) -> str | None:
+    try:
+        hook.decide(agent, payload("Write", mode=mode, file_path=path, content="x"), project)
+    except hook.Refused as reason:
+        return str(reason)
+    return None
+
+
+def test_the_project_prefix_is_found_whatever_its_case_where_the_system_folds_case(tmp_path: Path) -> None:
+    """Where case does not matter (Windows) a path that spells the project directory in another case is still below it,
+    so a short name in the project directory is not seen as one below it; elsewhere that is another folder."""
+    root = tmp_path / "PROJEC~1"
+    (root / "strategies" / "signals").mkdir(parents=True)
+    path = str(root).swapcase() + os.sep + os.sep.join(["strategies", "signals", "x.py"])
+    assert (write_refusal(CODER, root, path) is None) is (os.name == "nt")

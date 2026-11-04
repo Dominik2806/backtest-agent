@@ -369,8 +369,9 @@ agent with a shell could pass a flag as easily, and a prompt would break the tes
 own (the frames, params and examples cross a pipe; a time limit and a memory limit that work on Windows). **Not built:** running
 the candidate in a subprocess with a wall-clock limit and a memory limit. An agent that runs the command runs its own code with its
 own permissions; the only limit of an agent run is the timeout of its own tool; whether agents may run it unattended is decided in
-the agents part (pull request 4) and stated in `docs/agents.md`: the signal coder may run it, not unattended in the sense of
-[agents.md](agents.md), "May an agent run `bt signal check`?"; the strategy architect may not.
+the agents part (pull request 4) and stated in `docs/agents.md`: agents may not run it unattended; the signal coder may run it only in
+the default permission mode, and the hook refuses it otherwise; the ask rule is a second layer; the strategy architect may not run it
+at all ([agents.md](agents.md), "May an agent run `bt signal check`?").
 
 ## What `bt validate` says
 

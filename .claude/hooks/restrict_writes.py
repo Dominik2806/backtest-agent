@@ -13,8 +13,12 @@ Two ways to call it, the same script:
 * ``restrict_writes.py <agent>`` (the entry in the frontmatter of that agent): the agent is the argument; an
   ``agent_type`` in the payload that differs from it is refused.
 
+What an agent may do: Read, Glob and Grep are not restricted (no objection); Write, Edit and MultiEdit only in the
+folder of the agent; Bash only the exact commands of ``check_bash``; every other tool name is refused. The signal coder
+may run ``bt signal check`` only when ``permission_mode`` of the call is ``"default"``.
+
 Standard library only, and nothing is imported from ``backtest_agent``: tests/test_restrict_writes.py compares the id
-rules below with the project's own (``coded_id_problem``) on a table.
+rules below with the project's own (``coded_id_problem``) on a table, and tests/test_agents_docs.py checks the imports.
 """
 
 import json
@@ -34,12 +38,14 @@ DEVICE_NAMES = frozenset(
 )
 MAX_ID_LENGTH = 64
 
+READ_TOOLS = ("Read", "Glob", "Grep")
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit")
 FOLDER = {ARCHITECT: ("strategies", "drafts"), CODER: ("strategies", "signals")}
 BASH_CHARACTERS = re.compile(r"[A-Za-z0-9_./ -]+")  # an allowlist: no quote, glob, redirect, pipe, $ or backslash
 SPEC_PATH = re.compile(r"strategies/(?P<folder>drafts|examples)/(?P<name>[a-z0-9][a-z0-9_-]{0,63})\.yaml")
 DRIVE_RELATIVE = re.compile(r"[A-Za-z]:(?![\\/])")
 DRIVE = re.compile(r"[A-Za-z]:")
+MISSING = object()  # a payload without the key, as against a key with the value None
 
 
 class Refused(Exception):
@@ -66,7 +72,7 @@ def name_ok(agent: str, name: str) -> bool:
 
 
 def check_text_of_path(text: str) -> None:
-    """The refusals that need only the text of a path (they hold on every operating system)."""
+    """The refusals that need only the text of a path, wherever the project is (they hold on every operating system)."""
     if text.startswith(("\\\\", "//")):
         raise Refused("UNC and device paths are refused")
     if "\0" in text or re.search(r'[<>"|?*]', text):
@@ -76,9 +82,21 @@ def check_text_of_path(text: str) -> None:
     rest = text[2:] if DRIVE.match(text) else text
     if ":" in rest:
         raise Refused("a colon in a path (an NTFS stream) is refused")
-    for part in re.split(r"[\\/]+", text):
-        if part == "..":
-            raise Refused("'..' in a path is refused")
+    if ".." in re.split(r"[\\/]+", text):
+        raise Refused("'..' in a path is refused")
+
+
+def below_project(path: Path, project: Path) -> list[str]:
+    """The components of ``path`` under the project directory (all of them if it is not under it)."""
+    same = os.path.normcase
+    root = [same(part) for part in project.parts]
+    parts = list(path.parts)
+    return parts[len(root) :] if [same(part) for part in parts[: len(root)]] == root else parts
+
+
+def check_components(parts: Sequence[str]) -> None:
+    """The refusals for the components below the project directory; the directory itself may have a short name."""
+    for part in re.split(r"[\\/]+", "/".join(parts)):
         if part not in ("", ".") and part.endswith((".", " ")):
             raise Refused("a path component ends with a dot or a space")
         if re.search(r"~[0-9]", part):
@@ -92,6 +110,7 @@ def check_path(agent: str, raw: object, project: Path) -> None:
     path = Path(raw)
     if not path.is_absolute():
         path = project / path
+    check_components(below_project(path, project))
     folder = Path(os.path.realpath(project)).joinpath(*FOLDER[agent])
     if not name_ok(agent, path.name):
         raise Refused(f"{agent} may not write a file called {path.name!r} (see docs/agents.md)")
@@ -109,7 +128,18 @@ def spec_ok(agent: str, spec: str) -> bool:
     return found["folder"] == "drafts" or agent == CODER  # the architect reads its drafts, the coder also the examples
 
 
-def check_bash(agent: str, command: object) -> None:
+def check_mode(mode: object) -> None:
+    """``bt signal check`` of the coder: only in the default permission mode of the session."""
+    where = "the signal coder may run bt signal check only in the default permission mode"
+    if mode is MISSING:
+        raise Refused(f"the call has no permission_mode: {where}")
+    if not isinstance(mode, str):
+        raise Refused(f"permission_mode is not text: {where}")
+    if mode != "default":
+        raise Refused(f"permission_mode is {ascii(mode[:40])}: {where}; switch the session to the default mode")
+
+
+def check_bash(agent: str, command: object, mode: object) -> None:
     if not isinstance(command, str) or not command:
         raise Refused("the call has no command")
     if "\\" in command:
@@ -128,6 +158,7 @@ def check_bash(agent: str, command: object) -> None:
         return
     if agent == CODER and rest[:2] == ["signal", "check"] and len(rest) in (3, 5) and spec_ok(agent, rest[2]):
         if len(rest) == 3 or rest[3:] == ["--strategies-dir", "strategies/signals"]:
+            check_mode(mode)
             return
     raise Refused(f"{agent} may not run this command")
 
@@ -137,10 +168,12 @@ def decide(agent: str, payload: Mapping[str, object], project: Path) -> None:
     tool, tool_input = payload.get("tool_name"), payload.get("tool_input")
     if not isinstance(tool, str) or not isinstance(tool_input, dict):
         raise Refused("the call has no tool_name or tool_input")
+    if tool in READ_TOOLS:
+        return
     if tool in WRITE_TOOLS:
         check_path(agent, tool_input.get("file_path"), project)
     elif tool == "Bash":
-        check_bash(agent, tool_input.get("command"))
+        check_bash(agent, tool_input.get("command"), payload.get("permission_mode", MISSING))
     elif tool in ("NotebookEdit", "PowerShell"):
         raise Refused(f"{agent} may not use {tool}")
     else:
@@ -186,8 +219,13 @@ def run(argv: Sequence[str], raw: str, env: Mapping[str, str]) -> int:
 
 def main() -> int:
     try:
-        sys.stdin.reconfigure(encoding="utf-8")
-        return run(sys.argv[1:], sys.stdin.read(), os.environ)
+        data = sys.stdin.buffer.read()  # bytes: the encoding of the console is not asked
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            say(f"restrict_writes: blocked: stdin is not valid UTF-8 (byte {error.start})")
+            return 2
+        return run(sys.argv[1:], text, os.environ)
     except BaseException as error:  # fail closed, also for an interrupt or a broken stream
         try:
             say(f"restrict_writes: blocked: the hook failed ({type(error).__name__})")

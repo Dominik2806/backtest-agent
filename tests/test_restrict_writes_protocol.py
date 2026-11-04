@@ -6,11 +6,12 @@ exit 2 prints the reason on stderr, and the script prints no ``permissionDecisio
 """
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
-from restrict_writes_helpers import ARCHITECT, CODER, HOOK, ROOT, load_hook, payload, run_script
+from restrict_writes_helpers import ARCHITECT, CODER, HOOK, MISSING, ROOT, load_hook, payload, run_script
 
 hook = load_hook()
 ENV = {"CLAUDE_PROJECT_DIR": str(ROOT)}
@@ -81,7 +82,7 @@ def test_an_unknown_agent_or_too_many_arguments_is_blocked(capsys) -> None:
 # --- fail closed ---
 
 
-@pytest.mark.parametrize("raw", ["", "{", "[]", "null", "5", '"x"', "é", "{'a': 1}"])
+@pytest.mark.parametrize("raw", ["", "{", "[]", "null", "5", '"x"', "\u00e9", "{'a': 1}"])
 @pytest.mark.parametrize("argv", [[], [CODER]])
 def test_stdin_that_is_not_a_json_object_is_blocked(capsys, raw, argv) -> None:
     code, out, err = call(argv, raw, capsys)
@@ -153,15 +154,11 @@ def test_the_script_exits_2_with_the_reason_on_stderr_when_it_blocks() -> None:
 
 
 def test_a_file_name_with_another_character_is_blocked_and_the_message_stays_ascii() -> None:
-    done = run([CODER], payload("Write", file_path="strategies/signals/é.py", content="x"))
+    done = run([CODER], payload("Write", file_path="strategies/signals/\u00e9.py", content="x"))
     assert done.returncode == 2 and done.stdout == b""
     done.stderr.decode("ascii")  # raises if the hook printed a character the console may not show
-    non_ascii = '{"tool_name": "Write", "tool_input": {"file_path": "strategies/signals/é.py"}}'
+    non_ascii = '{"tool_name": "Write", "tool_input": {"file_path": "strategies/signals/\u00e9.py"}}'
     assert run_script([CODER], non_ascii.encode("utf-8")).returncode == 2
-
-
-def test_stdin_that_is_not_utf8_is_blocked() -> None:
-    assert run_script([CODER], b'{"tool_name": "\xff\xfe"}').returncode == 2
 
 
 def test_a_script_that_cannot_run_exits_1_and_that_is_why_the_entry_needs_on_failure_block(tmp_path: Path) -> None:
@@ -188,31 +185,75 @@ def test_a_json_value_that_is_not_an_object_gets_its_own_reason(capsys) -> None:
         assert code == 2 and "not a JSON object" in err
 
 
-def test_a_file_name_with_another_character_is_shown_escaped_not_dropped() -> None:
-    done = run([CODER], payload("Write", file_path="strategies/signals/é.py", content="x"))
-    assert done.returncode == 2 and (chr(92) + "xe9").encode() in done.stderr
+def test_stdin_that_is_not_utf8_is_blocked_with_its_own_reason() -> None:
+    done = run_script([CODER], b'{"tool_name": "\xff\xfe"}')
+    assert done.returncode == 2 and done.stdout == b"" and b"not valid UTF-8" in done.stderr
+    assert run_script([], b"\xff").returncode == 2  # also for the entry of settings.json
 
 
-def test_an_allowed_write_with_content_that_is_not_in_the_console_code_page_is_not_blocked() -> None:
-    """Content with characters outside ASCII (UTF-8 bytes) must not make the hook fail. On the development machine
-    (stdin is cp1252) this passes with and without the line that sets UTF-8 on stdin, so that line is not covered by
-    any test here: the mutation that removes it survives (reported at STOP 2)."""
-    data = payload("Write", CODER, **{"file_path": ALLOWED["file_path"], "content": "# Á → €"})
-    done = run_script([], json.dumps(data, ensure_ascii=False).encode("utf-8"))
-    assert (done.returncode, done.stdout, done.stderr) == (0, b"", b"")
+RAW_NAME = payload("Write", file_path="strategies/signals/\u00e9.py", content="x")
 
 
-# --- the hook looks at no permission mode (docs/agents.md, "Details of the hook") ---
+def test_a_raw_utf8_file_name_is_shown_escaped_from_the_bytes_not_from_a_code_page() -> None:
+    """The input has the bytes C3 A9 (not the JSON escape): decoded as UTF-8 they are one character, shown as xe9;
+    decoded as cp1252 or latin-1 they would be two characters, shown as xc3 and xa9."""
+    done = run([CODER], json.dumps(RAW_NAME, ensure_ascii=False).encode("utf-8"))
+    shown = done.stderr.decode("ascii")
+    assert done.returncode == 2 and chr(92) + "xe9" in shown and chr(92) + "xc3" not in shown
 
 
-@pytest.mark.parametrize(
-    "mode", ["default", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk", None, 5, ""]
-)
-def test_the_decision_does_not_depend_on_a_permission_mode(capsys, mode) -> None:
-    check = payload("Bash", CODER, command="bt signal check strategies/drafts/x.yaml")
+def test_content_with_the_bytes_c3_81_is_accepted() -> None:
+    """C3 81 is the UTF-8 form of U+00C1. cp1252 has no character at 0x81, so a decoding with that code page fails."""
+    data = payload("Write", CODER, **{"file_path": ALLOWED["file_path"], "content": "# \u00c1 \u2192 \u20ac"})
+    for args in ([], [CODER]):
+        done = run_script(args, json.dumps(data, ensure_ascii=False).encode("utf-8"))
+        assert (done.returncode, done.stdout, done.stderr) == (0, b"", b"")
+
+
+# --- the permission mode: only bt signal check of the coder depends on it (docs/agents.md, "Details of the hook") ---
+
+MODES = ["default", "acceptEdits", "plan", "auto", "bypassPermissions", "dontAsk", None, 5, ""]
+CHECK = "bt signal check strategies/drafts/x.yaml"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_a_write_and_a_validate_do_not_depend_on_the_permission_mode(capsys, mode) -> None:
+    validate = payload("Bash", CODER, mode=mode, command="bt validate strategies/drafts/x.yaml")
     for data, expected in (
-        (payload("Write", CODER, **ALLOWED), 0),
-        (payload("Write", CODER, **FORBIDDEN), 2),
-        (check, 0),
+        (payload("Write", CODER, mode=mode, **ALLOWED), 0),
+        (payload("Write", CODER, mode=mode, **FORBIDDEN), 2),
+        (validate, 0),
     ):
-        assert call([], data | {"permission_mode": mode}, capsys)[0] == expected
+        assert call([], data, capsys)[0] == expected
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_the_coders_signal_check_runs_only_in_the_default_mode(capsys, mode) -> None:
+    for argv in ([], [CODER]):
+        code, out, err = call(argv, payload("Bash", CODER, mode=mode, command=CHECK), capsys)
+        assert out == ""
+        if mode == "default":
+            assert (code, err) == (0, "")
+        else:
+            assert code == 2 and "default permission mode" in err
+
+
+def test_a_signal_check_without_a_permission_mode_is_blocked(capsys) -> None:
+    code, _, err = call([], payload("Bash", CODER, mode=MISSING, command=CHECK), capsys)
+    assert code == 2 and "has no permission_mode" in err
+
+
+class BrokenStdin:
+    """A stdin whose bytes cannot be read: the failure must be exit 2, not a traceback and not a pass."""
+
+    class buffer:  # noqa: N801 - mimics sys.stdin.buffer
+        @staticmethod
+        def read() -> bytes:
+            raise KeyboardInterrupt
+
+
+def test_a_failure_while_reading_stdin_is_exit_2_with_a_reason(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "stdin", BrokenStdin)
+    assert hook.main() == 2
+    seen = capsys.readouterr()
+    assert seen.out == "" and "the hook failed (KeyboardInterrupt)" in seen.err

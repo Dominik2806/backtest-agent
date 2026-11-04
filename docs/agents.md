@@ -14,10 +14,10 @@ itself, it says so.
 
 ## Status
 
-What exists in this pull request (Phase 10 part 4a): the deny and ask rules, the hook `restrict_writes.py` and its entry in
-`.claude/settings.json`, and the git-ignored folder `strategies/drafts/`. What does not exist yet: the agent files in
-`.claude/agents/`, the three example specs, the fake agents and the end-to-end test. They come with part 4b, and until then
-nothing starts an agent: the hook has been run on calls that tests wrote, never on a call of a real agent.
+What exists in Phase 10 part 4a: the deny and ask rules, the hook `restrict_writes.py` and its entry in `.claude/settings.json`,
+and the git-ignored folder `strategies/drafts/`. What does not exist yet: the agent files in `.claude/agents/`, the three example
+specs, the fake agents and the end-to-end test. They come with part 4b, and until then nothing starts an agent: the tests of this
+repository run the hook on calls that they write, and the hook has not been run on a call of one of these two agents.
 
 ## The two agents (planned, files not built yet)
 
@@ -29,16 +29,19 @@ nothing starts an agent: the hook has been run on calls that tests wrote, never 
 
 ## The fences
 
-Three layers, none of them a boundary. The person who reads the code before `bt approve --code --sha` is the defence that counts. (not tested)
+Two fences, the rules and the hook, and the person who reads the code. Neither fence is a boundary: the person who reads the code
+before `bt approve --code --sha` is the defence that counts. (not tested)
 
 ### Deny and ask rules
 
 - `.claude/settings.json` denies `bt approve` in the spellings of the table below, for the Bash tool and for the PowerShell tool, and
   holds no allow rule for it. (test: `tests/test_agent_deny_rules.py::test_every_covered_spelling_is_matched`,
   `tests/test_agent_deny_rules.py::test_no_allow_rule_names_the_approval`)
-- Every rule is needed by a spelling that no other rule matches, except the four plain rules for `uv run bt`, `python -m
-  backtest_agent`, `py -m backtest_agent` and `python3 -m backtest_agent`, which stay on purpose: the meaning of a leading `*` in a
-  rule is not documented, so the plain forms do not rely on it. (test:
+- Every rule is the only one to match some spelling, except the four plain rules for `uv run bt`, `python -m backtest_agent`,
+  `py -m backtest_agent` and `python3 -m backtest_agent`, which stay on purpose: the meaning of a leading `*` in a rule is not
+  documented, so the plain forms do not rely on it. A rule that is removed fails the first test, an extra or redundant rule the
+  second, and a removed plain rule the third. (test:
+  `tests/test_agent_deny_rules.py::test_every_covered_spelling_is_matched`,
   `tests/test_agent_deny_rules.py::test_removing_any_one_rule_leaves_a_covered_spelling_unmatched`,
   `tests/test_agent_deny_rules.py::test_each_redundant_rule_exists_and_matches_its_own_spelling`)
 - The same spellings are in the `ask` list for `bt signal check`, for both tools, so Claude Code asks before it runs one. (test:
@@ -46,14 +49,14 @@ Three layers, none of them a boundary. The person who reads the code before `bt 
 - The rules do not match `bt run`, `bt validate` or the other verb. (test:
   `tests/test_agent_deny_rules.py::test_other_commands_are_not_matched`)
 - Deny and ask rules also apply to Claude Code's own session, not only to the agents: the main session cannot run `bt approve`
-  either, and it is asked before `bt signal check` in Bash and in PowerShell. You run `bt approve` in your own shell. (test:
-  `tests/test_agent_deny_rules.py::test_a_tool_without_rules_is_not_covered`; that the rules apply to the main session is a claim
-  of the Claude Code documentation, not tested)
+  either, and it is asked before `bt signal check` in Bash and in PowerShell. You run `bt approve` in your own shell. (not tested)
+- `bt` has no global option before its command (only `--help` and `--version`, which exit), so a spelling such as `bt --flag
+  approve` does not exist. (test: `tests/test_agent_deny_rules.py::test_bt_has_no_global_options_so_no_flag_can_stand_between_bt_and_the_command`)
 - The table is made with a reference matcher in the test. **It is our reading of the documented rule syntax, not the matcher of
   Claude Code**; the test shows that the rules say what we mean, not that Claude Code blocks the call. (test:
   `tests/test_agent_deny_rules.py::test_pattern_matches_follows_the_documented_wildcards`)
 
-| Command (Bash tool) | Denied by the rules |
+| Command (Bash tool) | Matched by the rules (our reading of the syntax) |
 |---|---|
 | `bt approve spec.yaml --idea` | yes |
 | `uv run bt approve spec.yaml --idea` | yes |
@@ -68,18 +71,30 @@ Three layers, none of them a boundary. The person who reads the code before `bt 
 | `bash -c "bt approve spec.yaml --idea"` | no |
 | `bt  approve spec.yaml --idea` (two spaces) | no |
 | `bt 'approve' spec.yaml --idea` | no |
+| `$(bt approve spec.yaml --idea)` | no |
+| `(bt approve spec.yaml --idea)` | no |
+| `eval "bt approve spec.yaml --idea"` | no |
+| `BT approve spec.yaml --idea` | no |
 
-- The rows marked `no` are known gaps of the rules, asserted by a test so that this document cannot claim more. The Claude Code
-  documentation names a full path, `sh -c` and a quoted word as not caught. The hook below is what refuses them for the two agents.
-  (test: `tests/test_agent_deny_rules.py::test_the_known_gaps_are_not_matched`)
+- The rows marked `no` are examples of what the rules do not match, asserted by a test so that this document cannot claim more; the
+  list is `GAPS`, `GAPS_BASH` and `GAPS_POWERSHELL` in `tests/test_agent_deny_rules.py`. It also holds a backtick substitution and,
+  for PowerShell, a path with backslashes such as `.\.venv\Scripts\bt.exe approve spec.yaml`. The Claude Code documentation names a
+  full path, `sh -c` and a quoted word as not caught, and says that it also checks command substitutions, which our matcher does
+  not. The hook below is what refuses all of them for the two agents. (test:
+  `tests/test_agent_deny_rules.py::test_the_known_gaps_are_not_matched`)
 
 ### The hook
 
-- `.claude/hooks/restrict_writes.py` is a PreToolUse hook for the two agents. It is standard library only and imports nothing from
-  `backtest_agent`; its id rules are compared with the project's own. (test:
+- `.claude/hooks/restrict_writes.py` is a PreToolUse hook for the two agents. It imports only the standard library and nothing from
+  `backtest_agent`, and its id rules are compared with the project's own. (test:
+  `tests/test_agents_docs.py::test_the_hook_imports_only_the_standard_library`,
   `tests/test_restrict_writes.py::test_the_id_rules_of_the_hook_are_the_rules_of_the_spec`)
 - It exits 0 without printing anything, or exits 2 with the reason on stderr. **It never prints a `permissionDecision`**, so it
   cannot turn an ask rule into an allow. (test: `tests/test_restrict_writes_protocol.py::test_the_script_never_prints_a_decision`)
+- An exit 0 is no decision: Claude Code goes on with its normal permission flow, so the permission mode still decides whether a
+  write of an agent asks for a prompt. A write that the hook allows is not thereby approved. (test:
+  `tests/test_restrict_writes_protocol.py::test_the_script_never_prints_a_decision`; what Claude Code does with it is a claim of its
+  documentation, not tested)
 - A call without `agent_type` (the main session), or of another agent, gets no decision: exit 0, nothing printed. (test:
   `tests/test_restrict_writes_protocol.py::test_a_call_without_agent_type_is_the_main_session_and_gets_no_decision`,
   `tests/test_restrict_writes_protocol.py::test_a_call_of_another_agent_gets_no_decision`)
@@ -88,8 +103,9 @@ Three layers, none of them a boundary. The person who reads the code before `bt 
   `tests/test_restrict_writes_protocol.py::test_an_error_inside_the_decision_is_blocked_not_passed`)
 - A script that cannot run at all (a syntax error, a missing interpreter) exits 1 or 127, and Claude Code lets a call through for
   every exit code except 2 unless the entry says `"onFailure": "block"`. That is why the entry has it. (test:
-  `tests/test_restrict_writes_protocol.py::test_a_script_that_cannot_run_exits_1_and_that_is_why_the_entry_needs_on_failure_block`;
-  what Claude Code does with the key is a claim of its documentation, not tested)
+  `tests/test_restrict_writes_protocol.py::test_a_script_that_cannot_run_exits_1_and_that_is_why_the_entry_needs_on_failure_block`,
+  `tests/test_restrict_writes_commandline.py::test_a_broken_environment_blocks_only_where_the_hook_is_needed`; what Claude Code does
+  with the key is a claim of its documentation, see "Observations")
 - The script also accepts an agent name as its argument: that is the planned copy of the entry in the frontmatter of each agent. The
   agent files do not exist yet, so no real agent calls it that way and no test ties a file to its command line. (test:
   `tests/test_restrict_writes_commandline.py::test_the_frontmatter_line_blocks_a_forbidden_call_without_an_agent_type`)
@@ -107,27 +123,45 @@ Three layers, none of them a boundary. The person who reads the code before `bt 
   `<id>` that passes the id rules of a coded signal. Bash only `bt validate SPEC` and `bt signal check SPEC [--strategies-dir
   strategies/signals]`, with `SPEC` in `strategies/drafts/` or `strategies/examples/`, also as `uv run bt ...`. (test:
   `tests/test_restrict_writes.py::test_the_coder_may_write_its_two_files_by_relative_and_absolute_path`,
-  `tests/test_restrict_writes.py::test_the_coder_may_not_write_anywhere_else`,
   `tests/test_restrict_writes.py::test_the_coder_may_validate_and_check`,
   `tests/test_restrict_writes.py::test_the_signal_check_of_the_coder_has_one_form`)
 - Neither agent writes in the other's folder, in `approvals/`, `src/`, `tests/`, `docs/`, `.claude/` or anywhere else, and every other
-  command is refused. (test: `tests/test_restrict_writes.py::test_the_two_agents_do_not_share_a_folder`,
+  command is refused. (test: `tests/test_restrict_writes.py::test_the_coder_may_not_write_anywhere_else`,
+  `tests/test_restrict_writes.py::test_the_architect_may_write_nothing_else`,
+  `tests/test_restrict_writes.py::test_the_two_agents_do_not_share_a_folder`,
   `tests/test_restrict_writes.py::test_every_other_command_is_refused`)
-- Paths are refused for `..`, an absolute path outside the folder, a link or junction out of it, UNC and device paths, an NTFS
-  stream, a component that ends in a dot or a space, a name that has to be lowercase, and a folder in the wrong case where the
-  system tells case apart. (test: `tests/test_restrict_writes.py::test_a_path_with_dot_dot_is_refused_even_when_it_lands_in_the_folder`,
-  `tests/test_restrict_writes.py::test_an_absolute_path_outside_the_project_is_refused`,
-  `tests/test_restrict_writes.py::test_a_junction_or_link_from_the_folder_to_somewhere_else_is_refused`,
-  `tests/test_restrict_writes.py::test_unc_and_device_paths_are_refused`,
-  `tests/test_restrict_writes.py::test_an_ntfs_stream_is_refused`,
-  `tests/test_restrict_writes.py::test_a_trailing_dot_or_space_is_refused`,
-  `tests/test_restrict_writes.py::test_a_wrong_case_in_the_folder_is_the_same_folder_only_where_the_system_says_so`)
+- Read, Glob and Grep get no objection: **the agents can read any file that Claude Code may read.** The hook limits what they write
+  and run, not what they read. (test: `tests/test_restrict_writes.py::test_read_glob_and_grep_get_no_objection`)
+- A relative path is resolved against `CLAUDE_PROJECT_DIR` of the environment, and, if that is unset, against the `cwd` field of
+  the call; with neither the call is refused. (test: `tests/test_restrict_writes_protocol.py::test_the_environment_wins_over_the_cwd_of_the_call`,
+  `tests/test_restrict_writes_protocol.py::test_no_project_directory_is_blocked_and_the_cwd_of_the_call_is_the_fallback`)
 - A Bash command passes only if every character is a letter, a digit, `_`, `.`, `/`, `-` or a single space between words. A
   backslash is refused with its own reason, so paths are written with forward slashes. Quotes, globs, `$`, backticks, `;`, `&`, `|`,
   `<`, `>`, newlines and tabs, environment prefixes and `cd x &&` are refused. The agents use the Bash tool (Git Bash on Windows);
   every PowerShell call by them is refused. (test: `tests/test_restrict_writes.py::test_a_backslash_is_refused_with_its_own_reason`,
   `tests/test_restrict_writes.py::test_a_shell_character_gets_the_allowlist_reason`,
   `tests/test_restrict_writes.py::test_every_other_tool_is_refused`)
+- The hook ignores `run_in_background` and `dangerouslyDisableSandbox` in the input of a call: it decides on the command alone, and
+  `bt signal check` is asked by the ask rule anyway. (not tested)
+
+Each refusal of a path has one test, named in its row. (test:
+`tests/test_agents_docs.py::test_every_row_of_the_refusal_table_names_a_test`)
+
+| Refusal | Test |
+|---|---|
+| `..` in a path, also when the path lands in the folder | `tests/test_restrict_writes.py::test_a_path_with_dot_dot_is_refused_even_when_it_lands_in_the_folder` |
+| an absolute path outside the project | `tests/test_restrict_writes.py::test_an_absolute_path_outside_the_project_is_refused` |
+| a link or junction from the folder to somewhere else | `tests/test_restrict_writes.py::test_a_junction_or_link_from_the_folder_to_somewhere_else_is_refused` |
+| a file that is itself a link elsewhere | `tests/test_restrict_writes.py::test_a_file_whose_real_path_is_somewhere_else_is_refused` |
+| UNC and device paths | `tests/test_restrict_writes.py::test_unc_and_device_paths_are_refused` |
+| an NTFS stream | `tests/test_restrict_writes.py::test_an_ntfs_stream_is_refused` |
+| a component that ends in a dot or a space | `tests/test_restrict_writes.py::test_a_trailing_dot_or_space_is_refused` |
+| an 8.3 short name below the project | `tests/test_restrict_writes.py::test_an_8_3_short_name_is_refused` |
+| a path relative to a drive (`C:x`) | `tests/test_restrict_writes.py::test_a_path_relative_to_a_drive_is_refused` |
+| wildcard and reserved characters | `tests/test_restrict_writes.py::test_wildcards_and_reserved_characters_are_refused` |
+| a name outside the id rules (uppercase, device name, built-in id) | `tests/test_restrict_writes.py::test_the_id_rules_apply_to_the_file_name` |
+| a folder in the wrong case, where the system tells case apart | `tests/test_restrict_writes.py::test_a_wrong_case_in_the_folder_is_the_same_folder_only_where_the_system_says_so` |
+| the same, for a folder that does not exist yet | `tests/test_restrict_writes.py::test_a_wrong_case_folder_that_does_not_exist_yet_is_the_folder_only_where_the_system_says_so` |
 
 ### Drafts and public files
 
@@ -143,13 +177,19 @@ Three layers, none of them a boundary. The person who reads the code before `bt 
 - **The strategy-architect may not; the signal-coder may.** (test:
   `tests/test_restrict_writes.py::test_the_architect_may_not_check_a_signal_or_read_the_examples`,
   `tests/test_restrict_writes.py::test_the_coder_may_validate_and_check`)
-- **Not unattended.** An agent that runs the command runs its own code with its own permissions, as it could with Python; the only
-  limit of an agent run is the timeout of its own tool. The subprocess hardening, a wall-clock limit and a memory limit, is NOT
-  built ([ADR 0018](adr/0018-coded-signals-and-approval-gate.md), addendum, known gap 6). (test:
+- **Agents may not run it unattended. The signal coder may run `bt signal check` only in the default permission mode; the hook
+  refuses it otherwise.** The ask rule of `.claude/settings.json` is a second layer: Claude Code asks before each run. A run in any
+  other mode, with the field missing or with a value that is not text, is refused with its own reason, and the architect's refusal
+  of the command is the same in every mode. (test: `tests/test_restrict_writes.py::test_the_coder_runs_signal_check_only_in_the_default_mode`,
+  `tests/test_restrict_writes.py::test_the_architects_refusal_of_signal_check_is_the_same_in_every_mode`,
+  `tests/test_restrict_writes_protocol.py::test_the_coders_signal_check_runs_only_in_the_default_mode`,
+  `tests/test_restrict_writes_commandline.py::test_the_coders_signal_check_through_the_command_lines_needs_the_default_mode`)
+- An agent that runs the command runs its own code with its own permissions, as it could with Python; the only limit of an agent
+  run is the timeout of its own tool. The subprocess hardening, a wall-clock limit and a memory limit, is NOT built
+  ([ADR 0018](adr/0018-coded-signals-and-approval-gate.md), addendum, known gap 6). (test:
   `tests/test_agents_docs.py::test_the_binding_sentences_of_the_adr_are_kept`)
-- What stands between the coder and a run that nobody sees is the ask rule of `.claude/settings.json` and nothing else: the hook
-  looks at no permission mode (see "Details of the hook"). Whether Claude Code shows the prompt in the `auto` mode, with
-  `dontAsk`, under `bypassPermissions` or in a background agent has not been tested. (not tested)
+- The default mode is what lets the ask rule reach a person: whether Claude Code shows the prompt in `auto`, with `dontAsk`, under
+  `bypassPermissions` or in a background agent was not tested, which is why the hook refuses those modes. (not tested)
 - **Do not run these agents with `bypassPermissions`.** Whether PreToolUse hooks run under `bypassPermissions` was not tested, and the
   documentation does not say. (not tested)
 
@@ -174,25 +214,37 @@ input=$(cat; echo x); input=${input%x}; case "$input" in *agent_type*) printf '%
 - It works from the project root and from another directory, because the path is built from `$CLAUDE_PROJECT_DIR`. (test:
   `tests/test_restrict_writes_commandline.py::test_the_settings_line_blocks_a_forbidden_call_of_an_agent`,
   `tests/test_restrict_writes_commandline.py::test_the_settings_line_has_no_objection_to_an_allowed_call`; that Claude Code sets and
-  expands the variable is a claim of its documentation, not tested)
-- **Why `uv run --no-project python -I`.** On the development machine `uv.exe` is a real executable and runs the Python 3.12 of the
-  project, while `python` is a 3.13 next to a Windows Store stub. `-I` ignores `PYTHONPATH` and the script directory;
-  `--no-project` avoids a sync. The documentation does not recommend one of `python`, `py` and `uv run python`. (not tested)
+  expands the variable is a claim of its documentation, not tested; in these tests it is a Windows path on Windows)
+- Without the variable an agent call exits 2 (Python exits 2 for a script it cannot open) and a main-session call exits 0. (test:
+  `tests/test_restrict_writes_commandline.py::test_without_the_project_directory_variable_an_agent_call_exits_2_and_the_main_session_0`)
+- **The hook needs Git Bash (`"shell": "bash"`) and `uv` on the `PATH`.** (test:
+  `tests/test_restrict_writes_commandline.py::test_the_settings_entry_has_the_shape_the_design_needs`,
+  `tests/test_restrict_writes_commandline.py::test_a_broken_environment_blocks_only_where_the_hook_is_needed`)
+- **Why `uv run --no-project python -I`.** On the development machine `uv.exe` is a real executable and runs a Python 3.12, from the
+  project folder and from another one, while `python` is a 3.13 next to a Windows Store stub. `-I` ignores `PYTHONPATH` and the
+  script directory; `--no-project` avoids a sync. The documentation does not recommend one of `python`, `py` and `uv run python`.
+  (not tested)
 - The entry has `"onFailure": "block"` and a timeout of at most 60 seconds (the file has 30). (test:
   `tests/test_restrict_writes_commandline.py::test_the_settings_entry_has_the_shape_the_design_needs`)
-- With no `uv` on the path an agent call fails with exit 127 (which only `onFailure` turns into a block) and a main-session call still
-  exits 0. (test: `tests/test_restrict_writes_commandline.py::test_a_broken_environment_blocks_only_where_the_hook_is_needed`)
 - Cost, measured once on one machine (Windows 11, 15 runs each, medians): about 50 ms for a main-session call, 94 to 141 ms for one
   start of the script, 156 ms (parallel) to 237 ms (one after the other) for two starts. (not tested)
 
 ## When the hook breaks
 
-- **`uv` or the interpreter is missing, or the script has an error.** Calls of the two agents are blocked (`onFailure`), the main
-  session is not touched. Fix `uv`, or remove the entry: delete the `"hooks"` key of `.claude/settings.json`. The deny and ask rules
-  stay. Without the entry the agents are limited by the rules and by their frontmatter copy only (when it exists and the folder is
-  trusted). (test: `tests/test_restrict_writes_commandline.py::test_a_broken_environment_blocks_only_where_the_hook_is_needed`)
-- **The hook blocks something it should allow.** Read the reason on stderr (`restrict_writes: blocked: ...`). The table of "What
-  each agent may do" says what is allowed; change the hook and its table test together. (test:
+- **While the entry is removed or broken, the agents are not fenced for writes.** The deny and ask rules restrict only `bt approve`
+  and `bt signal check`; nothing else stops an agent from writing a file. Do not run the agents until the entry works again. (not
+  tested)
+- **`uv` or the interpreter is missing.** Calls of the two agents exit 127 and are blocked because of `onFailure`; the main session is
+  not touched. A script file that is missing exits 2, which blocks even without `onFailure`; so does an error of `uv` itself (`uv`
+  exits 2 for its own errors). Only an exit 1 or 127 needs `onFailure`. Fix `uv`, or remove the entry: delete the `"hooks"` key of
+  `.claude/settings.json`; the deny and ask rules stay. (test:
+  `tests/test_restrict_writes_commandline.py::test_a_broken_environment_blocks_only_where_the_hook_is_needed`,
+  `tests/test_restrict_writes_commandline.py::test_without_the_project_directory_variable_an_agent_call_exits_2_and_the_main_session_0`;
+  the exit code of `uv` is not tested)
+- **Git Bash itself is missing.** The entry has `"shell": "bash"`: if the shell cannot start, `onFailure` blocks the calls of the main
+  session too, and the only way out is to remove the entry. (not tested)
+- **The hook blocks something it should allow.** Read the reason on stderr (`restrict_writes: blocked: ...`). The tables of "What
+  each agent may do" say what is allowed; change the hook and its table test together. (test:
   `tests/test_restrict_writes_protocol.py::test_the_script_exits_2_with_the_reason_on_stderr_when_it_blocks`)
 - **`.claude/settings.json` is strict JSON.** A comment or a trailing comma makes Claude Code report a Settings Error for the file,
   and then the deny rules may be lost with it; open `/permissions` after every edit to see that they are listed, and run `claude
@@ -210,34 +262,58 @@ input=$(cat; echo x); input=${input%x}; case "$input" in *agent_type*) printf '%
   until the folder is trusted. The hook needs a working interpreter and, for the frontmatter copy, the workspace trust. (not tested)
 - Deny rules hold in every permission mode. Ask rules, and hooks, under `bypassPermissions`: not documented, not tested. (not tested)
 
+## Observations
+
+Seen by the maintainer on Claude Code 2.1.318, on one machine, with a logging hook and a user-level probe agent. **They were not seen
+with this script on a call of one of the two agents**; that is to be confirmed after the agent files exist (part 4b). (not tested)
+
+- A settings-level hook receives `agent_id` and `agent_type` for a subagent call, also for a background one; `agent_type` is the name
+  from the agent file. A main-session call has neither. Every call carries `permission_mode`. (not tested)
+- `"onFailure": "block"` blocked a Write when the hook exited 1; the same hook without the key only gave a warning and the write went
+  through. (not tested)
+
 ## Details of the hook
 
-These four paragraphs are separate on purpose: each states one detail that may change, with its test. (not tested)
+These paragraphs are separate on purpose: each states one detail that may change, with its test. (not tested)
 
-The tools the hook sees. The entry matches Write, Edit, MultiEdit, NotebookEdit, Bash and PowerShell. For the two agents the hook
-decides on the first three by path and on Bash by command, and refuses NotebookEdit, PowerShell and any other tool name it is given.
-Read, Glob and Grep are not matched, so the hook never sees them. (test:
+The tools the hook sees. The settings entry matches Write, Edit, MultiEdit, NotebookEdit, Bash and PowerShell: the hook sees six
+tools, and the rest of what an agent can do is limited by the `tools:` list of its file and, for the frontmatter copy, which has no
+matcher, by the hook. For the two agents the hook decides on the first three by path and on Bash by command, allows Read, Glob and
+Grep, and refuses NotebookEdit, PowerShell and every other tool name it is given. (test:
 `tests/test_restrict_writes_commandline.py::test_the_settings_entry_has_the_shape_the_design_needs`,
-`tests/test_restrict_writes.py::test_every_other_tool_is_refused`)
+`tests/test_restrict_writes.py::test_every_other_tool_is_refused`,
+`tests/test_restrict_writes.py::test_read_glob_and_grep_get_no_objection`)
 
-The permission mode. The hook reads no permission mode: the same call gets the same decision in every mode. (test:
-`tests/test_restrict_writes_protocol.py::test_the_decision_does_not_depend_on_a_permission_mode`)
+The permission mode. The signal coder's `bt signal check` is allowed only when `permission_mode` of the call is `default`; any other
+value, a missing field or a value that is not text is refused with its own reason. `bt validate` and every write ignore the mode.
+(test: `tests/test_restrict_writes.py::test_bt_validate_is_allowed_in_every_permission_mode`,
+`tests/test_restrict_writes.py::test_a_write_does_not_depend_on_the_permission_mode`,
+`tests/test_restrict_writes_protocol.py::test_a_write_and_a_validate_do_not_depend_on_the_permission_mode`,
+`tests/test_restrict_writes_protocol.py::test_a_signal_check_without_a_permission_mode_is_blocked`)
 
-The 8.3 rule. A path component with `~` followed by a digit, such as `RSIPUL~1.py`, is refused, also when the rest of the name would
-be allowed. (test: `tests/test_restrict_writes.py::test_an_8_3_short_name_is_refused`)
+The 8.3 rule. A path component below the project directory with `~` followed by a digit, such as `RSIPUL~1.py`, is refused. The
+project directory itself may have a short name (the temporary folders of CI runners do). (test:
+`tests/test_restrict_writes.py::test_an_8_3_short_name_is_refused`,
+`tests/test_restrict_writes.py::test_the_8_3_guard_looks_below_the_project_directory_only`)
 
-Stdin decoding. The script reads its input as UTF-8. No test covers that line: with it removed, every test still passes on the
-development machine, where stdin is cp1252. (not tested)
+Stdin decoding. The script reads the bytes of stdin and decodes them as UTF-8 itself; bytes that are not valid UTF-8 are refused with
+their own reason. The code page of the console is not asked. On the development machine, in the form `uv run --no-project python -I`
+with piped input, `sys.stdin.encoding` was cp1252 with `errors` set to `surrogateescape`, so the byte 0x81 did not raise: it became
+a lone surrogate. (test: `tests/test_restrict_writes_protocol.py::test_stdin_that_is_not_utf8_is_blocked_with_its_own_reason`,
+`tests/test_restrict_writes_protocol.py::test_a_raw_utf8_file_name_is_shown_escaped_from_the_bytes_not_from_a_code_page`,
+`tests/test_restrict_writes_protocol.py::test_content_with_the_bytes_c3_81_is_accepted`; the cp1252 reading is an observation, not
+tested)
 
 ## Known gaps
 
-- The deny and ask rules are text rules. A spelling that is not in the table above is not denied. (test:
-  `tests/test_agent_deny_rules.py::test_the_known_gaps_are_not_matched`)
+- A spelling that the rules do not match is not denied. The table above gives examples; `GAPS` in
+  `tests/test_agent_deny_rules.py` is the list. (test: `tests/test_agent_deny_rules.py::test_the_known_gaps_are_not_matched`)
 - The hook is a fence: a person who can write to `.claude/` can remove it, and an agent that gets a tool the hook does not know
   would be refused only by this hook. Whether `Bash` in an agent's `tools` also grants PowerShell, and whether MCP tools are
   inherited, is not documented. (not tested)
 - The settings entry decides by `agent_type`. If Claude Code sends another value for an agent than its file name, the settings entry
   gives no decision for it and only the frontmatter copy, in a trusted folder, holds. (not tested)
+- The permission mode is the mode of the session; the hook does not know whether a prompt will reach a person. (not tested)
 - The static check is a tripwire, not a sandbox, and `bt signal check` runs unapproved code (known gaps of
   [ADR 0018](adr/0018-coded-signals-and-approval-gate.md)). (not tested)
 
