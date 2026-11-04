@@ -1,6 +1,6 @@
 # Agents and their guardrails
 
-Two Claude Code subagents will turn an idea into a strategy spec and into a signal function: the `strategy-architect` and the
+Two Claude Code subagents turn an idea into a strategy spec and into a signal function: the `strategy-architect` and the
 `signal-coder` (F-17, F-18). The engine, the data layer and the metrics stay deterministic code that no agent writes
 ([ADR 0002](adr/0002-deterministic-core-llm-never-writes-engine.md)), and a coded signal runs only after a person approved its
 idea and its code ([coded-signals.md](coded-signals.md), [ADR 0018](adr/0018-coded-signals-and-approval-gate.md)). This document
@@ -14,8 +14,8 @@ itself, it says so.
 
 ## Status
 
-What exists: from Phase 10 part 4a the deny and ask rules, the hook `restrict_writes.py` with its entry in `.claude/settings.json`,
-and the git-ignored folder `strategies/drafts/`; from part 4b so far the two agent files `.claude/agents/strategy-architect.md` and
+Phase 10 is complete (parts 4a and 4b). What exists: from part 4a the deny and ask rules, the hook `restrict_writes.py` with its
+entry in `.claude/settings.json`, and the git-ignored folder `strategies/drafts/`; from part 4b the two agent files `.claude/agents/strategy-architect.md` and
 `.claude/agents/signal-coder.md`, the three example specs in `strategies/examples/`, the fake agents (`tests/fake_agents.py`) and the
 end-to-end test (`tests/test_agents_end_to_end.py`). The tests of this repository run the hook on calls that they write; the hook
 was seen on calls of real agents once (see "Observations").
@@ -398,6 +398,12 @@ observed once, Claude Code 2.1.318, one machine, not a test.** (not tested)
   Whether it honours `shell` there is not separately established. (not tested)
 - In all runs the only internal tool name seen on agent calls was `SubagentHandback`; `Agent`, `ToolSearch` and `SendMessage`
   appeared only with `agent_type` null (the main session). (not tested)
+
+- In the main session, the ask rule `Bash(* bt signal check *)` raised a prompt even in `auto` mode: "Ask rule ... overrides auto mode
+  for this command" (the words as the maintainer reported them; the full prompt was not captured). The same rule matched a heredoc
+  that only contained those words. The rules match the text of a command, so a command that merely mentions `bt signal check` (a
+  heredoc, a commit message, documentation or test text) is a false positive. Observed once, Claude Code 2.1.318, one machine, not
+  a test. (not tested)
 
 **Not observed:** the default mode, the ask prompt (and so whether a prompt reaches a person for a background agent), a foreground
 agent, the `acceptEdits` and `plan` modes, the payload that the architect's frontmatter copy receives, and a Glob call of the

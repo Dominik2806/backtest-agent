@@ -284,11 +284,11 @@ def test_the_changelog_and_the_readme_name_the_command_and_the_changed_hint() ->
 
 
 def test_the_new_files_of_part_3b_are_in_the_entry_of_part_3b_and_not_in_the_entry_of_part_3() -> None:
-    """Each entry has its own ``New files:`` sentence; the entries under ``### Added`` run 4a, 3b, 3, 2b."""
+    """Each entry has its own ``New files:`` sentence; the entries under ``### Added`` run 4b, 4a, 3b, 3, 2b."""
     added = CHANGELOG[CHANGELOG.index("### Added") : CHANGELOG.index("### Changed")]
     entries = re.split(r"(?m)^(?=- Phase 10 part )", added)[1:]
     by_part = {entry.split(" (F-18)")[0].removeprefix("- Phase 10 part "): entry for entry in entries}
-    assert list(by_part)[:4] == ["4a", "3b", "3", "2b"]  # 4a is the first entry, 3b the second
+    assert list(by_part)[:5] == ["4b", "4a", "3b", "3", "2b"]  # 4b is the first entry, 4a the second
     part_3b, part_3 = by_part["3b"], by_part["3"]
     sentence = [line for line in part_3b.splitlines() if line.startswith("  New files:")]
     assert len(sentence) == 1 and "`src/backtest_agent/cli/signal_check.py`" in sentence[0]
@@ -304,7 +304,9 @@ def test_the_adr_addendum_says_what_it_changed_above_and_the_readme_lists_the_co
     )
     assert "nothing above changes" not in FLAT["adr"]
     assert (
-        "`bt approve` and `bt signal check` with the approval gate for coded signals (Phase 10, in progress) exist"
-        in FLAT["readme"]
-    )
+        "`bt approve` and `bt signal check` with the approval gate for coded signals (Phase 10) exist, and so do "
+        "the two agent files of Phase 10 (`strategy-architect` and `signal-coder`) with their guardrails; "
+        "the agents were run for real only in a few probes on one machine"
+    ) in FLAT["readme"]
+    assert "(Phase 10, in progress)" not in FLAT["readme"]
     assert "`rebuild` (Phase 9), `approve` and `signal check` (Phase 10)" in FLAT["readme"]

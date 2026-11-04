@@ -185,7 +185,8 @@ def test_the_agent_files_exist_and_the_document_says_so() -> None:
     ]
     status = flat(AGENTS[AGENTS.index("## Status") : AGENTS.index("## The two agents")])
     assert "the two agent files `.claude/agents/strategy-architect.md` and `.claude/agents/signal-coder.md`" in status
-    assert "from part 4b so far the two agent files" in status and "no agent file" not in status
+    assert "from part 4b the two agent files" in status and "no agent file" not in status
+    assert "so far" not in status and "Phase 10 is complete (parts 4a and 4b)" in status
     assert "(planned, files not built yet)" not in AGENTS and "\n## The two agents\n" in AGENTS
 
 
@@ -409,9 +410,23 @@ def test_the_fake_agents_section_names_existing_tests_and_says_what_is_not_model
     assert (ROOT / "tests" / "fake_agents.py").is_file() and (ROOT / "tests" / "test_agents_end_to_end.py").is_file()
 
 
-def test_the_status_says_which_part_and_not_this_pull_request() -> None:
+def test_the_status_says_that_phase_10_is_complete_and_not_this_pull_request() -> None:
     status = AGENTS[AGENTS.index("## Status") : AGENTS.index("## The two agents")]
-    assert "Phase 10 part 4a" in status and "this pull request" not in status
+    assert "Phase 10 is complete (parts 4a and 4b)" in flat(status)
+    assert "from part 4a the deny and ask rules" in flat(status) and "this pull request" not in status
+    assert "so far" not in status and "does not exist yet" not in status and "come in" not in status
+    assert "Two Claude Code subagents turn an idea" in flat(AGENTS) and "subagents will turn" not in flat(AGENTS)
+
+
+def test_the_ask_rule_observation_is_stated_as_seen_once_and_as_a_false_positive_on_text() -> None:
+    section = flat(AGENTS[AGENTS.index("## Observations") : AGENTS.index("## Details of the hook")])
+    assert "the ask rule `Bash(* bt signal check *)` raised a prompt even in `auto` mode" in section
+    assert (
+        '"Ask rule ... overrides auto mode for this command"' in section
+        and "The same rule matched a heredoc that only contained those words" in section
+    )
+    assert "a command that merely mentions `bt signal check`" in section and "is a false positive" in section
+    assert "Observed once, Claude Code 2.1.318, one machine, not a test. (not tested)" in section
 
 
 def test_the_hook_source_does_not_look_at_background_or_sandbox_flags() -> None:

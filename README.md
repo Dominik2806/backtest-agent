@@ -26,8 +26,10 @@ The project is built in phases, see the [roadmap status](#roadmap-status). Today
 layer, the strategy spec, the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage), the
 performance metrics of a run next to its buy-and-hold benchmark (Phase 6), the Markdown and HTML reports with charts
 and caveats (Phase 7), the run journal with its trial counter (Phase 8), the `bt` command line (Phase 9), and `bt approve` and
-`bt signal check` with the approval gate for coded signals (Phase 10, in progress) exist; the other features described above arrive in the
-phases named in the [roadmap](docs/ROADMAP.md).
+`bt signal check` with the approval gate for coded signals (Phase 10) exist, and so do the two agent files of Phase 10
+(`strategy-architect` and `signal-coder`) with their guardrails; the agents were run for real only in a few probes on one machine
+(see [docs/agents.md](docs/agents.md), "Observations"). The other features described above arrive in the phases named in the
+[roadmap](docs/ROADMAP.md).
 
 ## Requirements
 
@@ -241,7 +243,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 7 | Markdown and HTML report with charts and caveats | Done |
 | 8 | Run log with trial counter | Done |
 | 9 | `bt` command; release `v0.1.0` | Done |
-| 10 | Strategy architect and signal coder subagents | In progress |
+| 10 | Strategy architect and signal coder subagents | Done |
 | 11 | Bias auditor and report interpreter subagents | Planned |
 | 12 | `/backtest` command with approval gate; release `v0.2.0` | Planned |
 | 13 | Out-of-sample split and walk-forward analysis | Planned |

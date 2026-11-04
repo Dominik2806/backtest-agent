@@ -13,7 +13,8 @@ and nothing is imported before it was approved. The project is educational and n
 This document describes what exists after Phase 10 part 3b: the `coded` block of the spec, the hashes, the approval
 records, the static check, the gate that loads approved code, the check before a run, the `cases.yaml` format, the commands
 `bt approve` and `bt signal check` and the handling of a coded spec in `bt run`, `bt validate`, `bt data fetch` and `bt report`.
-The agent files come with part 4b of the phase ([agents.md](agents.md)); where this document mentions them it says so.
+The agent files, the example specs and the fake agents came with part 4b of the phase ([agents.md](agents.md)); where this
+document mentions them it says so.
 
 ## What is approved
 
