@@ -196,7 +196,7 @@ HANDBACK = {"message": "I wrote strategies/drafts/x.yaml and bt validate accepts
 
 def handback_payload(name: str) -> dict:
     found = payload("SubagentHandback", name, mode="auto", **HANDBACK)
-    found["agent_id"] = "aea1dfb11c2220754"
+    found["agent_id"] = "a0000000000000000"
     return found
 
 

@@ -322,31 +322,54 @@ input=$(cat; echo x); input=${input%x}; case "$input" in *agent_type*) printf '%
 ## Observations
 
 Seen by the maintainer on Claude Code 2.1.318, on one machine. The first two were seen with a logging hook and a user-level probe
-agent; the rest in one probe of the two real agents with this script (a project outside the repository, auto mode). **Each is observed
-once, Claude Code 2.1.318, one machine, not a test.** (not tested)
+agent; the rest in probes of the two real agents with this script, in a clone outside the repository, in `auto` mode. In the probe
+clone a second, logging handler was added beside the signal coder's frontmatter copy; the architect's copy had none. **Each is
+observed once, Claude Code 2.1.318, one machine, not a test.** (not tested)
 
 - A settings-level hook receives `agent_id` and `agent_type` for a subagent call, also for a background one; `agent_type` is the name
   from the agent file. A main-session call has neither. Every call carries `permission_mode`. (not tested)
 - `"onFailure": "block"` blocked a Write when the hook exited 1; the same hook without the key only gave a warning and the write went
   through. (not tested)
-- In the real run the settings entry and the frontmatter copy received `agent_type`, `agent_id` and `permission_mode` on calls of the
-  two agents; the run was in `auto` mode, so every `permission_mode` seen was `auto`. (not tested)
+- On calls of the two real agents the settings entry received `agent_type`, `agent_id` and `permission_mode`; so did the logging
+  handler beside the signal coder's frontmatter copy. This was not observed for the architect's frontmatter copy. Every
+  `permission_mode` seen was `auto`. (not tested)
 - The settings entry refused the signal coder's Write to `src/`, the architect's `bt signal check` and, in `auto` mode, the coder's
   `bt signal check`, and it allowed the Write to `strategies/signals/` and to `strategies/drafts/`. (not tested)
-- The frontmatter copy fired on every tool call of its agent, Read and Glob included. (not tested)
+- The logger beside the signal coder's frontmatter copy saw Read, Write, Bash and `SubagentHandback` calls of the coder. For the
+  architect we know only that its copy fired and refused the handback. A Glob call of the coder was not observed. (not tested)
 - **`SubagentHandback`.** Claude Code gives every subagent an internal tool of this name, with a `message` field, by which the
   agent returns its final message. It is not in the `tools` list of the files and not in the documentation we read. The frontmatter
   copy saw it (the settings entry did not, because of its matcher). Before the fix the hook refused it ("may not use
   SubagentHandback: the hook does not know it"), and every background agent ended without returning a result: the architect after 4
-  attempts, the coder after 5 to 9. The hook now allows it for the two agents. (not tested; the allowance is tested with a payload
-  of the observed shape)
-- Every subagent started from the main session ran in the background. (not tested)
+  attempts, the coder after 5 to 9: the agents retried the refused handback 4 to 9 times each. The hook now allows it for the two
+  agents. (not tested; the allowance is tested with a payload of the observed shape)
+- After the fix (clone at commit `5c0d8b2`, `uv` on the PATH, session in `auto` mode): the architect's draft came back with its
+  assumptions and open questions, and its validate was `uv run bt validate`; the coder's `uv run bt signal check` was refused with
+  "permission_mode is 'auto': the signal coder may run bt signal check only in the default permission mode" (no advice to switch);
+  the coder reported that it did not retry or work around the refusal and named the check as a step for the person; and the
+  coder's read of `README.md` came back. So the handback allowance works. (not tested)
+- Every subagent started from the main session ran in the background, in every probe; the main session said (its own statement)
+  that it had no way to ask for a foreground run. (not tested)
 - `bt` alone was not on the PATH of the agent (exit code 127); the agent then ran `uv run bt validate ...`, which the hook allowed.
   The prompts now name the `uv run bt ...` spelling. (not tested)
-- No agent retried a refused call. (not tested)
+- None of the agents retried the refused Write or the refused Bash test call; they did retry the refused handback. (not tested)
+- The default mode was not reached: every session of the maintainer showed `permission_mode` `auto` (in the logs and as "Allowed by
+  auto mode"), no setting for it was found in the user `settings.json`, in a managed settings file (none exists) or in the project
+  settings, and whether the mode can be switched on this machine was not established. (not tested)
+- With `uv` on the PATH, each of the three agents called `SubagentHandback` once and the result came back (the architect: Read,
+  Glob, Read, Write, Bash, handback; the coder's check: Bash, handback; the `README.md` reader: Read, handback). With `uv` removed
+  from the PATH of the window, the signal coder asked to read `README.md` called `SubagentHandback` 4 times, was resumed by the main
+  session (SendMessage), read `README.md` again and called it 4 more times: the retry pattern of the refused handback before the
+  fix. The main session read the file itself. The settings entry does not match Read or `SubagentHandback`, so only the frontmatter
+  copy can have blocked those calls. That is strong evidence, not proof (the text of the blocked result was not captured, and the
+  agent's transcript was empty), that Claude Code honours `"onFailure": "block"` in a frontmatter hook when `uv` fails (exit 127).
+  Whether it honours `shell` there is not separately established. (not tested)
+- In all runs the only internal tool name seen on agent calls was `SubagentHandback`; `Agent`, `ToolSearch` and `SendMessage`
+  appeared only with `agent_type` null (the main session). (not tested)
 
-**Not observed:** the default mode and the ask prompt (so whether a prompt reaches a person for a background agent), a foreground
-agent, `onFailure` in the frontmatter copy, and the `acceptEdits` and `plan` modes. (not tested)
+**Not observed:** the default mode, the ask prompt (and so whether a prompt reaches a person for a background agent), a foreground
+agent, the `acceptEdits` and `plan` modes, the payload that the architect's frontmatter copy receives, and a Glob call of the
+coder. (not tested)
 
 ## Details of the hook
 
@@ -384,8 +407,9 @@ tested)
 ## Known gaps
 
 - Internal tool names are observed, not documented. `SubagentHandback` was seen once and is allowed by name. A Claude Code update
-  that adds another internal tool makes the agents stall visibly, with the hook's message that names the tool: the hook fails
-  closed by design, and the fix is a decision of the maintainer, a new named constant and a test. (not tested)
+  that adds another internal tool makes the hook refuse it (fail closed by design). The hook's message, which names the tool, goes
+  to the agent: the person sees an agent that ends without a result, and finds the message in the agent's transcript. The fix is a
+  decision of the maintainer, a new named constant and a test. (not tested)
 - A spelling that the rules do not match is not denied. The table above gives examples; `GAPS` in
   `tests/test_agent_deny_rules.py` is the list. (test: `tests/test_agent_deny_rules.py::test_the_known_gaps_are_not_matched`)
 - Read, Glob and Grep are not restricted to paths: an agent can read `.env`, `approvals/` and any other file that Claude Code may

@@ -351,7 +351,8 @@ def test_one_layer_count_everywhere() -> None:
 def test_the_observations_are_stated_as_seen_once_and_not_with_this_script() -> None:
     section = flat(AGENTS[AGENTS.index("## Observations") : AGENTS.index("## Details of the hook")])
     assert "Claude Code 2.1.318, on one machine" in section and "a logging hook and a user-level probe agent" in section
-    assert "the rest in one probe of the two real agents with this script" in section
+    assert "the rest in probes of the two real agents with this script" in section
+    assert "a second, logging handler was added beside the signal coder's frontmatter copy" in section
     assert "Each is observed once, Claude Code 2.1.318, one machine, not a test" in section
     for fact in (
         "`SubagentHandback`.** Claude Code gives every subagent an internal tool of this name",
@@ -359,14 +360,36 @@ def test_the_observations_are_stated_as_seen_once_and_not_with_this_script() -> 
         "the settings entry did not, because of its matcher",
         "Every subagent started from the main session ran in the background",
         "`bt` alone was not on the PATH of the agent (exit code 127)",
-        "No agent retried a refused call",
-        "The frontmatter copy fired on every tool call of its agent",
-        "**Not observed:** the default mode and the ask prompt",
-        "a foreground agent, `onFailure` in the frontmatter copy, and the `acceptEdits` and `plan` modes",
+        "None of the agents retried the refused Write or the refused Bash test call;"
+        " they did retry the refused handback",
+        "the agents retried the refused handback 4 to 9 times each",
+        "The logger beside the signal coder's frontmatter copy saw Read, Write, Bash and `SubagentHandback` calls",
+        "For the architect we know only that its copy fired and refused the handback",
+        "This was not observed for the architect's frontmatter copy",
+        "So the handback allowance works",
+        "The default mode was not reached",
+        "the retry pattern of the refused handback before the fix",
+        "only the frontmatter copy can have blocked those calls",
+        "strong evidence, not proof",
+        'honours `"onFailure": "block"` in a frontmatter hook',
+        "the only internal tool name seen on agent calls was `SubagentHandback`",
+        "appeared only with `agent_type` null",
+        "**Not observed:** the default mode, the ask prompt",
+        "the payload that the architect's frontmatter copy receives, and a Glob call of the coder",
     ):
         assert fact in section, fact
+    for old in (
+        "No agent retried a refused call",
+        "The frontmatter copy fired on every tool call of its agent, Read and Glob included",
+    ):
+        assert old not in section, old
+    assert "`onFailure` in the frontmatter copy" not in section[section.index("**Not observed:**") :]
+    assert "On calls of the two real agents the settings entry received `agent_type`" in section
     gaps = flat(AGENTS[AGENTS.index("## Known gaps") :])
-    assert "Internal tool names are observed, not documented" in gaps and "stall visibly" in gaps
+    assert "Internal tool names are observed, not documented" in gaps and "stall visibly" not in gaps
+    assert "the person sees an agent that ends without a result" in gaps and "agent's transcript" in gaps
+    assert "stall visibly" not in flat(ADR19)
+    assert "the person sees an agent that ends without a result" in flat(ADR19)
     assert "the hook has been observed on calls of real agents" in flat(ADR19).lower()
     assert "has not yet been observed" not in flat(ADR19) and "was not seen" not in section
     assert "`agent_id` and `agent_type`" in section and "A main-session call has neither" in section

@@ -89,6 +89,9 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
    whole `settings.json`, deny rules included, might be skipped.
 5. `agent_type` is the only key of the settings entry. The frontmatter copy needs the workspace trust.
 6. Whether the `Bash` entry of a `tools` list also grants PowerShell, and whether MCP tools are inherited, is not documented.
+7. Internal tool names are observed, not documented (`SubagentHandback`, seen once). A Claude Code update that adds another
+   internal tool makes the hook refuse it (fail closed by design). The hook's message goes to the agent: the person sees an agent
+   that ends without a result, and finds the message in the agent's transcript.
 
 ## Consequences
 
@@ -98,5 +101,6 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
 - A new spelling or a new allowed command needs a row in a table test and a mutation table; `tests/test_agents_docs.py` fails when
   `docs/agents.md` names a test that does not exist or makes a claim with neither a test nor `(not tested)`.
 - The two agent files exist and are tied to the hook by tests (`tests/test_agent_files.py`); the example specs, the fake agents
-  and an end-to-end test without a real model follow. The hook has been observed on calls of real agents (see "Observations" in `docs/agents.md`; once, one machine, not a test).
+  and an end-to-end test without a real model follow. The hook has been observed on calls of real agents (see "Observations"
+  in `docs/agents.md`; once, one machine, not a test).
   A matcherless frontmatter entry starts the hook on every tool call of its agent; the measured cost is in `docs/agents.md`.
