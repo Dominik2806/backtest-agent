@@ -16,9 +16,9 @@ itself, it says so.
 
 What exists: from Phase 10 part 4a the deny and ask rules, the hook `restrict_writes.py` with its entry in `.claude/settings.json`,
 and the git-ignored folder `strategies/drafts/`; from part 4b so far the two agent files `.claude/agents/strategy-architect.md` and
-`.claude/agents/signal-coder.md`. What does not exist yet: the three example specs, the fake agents and the end-to-end test; they
-come in the next commits of part 4b. The tests of this repository run the hook on calls that they write; the hook was seen on calls
-of real agents once (see "Observations").
+`.claude/agents/signal-coder.md`, the three example specs in `strategies/examples/`, the fake agents (`tests/fake_agents.py`) and the
+end-to-end test (`tests/test_agents_end_to_end.py`). The tests of this repository run the hook on calls that they write; the hook
+was seen on calls of real agents once (see "Observations").
 
 ## The two agents
 
@@ -37,6 +37,38 @@ of real agents once (see "Observations").
   run `bt` alone was not on the PATH of the agent, see "Observations"). The hook allows both spellings. (test:
   `tests/test_agent_files.py::test_prompts_name_only_commands_the_hook_allows`)
 - What a real run of either agent does is not tested: it was observed once (see "Observations"). (not tested)
+
+## The examples and the fake agents
+
+- `strategies/examples/` holds three example specs: `trend_filter_etfs` (the built-in `sma_crossover`, fast 1 and slow 100, on SPY,
+  EFA, TLT and GLD) and the two coded ideas `rsi_pullback` and `vol_filtered_trend`. Their headers say "example, not a
+  recommendation, not investment advice". The coded ones carry an id and a brief and **no code**: nothing unapproved is committed.
+  (test: `tests/test_agent_examples.py::test_the_header_says_example_not_a_recommendation_not_investment_advice`,
+  `tests/test_agent_examples.py::test_a_coded_example_has_an_id_a_valid_brief_and_no_code`,
+  `tests/test_agent_examples.py::test_bt_validate_exits_0_and_prints_all_four_tickers`)
+- The fake agents (`tests/fake_agents.py`) are scripts with no decisions. Every tool call goes through the real hook, through both
+  lines (the command of the copy of the agent file and the command of the copy of `settings.json` in a temp project), started with
+  `bash -c`, with a payload shaped like the observed ones and a synthetic `agent_id`. A call is performed only when both lines exit
+  0. A Bash command `uv run bt ...`, a bare `bt ...` and `python -m backtest_agent ...` are performed by the `bt` entry point in
+  process. Every script ends with a `SubagentHandback` call, also after a refusal, and both lines allow it. The fake agents do not
+  model the ask rule, the deny rules, the `tools` list or the settings matcher (the settings line is run for every call). (test:
+  `tests/test_agents_end_to_end.py::test_every_call_goes_through_both_lines_and_a_refused_call_is_refused_by_each`,
+  `tests/test_agents_end_to_end.py::test_a_handback_is_allowed_by_both_lines_for_each_agent`)
+- The end-to-end test runs the flow of `docs/cli.md`: the architect writes and validates a draft, the coder writes the signal and its
+  examples, validates and checks them, and the test plays the person (idea, review with exit 8, code with the sha, run). The numbers
+  are the literals of `docs/cli.md`. (test:
+  `tests/test_agents_end_to_end.py::test_from_idea_to_run_with_the_real_hook_and_the_real_bt`)
+- The refusals leave nothing behind: the architect's writes outside its drafts and its commands other than `bt validate`, the coder's
+  `bt approve` in three spellings and its writes outside its two files, `bt signal check` in every mode but the default, and tools the
+  hook does not know. After the refused check the coder finishes with one validate, one check and no other spelling. (test:
+  `tests/test_agents_end_to_end.py::test_the_architect_writes_only_a_draft`,
+  `tests/test_agents_end_to_end.py::test_the_architect_runs_only_validate`,
+  `tests/test_agents_end_to_end.py::test_the_coder_cannot_approve_anything`,
+  `tests/test_agents_end_to_end.py::test_the_coder_writes_only_its_signal_and_its_examples`,
+  `tests/test_agents_end_to_end.py::test_the_coders_signal_check_is_refused_outside_the_default_mode`,
+  `tests/test_agents_end_to_end.py::test_the_same_check_is_allowed_in_the_default_mode`,
+  `tests/test_agents_end_to_end.py::test_after_the_refusal_the_coder_finishes_without_a_second_attempt`,
+  `tests/test_agents_end_to_end.py::test_an_unknown_tool_is_refused_and_the_agent_still_hands_back`)
 
 ## The fences
 

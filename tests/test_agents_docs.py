@@ -238,7 +238,8 @@ def test_adr_0019_is_in_the_index_and_has_its_sections() -> None:
     assert headings == ["Context", "Decision", "Known gaps", "Consequences"]
     assert "- **Status:** Accepted." in ADR19
     adr = flat(ADR19)
-    assert "the two agent files, and then the example specs" in adr
+    assert "the two agent files, the example specs, the fake agents and the end-to-end test" in adr
+    assert "`tests/test_agents_end_to_end.py`) exist too" in adr
     assert "The two agent files exist and are tied to the hook by tests (`tests/test_agent_files.py`)" in adr
     assert "Part 4b adds the agent files" not in adr and "do not exist before" not in adr
 
@@ -396,6 +397,16 @@ def test_the_observations_are_stated_as_seen_once_and_not_with_this_script() -> 
     assert "Every call carries `permission_mode`" in section
     assert '`"onFailure": "block"` blocked a Write when the hook exited 1' in section
     assert "without the key only gave a warning and the write went through" in section
+
+
+def test_the_fake_agents_section_names_existing_tests_and_says_what_is_not_modelled() -> None:
+    section = AGENTS[AGENTS.index("## The examples and the fake agents") : AGENTS.index("## The fences")]
+    assert missing_tests(section, ROOT) == [] and len(NAMED_TEST.findall(section)) >= 12
+    text = flat(section)
+    assert "Every script ends with a `SubagentHandback` call, also after a refusal, and both lines allow it" in text
+    assert "do not model the ask rule, the deny rules, the `tools` list or the settings matcher" in text
+    assert "synthetic `agent_id`" in text and "**no code**" in text
+    assert (ROOT / "tests" / "fake_agents.py").is_file() and (ROOT / "tests" / "test_agents_end_to_end.py").is_file()
 
 
 def test_the_status_says_which_part_and_not_this_pull_request() -> None:

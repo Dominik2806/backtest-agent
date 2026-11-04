@@ -391,8 +391,6 @@ An unresolved spec used outside the gate, from Python, still raises `UnknownSign
 
 ## Not built yet
 
-- The example specs, the fake agents and the end-to-end test of the agents (later commits of part 4b). The agent files
-  (`strategy-architect` and `signal-coder`) and the fences for them (the deny and ask rules, the hook, `docs/agents.md`) exist.
 - Running a candidate of `bt signal check` in a subprocess with a wall-clock limit and a memory limit.
 
 Everything else in this document exists and is tested. A coded signal is checked with `bt signal check`, approved with

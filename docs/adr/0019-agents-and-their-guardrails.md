@@ -1,7 +1,7 @@
 # 0019: The agents and what keeps them inside the gate
 
 - **Status:** Accepted. Built in Phase 10 part 4a: the deny and ask rules, the hook and the git-ignored drafts folder; in part 4b
-  the two agent files, and then the example specs, the fake agents and the end-to-end test. Details, spellings and the tests that
+  the two agent files, the example specs, the fake agents and the end-to-end test. Details, spellings and the tests that
   check each claim: [agents.md](../agents.md).
 
 ## Context
@@ -100,7 +100,9 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
 - The main session also cannot run `bt approve`, and it is asked before every `bt signal check`.
 - A new spelling or a new allowed command needs a row in a table test and a mutation table; `tests/test_agents_docs.py` fails when
   `docs/agents.md` names a test that does not exist or makes a claim with neither a test nor `(not tested)`.
-- The two agent files exist and are tied to the hook by tests (`tests/test_agent_files.py`); the example specs, the fake agents
-  and an end-to-end test without a real model follow. The hook has been observed on calls of real agents (see "Observations"
+- The two agent files exist and are tied to the hook by tests (`tests/test_agent_files.py`); the three example specs
+  (`strategies/examples/`), the fake agents (`tests/fake_agents.py`) and an end-to-end test without a real model
+  (`tests/test_agents_end_to_end.py`) exist too. The fake agents call the hook through both of its lines and end every script
+  with `SubagentHandback`. The hook has been observed on calls of real agents (see "Observations"
   in `docs/agents.md`; once, one machine, not a test).
   A matcherless frontmatter entry starts the hook on every tool call of its agent; the measured cost is in `docs/agents.md`.

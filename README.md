@@ -180,7 +180,9 @@ the archived code of the run, and `bt validate` only reports what the approval r
 candidate before it is approved and **executes the file, which nobody approved yet**, in the process of the command, with your
 permissions and no time or memory limit (the static check is a tripwire, not a sandbox; read [docs/cli.md](docs/cli.md) first).
 The agent files exist (Phase 10 part 4b, `.claude/agents/`) together with their fences (deny and ask rules, a write-restriction
-hook), see [docs/agents.md](docs/agents.md); the example specs, the fake agents and an end-to-end test follow.
+hook), see [docs/agents.md](docs/agents.md). Three example specs are in [`strategies/examples/`](strategies/examples), and
+scripted fake agents drive the real hook and the real `bt` in an end-to-end test without a real model
+(`tests/test_agents_end_to_end.py`).
 
 ## What is inside
 

@@ -1,0 +1,43 @@
+# RSI pullback on one ETF, with a coded signal. An example, not a recommendation, not investment advice.
+# The spec carries only the idea (id and brief). No code is committed for it: the signal coder writes
+# strategies/signals/rsi_pullback.py, and a person reads it and approves it with bt approve.
+schema_version: 1
+name: RSI pullback on SPY
+description: >
+  Hold SPY while its 14-row RSI is below the entry level, and not otherwise. Orders are filled at the open of the bar
+  after the signal.
+
+universe: [SPY]
+period:
+  start: 2012-01-01
+  end: 2023-12-31
+data:
+  provider: yfinance
+
+signal:
+  id: rsi_pullback
+  params:
+    window: 14
+    entry_below: 30
+  coded:
+    brief: >
+      Hold a symbol while its RSI over window trading rows of that symbol is below entry_below, and hold nothing
+      otherwise. window is the RSI length in rows; entry_below is the RSI level. Exposure is 1.0 or 0.0. Needs
+      window rows of history.
+
+execution:
+  delay_bars: 1
+  price: open
+  allow_same_bar_execution: false
+
+sizing:
+  method: equal_weight
+rebalance: on_signal
+
+costs:
+  commission_bps: 1.0
+  spread_bps: 2.0
+  slippage_bps: 2.0
+
+benchmark: SPY
+initial_capital: 100000

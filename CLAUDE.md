@@ -146,7 +146,10 @@ deny test is our reading of the documented semantics, not Claude Code's. `strate
 `signal-coder.md` list exactly `Read, Glob, Grep, Write, Edit, Bash` and carry a matcherless copy of the hook entry with the agent name
 as argument (`tests/test_agent_files.py`); their prompts name only commands that the hook allows that agent, say that they are
 instructions and not enforcement, and give the person the `bt approve` steps. Documents tie each claim to a
-test or say `(not tested)` (`tests/test_agents_docs.py`).
+test or say `(not tested)` (`tests/test_agents_docs.py`). Examples and fake agents: `strategies/examples/` holds three example specs
+(the two coded ones have no code), `tests/fake_agents.py` runs scripted calls through both lines of the real hook in a temp project
+(copies of `.claude/`) and every script ends with a `SubagentHandback` call; `tests/test_agents_end_to_end.py` plays the person.
+Agent prompts name the `uv run bt ...` spelling.
 
 ## Workflow
 

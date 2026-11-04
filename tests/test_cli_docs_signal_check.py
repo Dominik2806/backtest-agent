@@ -216,12 +216,13 @@ def test_the_agent_files_exist_and_the_documents_say_what_is_still_not_built() -
     assert "The agent files exist" in FLAT["readme"] and "The agents are not built yet" not in FLAT["readme"]
     assert (
         "[docs/agents.md](docs/agents.md)" in README
-        and "the example specs, the fake agents and an end-to-end test follow" in FLAT["readme"]
+        and "Three example specs are in" in FLAT["readme"]
+        and "scripted fake agents drive the real hook and the real `bt` in an end-to-end test" in FLAT["readme"]
     )
     assert "**The agent files exist**" in FLAT["cli"] and "The agents are not built yet" not in FLAT["cli"]
     not_built = CODED[CODED.index("## Not built yet") :]
-    assert not_built.count("\n- ") == 2
-    assert "The example specs, the fake agents and the end-to-end test of the agents" in not_built
+    assert not_built.count("\n- ") == 1
+    assert "The example specs, the fake agents and the end-to-end test of the agents" not in not_built
     assert "The agent files that write the spec and the code" not in not_built
     assert (
         "The rule that denies `bt approve` to the agents" not in not_built
