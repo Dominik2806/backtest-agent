@@ -1,0 +1,56 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(bt approve *)",
+      "Bash(* bt approve *)",
+      "Bash(*/bt approve *)",
+      "Bash(bt.exe approve *)",
+      "Bash(*/bt.exe approve *)",
+      "Bash(* backtest_agent approve *)",
+      "Bash(uv run bt approve *)",
+      "Bash(python -m backtest_agent approve *)",
+      "Bash(py -m backtest_agent approve *)",
+      "Bash(python3 -m backtest_agent approve *)",
+      "PowerShell(bt approve *)",
+      "PowerShell(* bt approve *)",
+      "PowerShell(*/bt approve *)",
+      "PowerShell(bt.exe approve *)",
+      "PowerShell(*/bt.exe approve *)",
+      "PowerShell(* backtest_agent approve *)",
+      "PowerShell(uv run bt approve *)",
+      "PowerShell(python -m backtest_agent approve *)",
+      "PowerShell(py -m backtest_agent approve *)",
+      "PowerShell(python3 -m backtest_agent approve *)"
+    ],
+    "ask": [
+      "Bash(bt signal check *)",
+      "Bash(* bt signal check *)",
+      "Bash(*/bt signal check *)",
+      "Bash(bt.exe signal check *)",
+      "Bash(*/bt.exe signal check *)",
+      "Bash(* backtest_agent signal check *)",
+      "PowerShell(bt signal check *)",
+      "PowerShell(* bt signal check *)",
+      "PowerShell(*/bt signal check *)",
+      "PowerShell(bt.exe signal check *)",
+      "PowerShell(*/bt.exe signal check *)",
+      "PowerShell(* backtest_agent signal check *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "onFailure": "block",
+            "timeout": 30,
+            "command": "input=$(cat; echo x); input=${input%x}; case \"$input\" in *agent_type*) printf '%s' \"$input\" | uv run --no-project python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/restrict_writes.py\" ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}

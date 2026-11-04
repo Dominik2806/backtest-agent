@@ -50,3 +50,7 @@ Thumbs.db
 
 # The lock of a running "bt approve"; a stale one is deleted by hand (docs/coded-signals.md).
 approvals/.lock
+
+# Drafts of the strategy-architect agent stay private until a person moves a spec on (docs/agents.md).
+/strategies/drafts/*
+!/strategies/drafts/.gitkeep

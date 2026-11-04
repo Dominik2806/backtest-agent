@@ -473,8 +473,10 @@ def test_a_path_with_a_dollar_sign_is_put_in_double_quotes_which_powershell_expa
     assert "PowerShell expands `$` and the backtick inside double quotes" in TEXT
 
 
-def test_the_document_says_that_no_rule_denies_the_command_to_an_agent_yet() -> None:
-    assert "that rule does not exist yet" in TEXT
+def test_the_document_points_to_the_fences_instead_of_saying_that_no_rule_exists() -> None:
+    assert "that rule does not exist yet" not in TEXT
+    assert "a later pull request adds a rule" not in TEXT.lower()
+    assert "[agents.md](agents.md)" in TEXT and "Both are fences, not boundaries" in TEXT
 
 
 # --- the status of the phase ---
