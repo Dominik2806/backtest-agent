@@ -116,7 +116,7 @@ line to stderr, and only then calls `load_candidate`, checks the contract on fra
 approvals, writes nothing and caches nothing. **Only `cli/signal_check.py` may use `load_candidate` or import `coded/cases.py`**
 (`tests/test_coded_source_tree.py` and `tests/test_cli_docs_coded.py` read the syntax trees); `load_candidate` restores the registry
 however its block ends. Exit codes of the command: 3 (no coded block, params that do not fit), 9 (everything rejected, a file that
-cannot be read too), never 8. Not built: the agent files, and running a candidate in a subprocess with a
+cannot be read too), never 8. Not built: running a candidate in a subprocess with a
 time and memory limit. Tests that register or load a signal use the fixtures of `tests/coded_helpers.py`
 (the registry is restored, no module of a coded signal may appear in `sys.modules`, canary marker files are written under
 `tmp_path` only). `approvals/` and `strategies/signals/` are tracked, so public; they are LF
@@ -142,8 +142,14 @@ The `~digit` guard of 8.3 names looks below the project directory only. These ar
 under `bypassPermissions` (not tested). A change of a rule or of the hook needs a row in its table test
 (`tests/test_agent_deny_rules.py`, `tests/test_restrict_writes*.py`) and a mutation table at the stop; the reference matcher of the
 deny test is our reading of the documented semantics, not Claude Code's. `strategies/drafts/` is git-ignored (`.gitkeep` only);
-`strategies/signals/` and `approvals/` are tracked, so `git add` them only after reading the code. Documents tie each claim to a
-test or say `(not tested)` (`tests/test_agents_docs.py`).
+`strategies/signals/` and `approvals/` are tracked, so `git add` them only after reading the code. The agent files `.claude/agents/strategy-architect.md` and
+`signal-coder.md` list exactly `Read, Glob, Grep, Write, Edit, Bash` and carry a matcherless copy of the hook entry with the agent name
+as argument (`tests/test_agent_files.py`); their prompts name only commands that the hook allows that agent, say that they are
+instructions and not enforcement, and give the person the `bt approve` steps. Documents tie each claim to a
+test or say `(not tested)` (`tests/test_agents_docs.py`). Examples and fake agents: `strategies/examples/` holds three example specs
+(the two coded ones have no code), `tests/fake_agents.py` runs scripted calls through both lines of the real hook in a temp project
+(copies of `.claude/`) and every script ends with a `SubagentHandback` call; `tests/test_agents_end_to_end.py` plays the person.
+Agent prompts name the `uv run bt ...` spelling.
 
 ## Workflow
 

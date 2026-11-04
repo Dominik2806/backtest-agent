@@ -403,6 +403,23 @@ def test_every_other_tool_is_refused(project: Path, agent: str, tool: str) -> No
 
 
 @pytest.mark.parametrize("agent", [ARCHITECT, CODER])
+@pytest.mark.parametrize("mode", ["auto", "default", "plan", MISSING])
+def test_the_internal_handback_tool_is_allowed_and_a_second_internal_name_is_not(
+    project: Path, agent: str, mode: object
+) -> None:
+    """SubagentHandback is how a subagent returns its message (observed once, not documented); nothing else is added."""
+    found = payload("SubagentHandback", mode=mode, message="done")
+    hook.decide(agent, found, project)  # no Refused
+    for other in ("SendMessage", "SubagentHandbackX", "subagenthandback", "SubagentHandback ", "TaskOutput"):
+        reason = refusal(agent, project, other, message="done") or ""
+        assert other in reason and "docs/agents.md" in reason, other
+
+
+def test_the_handback_name_is_one_constant_apart_from_the_read_tools() -> None:
+    assert hook.HANDBACK_TOOL == "SubagentHandback" and hook.HANDBACK_TOOL not in hook.READ_TOOLS
+
+
+@pytest.mark.parametrize("agent", [ARCHITECT, CODER])
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep"])
 def test_read_glob_and_grep_get_no_objection(project: Path, agent: str, tool: str) -> None:
     """The hook limits what an agent writes and runs, not what it reads (docs/agents.md)."""
@@ -429,7 +446,8 @@ def test_each_text_guard_gives_its_own_reason(project: Path) -> None:
     for tool in ("PowerShell", "NotebookEdit"):
         reason = refusal(CODER, project, tool, command="bt validate " + SPEC, notebook_path="n.ipynb") or ""
         assert f"may not use {tool}" in reason and "does not know" not in reason
-    assert "does not know" in (refusal(CODER, project, "WebFetch", url="x") or "")
+    unknown = refusal(CODER, project, "WebFetch", url="x") or ""
+    assert "WebFetch" in unknown and "does not know this tool" in unknown and "docs/agents.md" in unknown
 
 
 @pytest.mark.parametrize(
@@ -503,9 +521,10 @@ def test_the_coder_runs_signal_check_only_in_the_default_mode(project: Path, com
     for mode in MODES[1:]:
         reason = mode_refusal(CODER, project, command, mode) or ""
         assert f"permission_mode is '{mode}'" in reason and "default permission mode" in reason, mode
+        assert "switch" not in reason, mode
     for label, mode, words in ODD_MODES:
         reason = mode_refusal(CODER, project, command, mode) or ""
-        assert words in reason and "default permission mode" in reason, label
+        assert words in reason and "default permission mode" in reason and "switch" not in reason, label
 
 
 @pytest.mark.parametrize("agent", [ARCHITECT, CODER])

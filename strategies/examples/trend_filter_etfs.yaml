@@ -1,0 +1,40 @@
+# Trend filter on four ETFs: hold each ETF while its latest close is above its 100-day average.
+# An example, not a recommendation, not investment advice. Educational only (see docs/strategy-spec.md).
+#
+# Assumptions: a fast average of 1 is the close itself, so the rule compares the close with the 100-day average.
+# Orders are filled at the open of the bar after the signal (delay_bars 1); equal weight; costs are small round numbers.
+schema_version: 1
+name: Trend filter on four ETFs
+description: >
+  Each ETF is held while its close is above its 100-day simple moving average, and not held otherwise.
+  Positions are equally weighted, orders are filled at the open of the bar after the signal.
+
+universe: [SPY, EFA, TLT, GLD]
+period:
+  start: 2012-01-01
+  end: 2023-12-31
+data:
+  provider: yfinance
+
+signal:
+  id: sma_crossover
+  params:
+    fast: 1
+    slow: 100
+
+execution:
+  delay_bars: 1
+  price: open
+  allow_same_bar_execution: false
+
+sizing:
+  method: equal_weight
+rebalance: on_signal
+
+costs:
+  commission_bps: 1.0
+  spread_bps: 2.0
+  slippage_bps: 2.0
+
+benchmark: SPY
+initial_capital: 100000

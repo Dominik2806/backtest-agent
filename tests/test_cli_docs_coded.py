@@ -482,8 +482,11 @@ def test_the_document_points_to_the_fences_instead_of_saying_that_no_rule_exists
 # --- the status of the phase ---
 
 
-def test_the_status_tables_say_that_phase_10_is_in_progress() -> None:
+def test_the_status_tables_say_that_phase_10_is_done() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     roadmap = (ROOT / "docs" / "ROADMAP.md").read_text(encoding="utf-8")
-    assert "| 10 | Strategy architect and signal coder subagents | In progress |" in readme
-    assert re.search(r"^\| 10 \| `feature/agents-architect-coder` .*\| In progress \|$", roadmap, flags=re.MULTILINE)
+    assert "| 10 | Strategy architect and signal coder subagents | Done |" in readme
+    assert re.search(r"^\| 10 \| `feature/agents-architect-coder` .*\| Done \|$", roadmap, flags=re.MULTILINE)
+    assert "| 10 | Strategy architect and signal coder subagents | In progress |" not in readme
+    section = roadmap[roadmap.index("## Phase 10: Strategy architect and signal coder") :]
+    assert "**Status:** Done. It shipped in several sequential pull requests" in section.split("\n## ")[0]

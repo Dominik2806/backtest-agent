@@ -26,8 +26,10 @@ The project is built in phases, see the [roadmap status](#roadmap-status). Today
 layer, the strategy spec, the engine with `run_backtest` (Phases 4 and 5, with commission, spread and slippage), the
 performance metrics of a run next to its buy-and-hold benchmark (Phase 6), the Markdown and HTML reports with charts
 and caveats (Phase 7), the run journal with its trial counter (Phase 8), the `bt` command line (Phase 9), and `bt approve` and
-`bt signal check` with the approval gate for coded signals (Phase 10, in progress) exist; the other features described above arrive in the
-phases named in the [roadmap](docs/ROADMAP.md).
+`bt signal check` with the approval gate for coded signals (Phase 10) exist, and so do the two agent files of Phase 10
+(`strategy-architect` and `signal-coder`) with their guardrails; the agents were run for real only in a few probes on one machine
+(see [docs/agents.md](docs/agents.md), "Observations"). The other features described above arrive in the phases named in the
+[roadmap](docs/ROADMAP.md).
 
 ## Requirements
 
@@ -179,8 +181,10 @@ idea and its code with `bt approve`: `bt run`, `bt validate --data` and `bt data
 the archived code of the run, and `bt validate` only reports what the approval record says. `bt signal check` checks a
 candidate before it is approved and **executes the file, which nobody approved yet**, in the process of the command, with your
 permissions and no time or memory limit (the static check is a tripwire, not a sandbox; read [docs/cli.md](docs/cli.md) first).
-The agents are not built yet; the fences for them (deny and ask rules, a write-restriction hook) exist, see
-[docs/agents.md](docs/agents.md).
+The agent files exist (Phase 10 part 4b, `.claude/agents/`) together with their fences (deny and ask rules, a write-restriction
+hook), see [docs/agents.md](docs/agents.md). Three example specs are in [`strategies/examples/`](strategies/examples), and
+scripted fake agents drive the real hook and the real `bt` in an end-to-end test without a real model
+(`tests/test_agents_end_to_end.py`).
 
 ## What is inside
 
@@ -239,7 +243,7 @@ pull requests with a CHANGELOG entry. See [CONTRIBUTING.md](CONTRIBUTING.md). Fu
 | 7 | Markdown and HTML report with charts and caveats | Done |
 | 8 | Run log with trial counter | Done |
 | 9 | `bt` command; release `v0.1.0` | Done |
-| 10 | Strategy architect and signal coder subagents | In progress |
+| 10 | Strategy architect and signal coder subagents | Done |
 | 11 | Bias auditor and report interpreter subagents | Planned |
 | 12 | `/backtest` command with approval gate; release `v0.2.0` | Planned |
 | 13 | Out-of-sample split and walk-forward analysis | Planned |

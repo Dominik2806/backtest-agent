@@ -13,7 +13,8 @@ and nothing is imported before it was approved. The project is educational and n
 This document describes what exists after Phase 10 part 3b: the `coded` block of the spec, the hashes, the approval
 records, the static check, the gate that loads approved code, the check before a run, the `cases.yaml` format, the commands
 `bt approve` and `bt signal check` and the handling of a coded spec in `bt run`, `bt validate`, `bt data fetch` and `bt report`.
-The agents come in the next part of the phase; where this document mentions them it says so.
+The agent files, the example specs and the fake agents came with part 4b of the phase ([agents.md](agents.md)); where this
+document mentions them it says so.
 
 ## What is approved
 
@@ -101,8 +102,8 @@ signal:
 
 | Path | What | Written by |
 |---|---|---|
-| `strategies/signals/<id>.py` | the candidate code, editable | a person, or the signal coder agent once it exists (the hook lets it write only here) |
-| `strategies/signals/<id>.cases.yaml` | hand-calculated examples as data (see `cases.yaml` below) | a person, or the signal coder agent once it exists |
+| `strategies/signals/<id>.py` | the candidate code, editable | a person, or the signal-coder agent (the hook lets it write only here) |
+| `strategies/signals/<id>.cases.yaml` | hand-calculated examples as data (see `cases.yaml` below) | a person, or the signal-coder agent |
 | `approvals/<id>.json` | the append-only approval history of one signal id | `bt approve` |
 | `approvals/code/<sha256>.py` | the approved code, LF line ends; the file name is its hash | `bt approve` |
 | `approvals/.lock` | exists only while an approval runs; git-ignored | `bt approve` |
@@ -365,12 +366,14 @@ anything is executed: `bt: executing strategies/signals/<id>.py (sha <8 hex>, NO
 permissions and no time or memory limit; the static check is a tripwire, not a sandbox`. There is no `--yes` and no prompt: an
 agent with a shell could pass a flag as easily, and a prompt would break the tested `main(argv, ...)` contract.
 
-**In process, not in a subprocess.** The gate loads in the process of the command too, and a subprocess needs a design of its
-own (the frames, params and examples cross a pipe; a time limit and a memory limit that work on Windows). **Not built:** running
-the candidate in a subprocess with a wall-clock limit and a memory limit. An agent that runs the command runs its own code with its
-own permissions; the only limit of an agent run is the timeout of its own tool; whether agents may run it unattended is decided in
-the agents part (pull request 4) and stated in `docs/agents.md`. The signal coder may run `bt signal check` only in the default permission mode; the hook refuses it otherwise (enforced). The hook cannot see whether an agent runs in the background; whether Claude Code shows the ask prompt to a person for a background agent in the default mode was not tested. The ask rule is a second layer. The strategy architect may not run it
-at all ([agents.md](agents.md), "May an agent run `bt signal check`?").
+**In process, not in a subprocess.** The gate loads in the process of the command too, and a subprocess needs a design of its own (the
+frames, params and examples cross a pipe; a time limit and a memory limit that work on Windows). **Not built:** running the candidate in a
+subprocess with a wall-clock limit and a memory limit. An agent that runs the command runs its own code with its own permissions; the only
+limit of an agent run is the timeout of its own tool; whether agents may run it unattended is decided in the agents part (pull request 4)
+and stated in `docs/agents.md`. The signal coder may run `bt signal check` only in the default permission mode; the hook refuses it
+otherwise (enforced). The hook cannot see whether an agent runs in the background; whether Claude Code shows the ask prompt to a person
+for a background agent in the default mode was not tested. The ask rule is a second layer. The strategy architect may not run it at all
+([agents.md](agents.md), "May an agent run `bt signal check`?").
 
 ## What `bt validate` says
 
@@ -389,8 +392,6 @@ An unresolved spec used outside the gate, from Python, still raises `UnknownSign
 
 ## Not built yet
 
-- The agent files that write the spec and the code (`strategy-architect` and `signal-coder`), the example specs and the
-  end-to-end test: the next pull request. The fences for them (the deny and ask rules, the hook, `docs/agents.md`) exist.
 - Running a candidate of `bt signal check` in a subprocess with a wall-clock limit and a memory limit.
 
 Everything else in this document exists and is tested. A coded signal is checked with `bt signal check`, approved with

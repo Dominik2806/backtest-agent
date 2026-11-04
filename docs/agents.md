@@ -1,6 +1,6 @@
 # Agents and their guardrails
 
-Two Claude Code subagents will turn an idea into a strategy spec and into a signal function: the `strategy-architect` and the
+Two Claude Code subagents turn an idea into a strategy spec and into a signal function: the `strategy-architect` and the
 `signal-coder` (F-17, F-18). The engine, the data layer and the metrics stay deterministic code that no agent writes
 ([ADR 0002](adr/0002-deterministic-core-llm-never-writes-engine.md)), and a coded signal runs only after a person approved its
 idea and its code ([coded-signals.md](coded-signals.md), [ADR 0018](adr/0018-coded-signals-and-approval-gate.md)). This document
@@ -14,18 +14,63 @@ itself, it says so.
 
 ## Status
 
-What exists in Phase 10 part 4a: the deny and ask rules, the hook `restrict_writes.py` and its entry in `.claude/settings.json`,
-and the git-ignored folder `strategies/drafts/`. What does not exist yet: the agent files in `.claude/agents/`, the three example
-specs, the fake agents and the end-to-end test. They come with part 4b, and until then nothing starts an agent: the tests of this
-repository run the hook on calls that they write, and the hook has not been run on a call of one of these two agents.
+Phase 10 is complete (parts 4a and 4b). What exists: from part 4a the deny and ask rules, the hook `restrict_writes.py` with its
+entry in `.claude/settings.json`, and the git-ignored folder `strategies/drafts/`; from part 4b the two agent files
+`.claude/agents/strategy-architect.md` and `.claude/agents/signal-coder.md`, the three example specs in `strategies/examples/`, the
+fake agents (`tests/fake_agents.py`) and the end-to-end test (`tests/test_agents_end_to_end.py`). The tests of this repository run
+the hook on calls that they write; the hook was seen on calls of real agents once (see "Observations").
 
-## The two agents (planned, files not built yet)
+## The two agents
 
-- The **strategy-architect** reads an idea, asks (through the main conversation) what is missing about timing, sizing, costs,
-  universe and period, and writes one draft spec `strategies/drafts/<name>.yaml` with its assumptions in a comment header. It never
-  runs a backtest. (planned; not tested)
-- The **signal-coder** reads the `coded` block of an approved or drafted spec and writes `strategies/signals/<id>.py` and
-  `strategies/signals/<id>.cases.yaml`, then checks them with `bt signal check`. It never approves anything. (planned; not tested)
+- The **strategy-architect** (`.claude/agents/strategy-architect.md`) turns an idea into one draft spec
+  `strategies/drafts/<name>.yaml` and checks it with `bt validate`. Its prompt names `uv run bt validate` as the only command to run and
+  `uv run bt approve ... --idea` as a command for the person only, and has it return its open questions in its final message, because a
+  subagent cannot ask the person (a claim of the Claude Code documentation, not tested). (test:
+  `tests/test_agent_files.py::test_prompts_name_only_commands_the_hook_allows`,
+  `tests/test_agent_files.py::test_person_commands_are_refused_for_the_agent_and_parse`)
+- The **signal-coder** (`.claude/agents/signal-coder.md`) writes `strategies/signals/<id>.py` and `strategies/signals/<id>.cases.yaml`
+  and checks them with `bt validate` and `bt signal check`. Its prompt names `uv run bt approve` only as a command for the person, tells it
+  to finish when `bt signal check` is refused and to say so in its final message, and tells it not to try another way round a
+  refusal and not to advise switching the permission mode. (test: `tests/test_agent_files.py::test_coder_prompt_has_sentence_a`,
+  `tests/test_agent_files.py::test_both_prompts_have_sentence_b`, `tests/test_agent_files.py::test_prompts_give_no_mode_advice`)
+- The prompts spell the commands `uv run bt ...`, the spelling that works without an activated virtual environment (in the one real
+  run `bt` alone was not on the PATH of the agent, see "Observations"). The hook allows both spellings. (test:
+  `tests/test_agent_files.py::test_prompts_name_only_commands_the_hook_allows`)
+- What a real run of either agent does is not tested: it was observed once (see "Observations"). (not tested)
+
+## The examples and the fake agents
+
+- `strategies/examples/` holds three example specs: `trend_filter_etfs` (the built-in `sma_crossover`, fast 1 and slow 100, on SPY,
+  EFA, TLT and GLD) and the two coded ideas `rsi_pullback` and `vol_filtered_trend`. Their headers say "example, not a
+  recommendation, not investment advice". The coded ones carry an id and a brief and **no code**: nothing unapproved is committed.
+  (test: `tests/test_agent_examples.py::test_the_header_says_example_not_a_recommendation_not_investment_advice`,
+  `tests/test_agent_examples.py::test_a_coded_example_has_an_id_a_valid_brief_and_no_code`,
+  `tests/test_agent_examples.py::test_bt_validate_exits_0_and_prints_all_four_tickers`)
+- The fake agents (`tests/fake_agents.py`) are scripts with no decisions. Every tool call goes through the real hook, through both
+  lines (the command of the copy of the agent file and the command of the copy of `settings.json` in a temp project), started with
+  `bash -c`, with a payload shaped like the observed ones and a synthetic `agent_id`. A call is performed only when both lines exit
+  0. A Bash command `uv run bt ...`, a bare `bt ...` and `python -m backtest_agent ...` are performed by the `bt` entry point in
+  process. Every script ends with a `SubagentHandback` call, also after a refusal, and both lines allow it. The fake agents do not
+  model the ask rule, the deny rules, the `tools` list or the settings matcher (the settings line is run for every call). (test:
+  `tests/test_agents_end_to_end.py::test_every_call_goes_through_both_lines_and_a_refused_call_is_refused_by_each`,
+  `tests/test_agents_end_to_end.py::test_a_handback_is_allowed_by_both_lines_for_each_agent`)
+- The end-to-end test runs the flow of `docs/cli.md`: the architect writes and validates a draft, the coder writes the signal and its
+  examples, validates and checks them, and the test plays the person (idea, review with exit 8, code with the sha, run). The numbers
+  are the literals of `docs/cli.md`. (test:
+  `tests/test_agents_end_to_end.py::test_from_idea_to_run_with_the_real_hook_and_the_real_bt`)
+- The refusals leave nothing behind: the architect's writes outside its drafts and its commands other than `bt validate`, the coder's
+  `bt approve` in three spellings and its writes outside its two files, `bt signal check` in every mode but the default, and tools the
+  hook does not know. When the fake coder's check is refused, both lines of the hook refuse it, the two signal files stay, the
+  handback is allowed and nothing is approved; what a real coder does after a refusal was observed once (see "Observations"), not
+  tested. (test:
+  `tests/test_agents_end_to_end.py::test_the_architect_writes_only_a_draft`,
+  `tests/test_agents_end_to_end.py::test_the_architect_runs_only_validate`,
+  `tests/test_agents_end_to_end.py::test_the_coder_cannot_approve_anything`,
+  `tests/test_agents_end_to_end.py::test_the_coder_writes_only_its_signal_and_its_examples`,
+  `tests/test_agents_end_to_end.py::test_the_coders_signal_check_is_refused_outside_the_default_mode`,
+  `tests/test_agents_end_to_end.py::test_the_same_check_is_allowed_in_the_default_mode`,
+  `tests/test_agents_end_to_end.py::test_a_refused_check_leaves_the_files_approves_nothing_and_the_handback_is_allowed`,
+  `tests/test_agents_end_to_end.py::test_an_unknown_tool_is_refused_and_the_agent_still_hands_back`)
 
 ## The fences
 
@@ -80,7 +125,7 @@ before `bt approve --code --sha` is the defence that counts. (not tested)
   list is `GAPS`, `GAPS_BASH` and `GAPS_POWERSHELL` in `tests/test_agent_deny_rules.py`. It also holds a backtick substitution and,
   for PowerShell, a path with backslashes such as `.\.venv\Scripts\bt.exe approve spec.yaml`. The Claude Code documentation names a
   full path, `sh -c` and a quoted word as not caught, and says that it also checks command substitutions, which our matcher does
-  not (that Claude Code's documentation says this is not tested). The hook below is what refuses all of them for the two agents. (test:
+  not (that Claude Code's documentation says so is not tested). The hook below is what refuses all of them for the two agents. (test:
   `tests/test_agent_deny_rules.py::test_the_known_gaps_are_not_matched`)
 
 ### The hook
@@ -106,9 +151,53 @@ before `bt approve --code --sha` is the defence that counts. (not tested)
   `tests/test_restrict_writes_protocol.py::test_a_script_that_cannot_run_exits_1_and_that_is_why_the_entry_needs_on_failure_block`,
   `tests/test_restrict_writes_commandline.py::test_a_broken_environment_blocks_only_where_the_hook_is_needed`; what Claude Code does
   with the key is a claim of its documentation, see "Observations")
-- The script also accepts an agent name as its argument: that is the planned copy of the entry in the frontmatter of each agent. The
-  agent files do not exist yet, so no real agent calls it that way and no test ties a file to its command line. (test:
+- The script also accepts an agent name as its argument: that is the copy of the entry in the frontmatter of each agent file (see
+  "The agent files"). (test:
   `tests/test_restrict_writes_commandline.py::test_the_frontmatter_line_blocks_a_forbidden_call_without_an_agent_type`)
+
+### The agent files
+
+- `.claude/agents/` holds exactly the two files; a third file would be an agent without the fence. (test:
+  `tests/test_agent_files.py::test_agents_folder_has_exactly_the_two_files`)
+- Each file lists the tools `Read, Glob, Grep, Write, Edit, Bash` and no other, and has only the keys `name`, `description`, `tools`
+  and `hooks`: no `permissionMode`, `mcpServers` or `disallowedTools`. (test:
+  `tests/test_agent_files.py::test_tools_are_exactly_read_glob_grep_write_edit_bash`,
+  `tests/test_agent_files.py::test_frontmatter_keys_are_name_description_tools_hooks`)
+- Each file carries a copy of the hook entry with no matcher and no `if`, the handler of `settings.json` (type, shell, onFailure,
+  timeout) and the command of `settings.json` with the agent name as its argument. (test:
+  `tests/test_agent_files.py::test_hook_entry_has_no_matcher_no_if_one_handler`,
+  `tests/test_agent_files.py::test_handler_equals_settings_handler_except_the_argument`,
+  `tests/test_agent_files.py::test_command_is_settings_script_path_plus_agent_name`)
+- The file name, the `name` and the argument are one word, and it is an agent that the hook knows. (test:
+  `tests/test_agent_files.py::test_file_name_equals_name_equals_argument`)
+- The line that a file carries blocks a forbidden call and allows an allowed one when a shell runs it, from the project root and
+  from another directory. (test: `tests/test_agent_files.py::test_each_file_own_command_blocks_and_allows_through_bash_c`)
+- An entry with no matcher fires on every tool call of its agent (a claim of the Claude Code documentation, not tested), so the hook
+  sees tools that Claude Code might add itself; it refuses every tool name it does not know, among them the internal tool names of
+  the documentation, with one exception: `SubagentHandback`, the internal tool by which a subagent returns its final message
+  (observed once, not documented; see "Observations"). The hook allows it (exit 0, silent) for the two agents and for no other name;
+  the settings matcher does not contain it. (test: `tests/test_agent_files.py::test_matcherless_entry_gets_refused_tool_names`,
+  `tests/test_agent_files.py::test_subagent_handback_is_allowed_in_process_and_through_the_files_own_line`,
+  `tests/test_agent_files.py::test_a_second_internal_name_is_still_refused_with_the_tool_named`,
+  `tests/test_agent_files.py::test_subagent_handback_is_not_in_the_settings_matcher`,
+  `tests/test_agent_files.py::test_an_unknown_agent_name_gets_no_allowance_for_the_handback`)
+- The documentation's example of a `tools` list says that such a subagent cannot use MCP tools, and it is silent on the PowerShell
+  tool and on tools that Claude Code adds itself (ToolSearch, TodoWrite). Whatever a `tools` list grants, the hook refuses
+  PowerShell and every name it does not know except `SubagentHandback`; the refusal of an unknown tool names the tool and points
+  to this document. (test: `tests/test_restrict_writes.py::test_every_other_tool_is_refused`; what a
+  `tools` list grants is a claim of the Claude Code documentation, not tested)
+- Whether Claude Code honours `shell` and `onFailure` in the frontmatter hooks of a subagent is inferred from its documentation (the
+  same format as settings hooks) and was not tested. (not tested)
+- Nothing in the files can widen the hook: the agents that the hook knows are the agent files; the script path is the same in both
+  files and in `settings.json`; every tool that the settings matcher or a file can route to the hook is refused with the worst call
+  of its kind, the three read tools and `SubagentHandback` apart; every tool a file lists besides the read tools is matched by the settings entry. (test:
+  `tests/test_agent_files.py::test_agent_files_cannot_widen_the_hook`)
+- **A matcherless entry starts the hook on every tool call of its agent, Read, Glob and Grep included.** Measured once on this Windows
+  machine, not for CI (15 runs, medians): one start of the script took 94 to 141 ms; a call that both the settings entry and the
+  frontmatter copy see took 156 ms (in parallel) to 237 ms (one after the other). (not tested)
+- The prompts say that they are instructions, not enforcement, contain no word of enforcement, and end with a "Next, for you" line
+  that tells the person which `bt approve` command to run. (test: `tests/test_agent_files.py::test_prompts_say_instructions_not_enforcement`,
+  `tests/test_agent_files.py::test_prompts_have_no_enforcement_words`, `tests/test_agent_files.py::test_prompts_end_with_next_for_you`)
 
 ### What each agent may do
 
@@ -228,8 +317,8 @@ input=$(cat; echo x); input=${input%x}; case "$input" in *agent_type*) printf '%
   (not tested)
 - The entry has `"onFailure": "block"` and a timeout of at most 60 seconds (the file has 30). (test:
   `tests/test_restrict_writes_commandline.py::test_the_settings_entry_has_the_shape_the_design_needs`)
-- Cost, measured once on one machine (Windows 11, 15 runs each, medians): about 50 ms for a main-session call, 94 to 141 ms for one
-  start of the script, 156 ms (parallel) to 237 ms (one after the other) for two starts. (not tested)
+- Cost, measured once on this Windows machine, not for CI (Windows 11, 15 runs each, medians): about 50 ms for a main-session call,
+  94 to 141 ms for one start of the script, 156 ms (parallel) to 237 ms (one after the other) for two starts. (not tested)
 
 ## When the hook breaks
 
@@ -266,22 +355,70 @@ input=$(cat; echo x); input=${input%x}; case "$input" in *agent_type*) printf '%
 
 ## Observations
 
-Seen by the maintainer on Claude Code 2.1.318, on one machine, with a logging hook and a user-level probe agent. **They were not seen
-with this script on a call of one of the two agents**; that is to be confirmed after the agent files exist (part 4b). (not tested)
+Seen by the maintainer on Claude Code 2.1.318, on one machine. The first two were seen with a logging hook and a user-level probe
+agent; the rest in probes of the two real agents with this script, in a clone outside the repository, in `auto` mode. In the probe
+clone a second, logging handler was added beside the signal coder's frontmatter copy; the architect's copy had none. **Each is
+observed once, Claude Code 2.1.318, one machine, not a test.** (not tested)
 
 - A settings-level hook receives `agent_id` and `agent_type` for a subagent call, also for a background one; `agent_type` is the name
   from the agent file. A main-session call has neither. Every call carries `permission_mode`. (not tested)
 - `"onFailure": "block"` blocked a Write when the hook exited 1; the same hook without the key only gave a warning and the write went
   through. (not tested)
+- On calls of the two real agents the settings entry received `agent_type`, `agent_id` and `permission_mode`; so did the logging
+  handler beside the signal coder's frontmatter copy. This was not observed for the architect's frontmatter copy. Every
+  `permission_mode` seen was `auto`. (not tested)
+- The settings entry refused the signal coder's Write to `src/`, the architect's `bt signal check` and, in `auto` mode, the coder's
+  `bt signal check`, and it allowed the Write to `strategies/signals/` and to `strategies/drafts/`. (not tested)
+- The logger beside the signal coder's frontmatter copy saw Read, Write, Bash and `SubagentHandback` calls of the coder. For the
+  architect we know only that its copy fired and refused the handback. A Glob call of the coder was not observed. (not tested)
+- **`SubagentHandback`.** Claude Code gives every subagent an internal tool of this name, with a `message` field, by which the
+  agent returns its final message. It is not in the `tools` list of the files and not in the documentation we read. The frontmatter
+  copy saw it (the settings entry did not, because of its matcher). Before the fix the hook refused it ("may not use
+  SubagentHandback: the hook does not know it"), and every background agent ended without returning a result: the architect after 4
+  attempts, the coder after 5 to 9: the agents called the refused handback 4 to 9 times each. The hook now allows it for the two
+  agents. (not tested; the allowance is tested with a payload of the observed shape)
+- After the fix (clone at commit `5c0d8b2`, `uv` on the PATH, session in `auto` mode): the architect's draft came back with its
+  assumptions and open questions, and its validate was `uv run bt validate`; the coder's `uv run bt signal check` was refused with
+  "permission_mode is 'auto': the signal coder may run bt signal check only in the default permission mode" (no advice to switch);
+  the coder reported that it did not retry or work around the refusal and named the check as a step for the person; and the
+  coder's read of `README.md` came back. So the handback allowance works. (not tested)
+- Every subagent started from the main session ran in the background, in every probe; the main session said (its own statement)
+  that it had no way to ask for a foreground run. (not tested)
+- `bt` alone was not on the PATH of the agent (exit code 127); the agent then ran `uv run bt validate ...`, which the hook allowed.
+  The prompts now name the `uv run bt ...` spelling. (not tested)
+- None of the agents retried the refused Write or the refused Bash test call; they did retry the refused handback. (not tested)
+- The default mode was not reached: every session of the maintainer showed `permission_mode` `auto` (in the logs and as "Allowed by
+  auto mode"), no setting for it was found in the user `settings.json`, in a managed settings file (none exists) or in the project
+  settings, and whether the mode can be switched on this machine was not established. (not tested)
+- With `uv` on the PATH, each of the three agents called `SubagentHandback` once and the result came back (the architect: Read,
+  Glob, Read, Write, Bash, handback; the coder's check: Bash, handback; the `README.md` reader: Read, handback). With `uv` removed
+  from the PATH of the window, the signal coder asked to read `README.md` called `SubagentHandback` 4 times, was resumed by the main
+  session (SendMessage), read `README.md` again and called it 4 more times: the retry pattern of the refused handback before the
+  fix. The main session read the file itself. The settings entry does not match Read or `SubagentHandback`, so only the frontmatter
+  copy can have blocked those calls. That is strong evidence, not proof (the text of the blocked result was not captured, and the
+  agent's transcript was empty), that Claude Code honours `"onFailure": "block"` in a frontmatter hook when `uv` fails (exit 127).
+  Whether it honours `shell` there is not separately established. (not tested)
+- In all runs the only internal tool name seen on agent calls was `SubagentHandback`; `Agent`, `ToolSearch` and `SendMessage`
+  appeared only with `agent_type` null (the main session). (not tested)
+- In the main session, the ask rule `Bash(* bt signal check *)` raised a prompt even in `auto` mode: "Ask rule ... overrides auto mode
+  for this command" (the words as the maintainer reported them; the full prompt was not captured). The same rule matched a heredoc
+  that only contained those words; that was observed. A commit message, documentation or test text would match in the same way,
+  because the rules match the text of a command, but that was not observed. Such a match is a false positive. Observed once, Claude
+  Code 2.1.318, one machine, not a test. (not tested)
+
+**Not observed:** the default mode, the ask prompt (and so whether a prompt reaches a person for a background agent), a foreground
+agent, the `acceptEdits` and `plan` modes, the payload that the architect's frontmatter copy receives, and a Glob call of the
+coder. (not tested)
 
 ## Details of the hook
 
 These paragraphs are separate on purpose: each states one detail that may change, with its test. (not tested)
 
 The tools the hook sees. The settings entry matches Write, Edit, MultiEdit, NotebookEdit, Bash and PowerShell: the hook sees six
-tools, and the rest of what an agent can do is limited by the `tools:` list of its file and, for the frontmatter copy, which will have no
-matcher (part 4b), by the hook. For the two agents the hook decides on the first three by path and on Bash by command, allows Read, Glob and
-Grep, and refuses NotebookEdit, PowerShell and every other tool name it is given. (test:
+tools, and the rest of what an agent can do is limited by the `tools:` list of its file and, for the frontmatter copy, which has no
+matcher, by the hook. For the two agents the hook decides on the first three by path and on Bash by command, allows Read, Glob and
+Grep and `SubagentHandback` (the way a subagent returns its message, see "Observations"), and refuses NotebookEdit, PowerShell and
+every other tool name it is given. (test: `tests/test_restrict_writes.py::test_the_internal_handback_tool_is_allowed_and_a_second_internal_name_is_not`,
 `tests/test_restrict_writes_commandline.py::test_the_settings_entry_has_the_shape_the_design_needs`,
 `tests/test_restrict_writes.py::test_every_other_tool_is_refused`,
 `tests/test_restrict_writes.py::test_read_glob_and_grep_get_no_objection`)
@@ -308,8 +445,16 @@ tested)
 
 ## Known gaps
 
+- Internal tool names are observed, not documented. `SubagentHandback` was seen once and is allowed by name. A Claude Code update
+  that adds another internal tool makes the hook refuse it (fail closed by design). The hook's message, which names the tool, goes
+  to the agent: the person sees an agent that ends without a result, and finds the message in the agent's transcript. The fix is a
+  decision of the maintainer, a new named constant and a test. (not tested)
 - A spelling that the rules do not match is not denied. The table above gives examples; `GAPS` in
   `tests/test_agent_deny_rules.py` is the list. (test: `tests/test_agent_deny_rules.py::test_the_known_gaps_are_not_matched`)
+- Read, Glob and Grep are not restricted to paths: an agent can read `.env`, `approvals/` and any other file that Claude Code may
+  read, and no `Read` deny rule is set. (test: `tests/test_restrict_writes.py::test_read_glob_and_grep_get_no_objection`; what a
+  read exposes is not tested)
+- A matcherless entry costs a hook start on every tool call of an agent (see "The agent files"). (not tested)
 - The hook is a fence: a person who can write to `.claude/` can remove it, and an agent that gets a tool the hook does not know
   would be refused only by this hook. Whether `Bash` in an agent's `tools` also grants PowerShell, and whether MCP tools are
   inherited, is not documented. (not tested)

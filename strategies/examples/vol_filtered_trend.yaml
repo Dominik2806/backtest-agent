@@ -1,0 +1,44 @@
+# Trend following with a volatility filter on three ETFs, with a coded signal.
+# An example, not a recommendation, not investment advice.
+# The spec carries only the idea (id and brief); no code is committed for it.
+schema_version: 1
+name: Volatility-filtered trend on three ETFs
+description: >
+  Each ETF is held while its close is above its 100-day average and its 20-day volatility is below the limit, and not
+  held otherwise. Positions are equally weighted, orders are filled at the open of the bar after the signal.
+
+universe: [SPY, TLT, GLD]
+period:
+  start: 2012-01-01
+  end: 2023-12-31
+data:
+  provider: yfinance
+
+signal:
+  id: vol_filtered_trend
+  params:
+    trend_window: 100
+    vol_window: 20
+    max_daily_vol: 0.02
+  coded:
+    brief: >
+      Hold a symbol while its close is above the mean of its last trend_window closes and the standard deviation of its
+      last vol_window daily returns is below max_daily_vol, and hold nothing otherwise. Exposure is 1.0 or 0.0.
+      Needs max(trend_window, vol_window + 1) rows of history.
+
+execution:
+  delay_bars: 1
+  price: open
+  allow_same_bar_execution: false
+
+sizing:
+  method: equal_weight
+rebalance: on_signal
+
+costs:
+  commission_bps: 1.0
+  spread_bps: 2.0
+  slippage_bps: 2.0
+
+benchmark: SPY
+initial_capital: 100000

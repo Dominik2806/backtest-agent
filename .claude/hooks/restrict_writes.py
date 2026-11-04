@@ -13,9 +13,9 @@ Two ways to call it, the same script:
 * ``restrict_writes.py <agent>`` (the entry in the frontmatter of that agent): the agent is the argument; an
   ``agent_type`` in the payload that differs from it is refused.
 
-What an agent may do: Read, Glob and Grep are not restricted (no objection); Write, Edit and MultiEdit only in the
-folder of the agent; Bash only the exact commands of ``check_bash``; every other tool name is refused. The signal coder
-may run ``bt signal check`` only when ``permission_mode`` of the call is ``"default"``.
+What an agent may do: Read, Glob, Grep and the internal SubagentHandback are not restricted (no objection); Write, Edit
+and MultiEdit only in the folder of the agent; Bash only the exact commands of ``check_bash``; every other tool name is
+refused. The signal coder may run ``bt signal check`` only when ``permission_mode`` of the call is ``"default"``.
 
 Standard library only, and nothing is imported from ``backtest_agent``: tests/test_restrict_writes.py compares the id
 rules below with the project's own (``coded_id_problem``) on a table, and tests/test_agents_docs.py checks the imports.
@@ -39,6 +39,11 @@ DEVICE_NAMES = frozenset(
 MAX_ID_LENGTH = 64
 
 READ_TOOLS = ("Read", "Glob", "Grep")
+# Observed once (Claude Code 2.1.318), not documented: every subagent has an internal tool SubagentHandback (field
+# "message") by which it returns its final message. The frontmatter copy of the hook sees it, because that entry has no
+# matcher; refusing it made every background agent end without a result. It writes and runs nothing. No other
+# internal name is allowed: an unknown tool stays refused (fail closed).
+HANDBACK_TOOL = "SubagentHandback"
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit")
 FOLDER = {ARCHITECT: ("strategies", "drafts"), CODER: ("strategies", "signals")}
 BASH_CHARACTERS = re.compile(r"[A-Za-z0-9_./ -]+")  # an allowlist: no quote, glob, redirect, pipe, $ or backslash
@@ -136,7 +141,7 @@ def check_mode(mode: object) -> None:
     if not isinstance(mode, str):
         raise Refused(f"permission_mode is not text: {where}")
     if mode != "default":
-        raise Refused(f"permission_mode is {ascii(mode[:40])}: {where}; switch the session to the default mode")
+        raise Refused(f"permission_mode is {ascii(mode[:40])}: {where}")
 
 
 def check_bash(agent: str, command: object, mode: object) -> None:
@@ -168,7 +173,7 @@ def decide(agent: str, payload: Mapping[str, object], project: Path) -> None:
     tool, tool_input = payload.get("tool_name"), payload.get("tool_input")
     if not isinstance(tool, str) or not isinstance(tool_input, dict):
         raise Refused("the call has no tool_name or tool_input")
-    if tool in READ_TOOLS:
+    if tool in READ_TOOLS or tool == HANDBACK_TOOL:
         return
     if tool in WRITE_TOOLS:
         check_path(agent, tool_input.get("file_path"), project)
@@ -177,7 +182,7 @@ def decide(agent: str, payload: Mapping[str, object], project: Path) -> None:
     elif tool in ("NotebookEdit", "PowerShell"):
         raise Refused(f"{agent} may not use {tool}")
     else:
-        raise Refused(f"{agent} may not use {tool}: the hook does not know it")
+        raise Refused(f"{agent} may not use {tool}: the hook does not know this tool (see docs/agents.md)")
 
 
 def say(text: str) -> None:

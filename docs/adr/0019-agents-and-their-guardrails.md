@@ -1,8 +1,8 @@
 # 0019: The agents and what keeps them inside the gate
 
-- **Status:** Accepted. Built in Phase 10 part 4a: the deny and ask rules, the hook and the git-ignored drafts folder. The agent
-  files, the example specs and the end-to-end test are part 4b. Details, spellings and the tests that check each claim:
-  [agents.md](../agents.md).
+- **Status:** Accepted. Built in Phase 10 part 4a: the deny and ask rules, the hook and the git-ignored drafts folder; in part 4b
+  the two agent files, the example specs, the fake agents and the end-to-end test. Details, spellings and the tests that
+  check each claim: [agents.md](../agents.md).
 
 ## Context
 
@@ -19,10 +19,10 @@ command (not a security boundary; a full path, `sh -c` and a quoted word are nam
 (only exit code 2 blocks, any other failure lets the call through unless the hook says `"onFailure": "block"`, which needs 2.1.295
 or later); hooks in `settings.json` that run also with `-p` and in an untrusted folder, while hooks in the frontmatter of a project
 agent are skipped until the folder is trusted; and an `agent_type` in the input of a call made inside a subagent. Observed by the
-maintainer on 2.1.318, on one machine, with a logging hook and a probe agent, not with this script on one of the two agents: a
-settings-level hook gets `agent_id` and `agent_type` (the name from the agent file) for a subagent call, also a background one, none
-in the main session, and `permission_mode` on every call; and `"onFailure": "block"` blocked a write when the hook exited 1, while the
-same hook without the key only warned.
+maintainer on 2.1.318, on one machine: a settings-level hook gets `agent_id` and `agent_type` (the name from the agent file) for a
+subagent call, also a background one, none in the main session, and `permission_mode` on every call; and `"onFailure": "block"`
+blocked a write when the hook exited 1, while the same hook without the key only warned. A later probe of the two real agents with
+this script is in "Observations" of `docs/agents.md`.
 
 ## Decision
 
@@ -41,8 +41,9 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
   exact sequence of words made of letters, digits, `_`, `.`, `/`, `-` and single spaces; everything else, a backslash included, is
   refused. Read, Glob and Grep get no objection. The hook reads the bytes of stdin and decodes them as UTF-8 itself. It exits 0
   without output or exits 2 with a reason, and **never prints a `permissionDecision`**, because an "allow" could skip the ask rule.
-  It fails closed: an error of the script is exit 2.
-- **Registered in `settings.json` and, with part 4b, in the frontmatter of each agent.** The `settings.json` entry runs also with
+  It fails closed: an error of the script is exit 2, and a tool name it does not know is refused, with one exception: the
+  internal tool `SubagentHandback`, by which a subagent returns its final message (observed once, not documented), is allowed.
+- **Registered in `settings.json` and in the frontmatter of each agent file.** The `settings.json` entry runs also with
   `-p` and in an untrusted folder, carries `"onFailure": "block"` (a script that cannot start would otherwise let the call through)
   and decides by the `agent_type` of the call; a call without it, or of another agent, gets no decision, and the shell line does not
   even start `uv` for it, so the main session cannot be blocked by a broken `uv`. The frontmatter copy takes the agent name as an
@@ -66,8 +67,7 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
 **Rejected.**
 
 - *Only a deny rule.* It misses `sh -c`, a full path and a quoted word, and nothing limits what else an agent runs.
-- *Only the frontmatter hook.* It is skipped silently in an untrusted folder and with `-p`, and the agent files do not exist before
-  part 4b.
+- *Only the frontmatter hook.* It is skipped silently in an untrusted folder and with `-p`.
 - *Dispatch by `agent_type` alone.* If Claude Code sends a value other than the file name, the settings entry would give no decision
   for the agent; the frontmatter copy covers that case in a trusted folder.
 - *`shlex` and a blocklist of shell characters for Bash.* `shlex` in POSIX mode eats backslashes; a character allowlist with an
@@ -89,6 +89,9 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
    whole `settings.json`, deny rules included, might be skipped.
 5. `agent_type` is the only key of the settings entry. The frontmatter copy needs the workspace trust.
 6. Whether the `Bash` entry of a `tools` list also grants PowerShell, and whether MCP tools are inherited, is not documented.
+7. Internal tool names are observed, not documented (`SubagentHandback`, seen once). A Claude Code update that adds another
+   internal tool makes the hook refuse it (fail closed by design). The hook's message goes to the agent: the person sees an agent
+   that ends without a result, and finds the message in the agent's transcript.
 
 ## Consequences
 
@@ -97,5 +100,9 @@ is an allowlist. Neither is a boundary; the person who reads the code before `bt
 - The main session also cannot run `bt approve`, and it is asked before every `bt signal check`.
 - A new spelling or a new allowed command needs a row in a table test and a mutation table; `tests/test_agents_docs.py` fails when
   `docs/agents.md` names a test that does not exist or makes a claim with neither a test nor `(not tested)`.
-- Part 4b adds the agent files, three example specs, fake agents and an end-to-end test without a real model; the hook is then run
-  on scripted calls, never yet on a call of a real agent.
+- The two agent files exist and are tied to the hook by tests (`tests/test_agent_files.py`); the three example specs
+  (`strategies/examples/`), the fake agents (`tests/fake_agents.py`) and an end-to-end test without a real model
+  (`tests/test_agents_end_to_end.py`) exist too. The fake agents call the hook through both of its lines and end every script
+  with `SubagentHandback`. The hook has been observed on calls of real agents (see "Observations"
+  in `docs/agents.md`; once, one machine, not a test).
+  A matcherless frontmatter entry starts the hook on every tool call of its agent; the measured cost is in `docs/agents.md`.

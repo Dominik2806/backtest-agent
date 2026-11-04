@@ -212,12 +212,18 @@ def test_the_checker_itself_finds_the_old_wording() -> None:
         assert NOT_BUILT.search(old), old
 
 
-def test_the_agents_are_still_not_built_and_the_documents_say_so() -> None:
-    assert "The agents are not built yet" in FLAT["readme"]
-    assert "**The agents are not built yet**" in FLAT["cli"]
+def test_the_agent_files_exist_and_the_documents_say_what_is_still_not_built() -> None:
+    assert "The agent files exist" in FLAT["readme"] and "The agents are not built yet" not in FLAT["readme"]
+    assert (
+        "[docs/agents.md](docs/agents.md)" in README
+        and "Three example specs are in" in FLAT["readme"]
+        and "scripted fake agents drive the real hook and the real `bt` in an end-to-end test" in FLAT["readme"]
+    )
+    assert "**The agent files exist**" in FLAT["cli"] and "The agents are not built yet" not in FLAT["cli"]
     not_built = CODED[CODED.index("## Not built yet") :]
-    assert not_built.count("\n- ") == 2
-    assert "The agent files that write the spec and the code" in not_built
+    assert not_built.count("\n- ") == 1
+    assert "The example specs, the fake agents and the end-to-end test of the agents" not in not_built
+    assert "The agent files that write the spec and the code" not in not_built
     assert (
         "The rule that denies `bt approve` to the agents" not in not_built
     )  # it exists since part 4a (docs/agents.md)
@@ -248,10 +254,11 @@ def test_known_gap_6_is_in_the_adr_and_in_the_coded_signals_document() -> None:
     assert "known gaps 4 and 6" in FLAT["cli"]
 
 
-def test_the_status_line_of_the_adr_says_that_bt_signal_check_is_built_and_the_agents_are_not() -> None:
+def test_the_status_line_of_the_adr_says_that_bt_signal_check_is_built_and_the_agent_files_exist() -> None:
     status = " ".join(ADR[: ADR.index("## Context")].split())
     assert "Phase 10 part 3b, `bt signal check` with `load_candidate`" in status
-    assert "the agents are not built yet" in status and "only `bt signal check` raises it" in status
+    assert "the agent files exist (ADR 0019)" in status and "the agents are not built yet" not in status
+    assert "only `bt signal check` raises it" in status
 
 
 # --- CLAUDE.md names the rules that the source-tree tests enforce ---
@@ -263,7 +270,7 @@ def test_claude_md_names_the_one_module_that_the_source_tree_tests_allow() -> No
     assert "**Only `cli/signal_check.py` may use `load_candidate` or import `coded/cases.py`**" in flat
     assert "`tests/test_coded_source_tree.py` and `tests/test_cli_docs_coded.py`" in flat
     assert "caches nothing" in flat and "never 8" in flat
-    assert "Not built: the agent files, and running a candidate in a subprocess" in flat
+    assert "Not built: running a candidate in a subprocess" in flat and "Not built: the agent files" not in flat
     assert "no rule denies the command to an agent yet" not in flat
 
 
@@ -277,11 +284,11 @@ def test_the_changelog_and_the_readme_name_the_command_and_the_changed_hint() ->
 
 
 def test_the_new_files_of_part_3b_are_in_the_entry_of_part_3b_and_not_in_the_entry_of_part_3() -> None:
-    """Each entry has its own ``New files:`` sentence; the entries under ``### Added`` run 4a, 3b, 3, 2b."""
+    """Each entry has its own ``New files:`` sentence; the entries under ``### Added`` run 4b, 4a, 3b, 3, 2b."""
     added = CHANGELOG[CHANGELOG.index("### Added") : CHANGELOG.index("### Changed")]
     entries = re.split(r"(?m)^(?=- Phase 10 part )", added)[1:]
     by_part = {entry.split(" (F-18)")[0].removeprefix("- Phase 10 part "): entry for entry in entries}
-    assert list(by_part)[:4] == ["4a", "3b", "3", "2b"]  # 4a is the first entry, 3b the second
+    assert list(by_part)[:5] == ["4b", "4a", "3b", "3", "2b"]  # 4b is the first entry, 4a the second
     part_3b, part_3 = by_part["3b"], by_part["3"]
     sentence = [line for line in part_3b.splitlines() if line.startswith("  New files:")]
     assert len(sentence) == 1 and "`src/backtest_agent/cli/signal_check.py`" in sentence[0]
@@ -297,7 +304,9 @@ def test_the_adr_addendum_says_what_it_changed_above_and_the_readme_lists_the_co
     )
     assert "nothing above changes" not in FLAT["adr"]
     assert (
-        "`bt approve` and `bt signal check` with the approval gate for coded signals (Phase 10, in progress) exist"
-        in FLAT["readme"]
-    )
+        "`bt approve` and `bt signal check` with the approval gate for coded signals (Phase 10) exist, and so do "
+        "the two agent files of Phase 10 (`strategy-architect` and `signal-coder`) with their guardrails; "
+        "the agents were run for real only in a few probes on one machine"
+    ) in FLAT["readme"]
+    assert "(Phase 10, in progress)" not in FLAT["readme"]
     assert "`rebuild` (Phase 9), `approve` and `signal check` (Phase 10)" in FLAT["readme"]
